@@ -54,3 +54,13 @@ fn public_focus_query_returns_typed_unsupported_error() {
     let error = super::focused_text_context().expect_err("focus querying is macOS-only");
     assert!(matches!(error, super::Error::UnsupportedPlatform));
 }
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn unsupported_platform_rejects_unverifiable_focus_targets() {
+    assert!(super::validate_focused_target(None, None, None).is_ok());
+    assert!(matches!(
+        super::validate_focused_target(Some("Editor"), None, None),
+        Err(super::Error::UnsupportedPlatform)
+    ));
+}

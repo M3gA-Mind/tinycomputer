@@ -14,13 +14,35 @@ pub(super) trait Backend: std::fmt::Debug + Send + Sync {
     fn request_permission(&self, kind: PermissionKind) -> PermissionStatus;
     fn focus(&self, query: FocusQuery) -> Result<FocusedTextContext>;
     fn validate(&self, target: &FocusTarget) -> Result<()>;
-    fn paste(&self, request: PasteRequest) -> Result<()>;
+    fn paste(&self, request: PasteRequest) -> Result<Option<Box<dyn RestoreWorker>>>;
     fn start(&self, cancel: &std::sync::atomic::AtomicBool) -> Result<GlobeHotkeyStatus>;
     fn poll(&self, cancel: &std::sync::atomic::AtomicBool) -> Result<GlobeHotkeyPollResult>;
     fn read(&self, cancel: &std::sync::atomic::AtomicBool)
     -> Result<(GlobeHotkeyPollResult, bool)>;
     fn stop(&self) -> Result<GlobeHotkeyStatus>;
 }
+
+pub(super) trait RestoreWorker: std::fmt::Debug + Send {
+    fn is_finished(&self) -> bool;
+    fn join(&mut self) -> std::thread::Result<()>;
+}
+
+#[derive(Debug)]
+struct ThreadRestoreWorker(Option<std::thread::JoinHandle<()>>);
+
+impl RestoreWorker for ThreadRestoreWorker {
+    fn is_finished(&self) -> bool {
+        self.0
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
+    }
+
+    fn join(&mut self) -> std::thread::Result<()> {
+        self.0.take().map_or(Ok(()), std::thread::JoinHandle::join)
+    }
+}
+
+const MAX_PENDING_RESTORE_WORKERS: usize = 8;
 #[derive(Debug)]
 struct Platform;
 impl Backend for Platform {
@@ -55,8 +77,13 @@ impl Backend for Platform {
             target.bounds,
         )
     }
-    fn paste(&self, request: PasteRequest) -> Result<()> {
-        native::paste::insert_text(&request.text, request.target.app.as_deref())
+    fn paste(&self, request: PasteRequest) -> Result<Option<Box<dyn RestoreWorker>>> {
+        native::paste::insert_text_managed(&request.text, &request.target)
+            .map(|worker| {
+                worker.map(|handle| {
+                    Box::new(ThreadRestoreWorker(Some(handle))) as Box<dyn RestoreWorker>
+                })
+            })
             .map_err(Error::InsertionFailed)
     }
     fn start(&self, cancel: &std::sync::atomic::AtomicBool) -> Result<GlobeHotkeyStatus> {
@@ -88,6 +115,7 @@ pub(super) struct Access {
     listener: Mutex<Option<Listener>>,
     terminal: std::sync::atomic::AtomicBool,
     native_owned: std::sync::atomic::AtomicBool,
+    restore_workers: Mutex<Vec<Box<dyn RestoreWorker>>>,
 }
 impl Default for Access {
     fn default() -> Self {
@@ -101,6 +129,7 @@ impl Access {
             listener: Mutex::new(None),
             terminal: std::sync::atomic::AtomicBool::new(false),
             native_owned: std::sync::atomic::AtomicBool::new(false),
+            restore_workers: Mutex::new(Vec::new()),
         }
     }
     pub(super) fn permissions(&self) -> PermissionStatus {
@@ -116,8 +145,34 @@ impl Access {
         self.backend.validate(target)
     }
     pub(super) fn paste(&self, request: PasteRequest) -> Result<()> {
+        let mut workers = self
+            .restore_workers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.terminal.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(Error::GlobeListener("listener shutdown".into()));
+        }
+        let mut index = 0;
+        while index < workers.len() {
+            if workers[index].is_finished() {
+                let mut worker = workers.remove(index);
+                worker
+                    .join()
+                    .map_err(|_| Error::GlobeListener("clipboard restore worker failed".into()))?;
+            } else {
+                index += 1;
+            }
+        }
+        if workers.len() >= MAX_PENDING_RESTORE_WORKERS {
+            return Err(Error::GlobeListener(
+                "clipboard restore workers are still active".into(),
+            ));
+        }
         self.validate(&request.target)?;
-        self.backend.paste(request)
+        if let Some(worker) = self.backend.paste(request)? {
+            workers.push(worker);
+        }
+        Ok(())
     }
     pub(super) fn start(&self) -> Result<GlobeStarted> {
         let mut guard = self
@@ -146,8 +201,21 @@ impl Access {
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             return Err(Error::UnsupportedPlatform);
         }
-        if self.terminal.load(std::sync::atomic::Ordering::SeqCst) {
+        if !status.running {
+            *guard = None;
+            let reason = status
+                .last_error
+                .unwrap_or_else(|| "Globe listener is not running".into());
             self.backend.stop()?;
+            self.native_owned
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            return Err(Error::GlobeListener(reason));
+        }
+        if self.terminal.load(std::sync::atomic::Ordering::SeqCst) {
+            if self.backend.stop().is_ok() {
+                self.native_owned
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+            }
             return Err(Error::GlobeListener("listener shutdown".into()));
         }
         let handle = guard
@@ -170,6 +238,10 @@ impl Access {
             return Err(Error::UnknownListener);
         }
         let result = self.backend.poll(&self.terminal)?;
+        if !result.status.running {
+            *guard = None;
+            return Ok(result);
+        }
         if let Some(listener) = guard.as_mut() {
             listener.legacy_gap = true;
         }
@@ -237,10 +309,16 @@ impl Access {
             .listener
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let status = self.backend.stop()?;
-        self.native_owned
-            .store(false, std::sync::atomic::Ordering::SeqCst);
-        *guard = None;
+        let status = self.backend.stop();
+        if status.is_ok() {
+            self.native_owned
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            *guard = None;
+        }
+        drop(guard);
+        let workers = self.join_restore_workers();
+        let status = status?;
+        workers?;
         Ok(status)
     }
     pub(super) fn stop(&self, handle: &GlobeHandle) -> Result<GlobeHotkeyStatus> {
@@ -257,6 +335,22 @@ impl Access {
         *guard = None;
         Ok(status)
     }
+
+    fn join_restore_workers(&self) -> Result<()> {
+        let mut workers = self
+            .restore_workers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut first_error = None;
+        for mut worker in workers.drain(..) {
+            if worker.join().is_err() && first_error.is_none() {
+                first_error = Some(Error::GlobeListener(
+                    "clipboard restore worker failed".into(),
+                ));
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
 }
 impl Drop for Access {
     fn drop(&mut self) {
@@ -264,6 +358,13 @@ impl Drop for Access {
         // covers partial failed startup when no public lease was published.
         if self.native_owned.load(std::sync::atomic::Ordering::SeqCst) {
             let _ = self.backend.stop();
+        }
+        let mut workers = self
+            .restore_workers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for mut worker in workers.drain(..) {
+            let _ = worker.join();
         }
     }
 }

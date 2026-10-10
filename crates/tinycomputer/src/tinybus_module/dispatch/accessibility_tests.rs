@@ -71,6 +71,90 @@ fn dropping_the_last_owner_stops_an_abandoned_listener() {
     assert_eq!(*fixture.calls.lock().expect("calls"), ["start", "stop"]);
 }
 
+#[test]
+fn shutdown_joins_clipboard_workers_even_when_native_cleanup_needs_retry() {
+    use std::sync::atomic::AtomicUsize;
+
+    let fixture = Arc::new(Fixture::default());
+    let joins = Arc::new(AtomicUsize::new(0));
+    *fixture.restore_worker.lock().expect("restore worker") = Some(joins.clone());
+    let access = Access::new(fixture.clone());
+    let started = access.start().expect("start");
+    access
+        .paste(PasteRequest {
+            text: "authorized".into(),
+            target: FocusTarget::default(),
+        })
+        .expect("paste");
+
+    fixture.fail_stop.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        access.shutdown(),
+        Err(Error::GlobeListener(message)) if message == "controlled cleanup failure"
+    ));
+    assert_eq!(joins.load(Ordering::SeqCst), 1);
+    assert!(access.native_owned.load(Ordering::SeqCst));
+    assert_eq!(
+        access
+            .listener
+            .lock()
+            .expect("listener")
+            .as_ref()
+            .map(|l| &l.handle),
+        Some(&started.handle)
+    );
+
+    assert!(!access.shutdown().expect("retry shutdown").running);
+    assert_eq!(joins.load(Ordering::SeqCst), 1);
+    assert!(!access.native_owned.load(Ordering::SeqCst));
+}
+
+#[test]
+fn start_refuses_a_non_running_listener_and_does_not_publish_a_lease() {
+    let fixture = Arc::new(Fixture::default());
+    let mut status = GlobeHotkeyStatus {
+        supported: true,
+        running: false,
+        input_monitoring_permission: PermissionState::Denied,
+        last_error: Some("permission denied".into()),
+        events_pending: 0,
+    };
+    *fixture.start_status.lock().expect("start status") = Some(status.clone());
+    let access = Access::new(fixture.clone());
+
+    assert!(matches!(
+        access.start(),
+        Err(Error::GlobeListener(message)) if message == "permission denied"
+    ));
+    assert!(access.listener.lock().expect("listener").is_none());
+    assert!(!access.native_owned.load(Ordering::SeqCst));
+    assert_eq!(*fixture.calls.lock().expect("calls"), ["start", "stop"]);
+
+    status.running = true;
+    let started = access
+        .start()
+        .expect("subsequent start can reserve a lease");
+    assert!(started.status.running);
+}
+
+#[test]
+fn polling_a_stopped_listener_invalidates_its_lease() {
+    let fixture = Arc::new(Fixture::default());
+    let mut status = Fixture::status();
+    status.running = false;
+    *fixture.poll_status.lock().expect("poll status") = Some(status);
+    let access = Access::new(fixture.clone());
+    let started = access.start().expect("start");
+
+    let stopped = access.poll(&started.handle).expect("report stopped status");
+    assert!(!stopped.status.running);
+    assert!(access.listener.lock().expect("listener").is_none());
+    assert!(matches!(
+        access.poll(&started.handle),
+        Err(Error::UnknownListener)
+    ));
+}
+
 #[tokio::test]
 async fn module_threads_project_native_results_and_structured_target_errors() {
     let fixture = Arc::new(Fixture::default());
@@ -214,12 +298,12 @@ fn unsupported_focus_and_globe_members_do_not_allocate_native_resources() {
             .expect("unsupported status")
             .supported
     );
-    assert!(
+    assert_eq!(
         platform
             .poll(&AtomicBool::new(false))
             .expect("unsupported batch")
-            .events
-            .is_empty()
+            .events,
+        Vec::<String>::new()
     );
     assert!(!platform.stop().expect("unsupported status").running);
     let access = Access::default();

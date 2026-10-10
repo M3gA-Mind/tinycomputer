@@ -565,10 +565,13 @@ pub fn validate_focused_target(
 /// Returns a message when focus moved to a different application, or to a
 /// role that is not an interchangeable text-editable role.
 pub fn validate_focused_target(
-    _expected_app: Option<&str>,
-    _expected_role: Option<&str>,
-    _expected_bounds: Option<super::types::ElementBounds>,
+    expected_app: Option<&str>,
+    expected_role: Option<&str>,
+    expected_bounds: Option<super::types::ElementBounds>,
 ) -> AccessibilityResult<()> {
+    if expected_app.is_some() || expected_role.is_some() || expected_bounds.is_some() {
+        return Err(Error::UnsupportedPlatform);
+    }
     Ok(())
 }
 
