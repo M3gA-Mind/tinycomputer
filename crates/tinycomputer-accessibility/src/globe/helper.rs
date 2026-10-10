@@ -1,6 +1,5 @@
 //! Installs the build-time embedded Swift listener into a private cache.
 use super::LOG_PREFIX;
-use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
@@ -20,16 +19,7 @@ pub(super) fn ensure_globe_helper_binary(
     HELPER.hash(&mut hasher);
     let binary_path = cache_dir.join(format!("globe_listener_{:016x}", hasher.finish()));
 
-    let installed = fs::read(&binary_path).is_ok_and(|bytes| bytes == HELPER);
-    if !installed {
-        fs::write(&binary_path, HELPER)
-            .map_err(|_| "failed to install embedded Globe listener helper".to_owned())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&binary_path, fs::Permissions::from_mode(0o700))
-                .map_err(|_| "failed to secure embedded Globe listener helper".to_owned())?;
-        }
+    if super::helper_install::install(&cache_dir, &binary_path, HELPER)? {
         log::debug!(
             "{LOG_PREFIX} installed embedded helper {}",
             binary_path.display()

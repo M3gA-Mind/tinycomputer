@@ -16,6 +16,9 @@ mod fallback;
 #[path = "globe/helper.rs"]
 mod helper;
 #[cfg(any(target_os = "macos", test))]
+#[path = "globe/helper_install.rs"]
+mod helper_install;
+#[cfg(any(target_os = "macos", test))]
 #[path = "globe/owned.rs"]
 mod owned;
 #[cfg(any(target_os = "macos", test))]
@@ -24,6 +27,9 @@ mod queue;
 #[cfg(any(target_os = "macos", test))]
 #[path = "globe/reader.rs"]
 mod reader;
+#[cfg(test)]
+#[path = "globe/swift_target.rs"]
+mod swift_target;
 #[cfg(target_os = "macos")]
 use command_group::CommandGroup;
 #[cfg(not(target_os = "macos"))]
