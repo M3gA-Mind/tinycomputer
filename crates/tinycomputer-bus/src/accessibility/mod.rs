@@ -1,16 +1,15 @@
 //! Native permission, focus, paste and Globe listener vocabulary.
 //! No native framework, device, process, or listener behavior is linked here.
-mod error;
 mod globe;
 mod types;
-pub use error::{Error, Result};
+pub use crate::error::{Error, Result};
 pub use globe::{GlobeBatch, GlobeEvent, GlobeHotkeyPollResult, GlobeHotkeyStatus, GlobeRead};
 pub use types::{
     ElementBounds, FocusedTextContext, PermissionKind, PermissionState, PermissionStatus,
 };
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
+#[path = "accessibility_tests.rs"]
 mod tests;
 
 /// Focus read options.

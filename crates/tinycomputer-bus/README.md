@@ -17,6 +17,7 @@ payload vocabulary has to be published as an ordinary library. This is it.
 | `names`         | interface name, object path, one constant per member — 90 of them   |
 | `catalogue`     | every member's family, one-line summary, and confidentiality        |
 | `envelope`      | `DesktopResponse` and the structured `DesktopError` it carries      |
+| `error`         | crate-wide typed accessibility errors                              |
 | `vocabulary`    | surfaces, modifiers, buttons, element properties                    |
 | `observation`   | `Snapshot`, `Find`, `Get`, `Is`, `Screenshot` payloads              |
 | `interaction`   | the ref-addressed action payloads                                   |
@@ -31,7 +32,7 @@ payload vocabulary has to be published as an ordinary library. This is it.
 | `browser`       | the `Browser…` members' payloads, names, and error codes            |
 | `version`       | `CONTRACT_VERSION` and the bind rule a host applies to it           |
 
-Two dependencies, both pure Rust: `serde` and `serde_json`.
+Three dependencies, all pure Rust: `thiserror`, `serde`, and `serde_json`.
 
 ## This crate sits underneath `tinycomputer`
 
@@ -70,9 +71,9 @@ policy, its timeouts, its tracing — and the useful part is the vocabulary.
 
 That is also structural, not just preference: `tinybus` is vendored as a
 submodule whose manifest inherits fields from its own nested
-`[workspace.package]`. Keeping the contract crate transport-free is what keeps
-it down to two dependencies and what lets anything in the workspace — or outside
-it — depend on it freely. CI asserts the dependency tree stays that way.
+`[workspace.package]`. Keeping the contract crate transport-free is what lets
+anything in the workspace — or outside it — depend on it freely. CI asserts the
+dependency tree stays free of transports, runtimes, engines, and native libraries.
 
 ## Making a call
 

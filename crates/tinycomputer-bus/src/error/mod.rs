@@ -1,6 +1,6 @@
-//! Errors returned by fallible accessibility operations.
+//! Errors that cross the tinycomputer bus contract.
 
-/// Failure from a public accessibility operation.
+/// A failure reported by an accessibility operation.
 #[derive(Debug, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum Error {
     /// The requested operation is unavailable on this operating system.
@@ -42,5 +42,9 @@ pub enum Error {
     GlobeListener(String),
 }
 
-/// Result type for public accessibility operations.
+/// Result returned by a fallible accessibility operation.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

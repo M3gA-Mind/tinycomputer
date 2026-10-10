@@ -50,4 +50,5 @@ definitions. This crate contains no native frameworks, devices, subprocesses,
 transport, runtime, or listener implementation.
 
 Hosts must pin a published module with contract 2.12 and verified artifact
-digests before switching callers; contract 2.11 does not serve these members.
+digests before using `GlobeRead` or `GlobeShutdown`; contract 2.11 already
+serves the other eight accessibility members.

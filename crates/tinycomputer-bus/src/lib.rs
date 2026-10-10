@@ -17,6 +17,7 @@
 //!   serves it so a caller can find the right member without this source.
 //! - [`envelope`] — [`DesktopResponse`], the reply every member returns, and
 //!   the structured [`DesktopError`] it carries on failure.
+//! - [`error`] — the crate-wide errors used by typed accessibility results.
 //! - [`vocabulary`] — the enumerations shared across payloads: surfaces,
 //!   modifiers, mouse buttons, element properties.
 //! - [`observation`], [`interaction`], [`input`], [`apps`], [`clipboard`],
@@ -82,7 +83,8 @@
 //! vendored as a submodule whose manifest inherits fields from its own nested
 //! `[workspace.package]`. A crate that every workspace member can depend on has
 //! to stay transport-free, and staying transport-free is what keeps this crate
-//! down to two pure-Rust dependencies.
+//! down to three pure-Rust dependencies: `thiserror`, `serde`, and
+//! `serde_json`.
 //!
 //! **No session, trace, or skills members.** The engine also offers session
 //! lifecycle, trace read and export, and a bundled documentation loader. They
@@ -117,6 +119,7 @@ pub mod browser;
 pub mod catalogue;
 pub mod clipboard;
 pub mod envelope;
+mod error;
 pub mod flow;
 pub mod input;
 pub mod interaction;
