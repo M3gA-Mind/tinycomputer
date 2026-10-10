@@ -145,7 +145,7 @@ jobs:
         run: cargo build --locked -p tinycomputer --all-features
 
       - name: Test accessibility lifecycle
-        run: cargo test --locked -p tinycomputer-accessibility --all-features globe::
+        run: cargo test --locked -p tinycomputer-accessibility --all-features
 
   msrv:
     name: Minimum supported Rust version

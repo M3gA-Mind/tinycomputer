@@ -236,9 +236,10 @@ fn a_failed_restore_write_is_only_logged() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn the_system_platform_reports_a_missing_display_instead_of_panicking() {
-    // Headless CI has no clipboard or input device; with one, a paste of
-    // whitespace-free text would really type, so only the error path runs here.
+    // This checks the Linux display-server error path. A macOS CI runner has a
+    // usable desktop session even when DISPLAY and WAYLAND_DISPLAY are unset.
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
         assert!(insert_text("x", None).is_err());
     }
