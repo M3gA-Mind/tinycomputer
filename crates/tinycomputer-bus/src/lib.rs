@@ -17,7 +17,8 @@
 //!   serves it so a caller can find the right member without this source.
 //! - [`envelope`] — [`DesktopResponse`], the reply every member returns, and
 //!   the structured [`DesktopError`] it carries on failure.
-//! - [`error`] — the crate-wide errors used by typed accessibility results.
+//! - [`accessibility::Error`] and [`accessibility::Result`] — the failures
+//!   reported by the native accessibility helpers.
 //! - [`vocabulary`] — the enumerations shared across payloads: surfaces,
 //!   modifiers, mouse buttons, element properties.
 //! - [`observation`], [`interaction`], [`input`], [`apps`], [`clipboard`],
