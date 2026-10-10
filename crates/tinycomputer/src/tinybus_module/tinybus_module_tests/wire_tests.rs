@@ -227,7 +227,6 @@ fn native_wire_sweep() -> Vec<(&'static str, serde_json::Value)> {
             names::accessibility::ACCESSIBILITY_REQUEST_PERMISSION,
             json!(["microphone"]),
         ),
-        (names::accessibility::GLOBE_START, nothing.clone()),
         (names::accessibility::GLOBE_POLL, json!(["unknown-lease"])),
         (names::accessibility::GLOBE_STOP, json!(["unknown-lease"])),
         (
@@ -267,6 +266,9 @@ fn the_wire_sweep_covers_every_member_except_the_one_with_no_safe_input() {
             &names::accessibility::ACCESSIBILITY_FOCUS,
             &names::accessibility::ACCESSIBILITY_VALIDATE_TARGET,
             &names::accessibility::ACCESSIBILITY_PASTE,
+            // Start allocates an owned native listener lease; no argument can
+            // stop that lease again without carrying the returned handle.
+            &names::accessibility::GLOBE_START,
             &browser_methods::OPEN_SESSION,
         ],
         "the task members answer in their own reply shape; see the agent tests below"
