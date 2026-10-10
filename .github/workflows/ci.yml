@@ -117,6 +117,36 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --all-features
 
+  macos-globe:
+    name: macOS Globe (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            os: macos-15-intel
+          - arch: aarch64
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Building the module runs tinycomputer-accessibility's build script on
+      # the native macOS runner, compiling the Swift helper for the selected
+      # Rust target and embedding it into the shipped module.
+      - name: Build the module with its embedded Globe helper
+        run: cargo build --locked -p tinycomputer --all-features
+
+      - name: Test accessibility lifecycle
+        run: cargo test --locked -p tinycomputer-accessibility --all-features
+
   msrv:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest
