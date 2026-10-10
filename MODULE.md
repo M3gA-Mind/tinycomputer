@@ -97,6 +97,12 @@ those files together when copying them into a TinyBus module directory. The
 allowlist binds the native library filename to its SHA-256 digest so TinyBus can
 reject a missing, renamed, or modified artifact before initialization.
 
+Linux hosts must also have the native runtime libraries used by the module:
+ALSA (`libasound2`, or the distribution's equivalent) and libxdo (`libxdo3`
+on Debian/Ubuntu, the distribution's `libxdo` runtime package on Fedora, or
+`xdotool` on Arch Linux). Install these before loading the module; the release
+archive contains the module library, not copies of system libraries.
+
 The GitHub release also publishes `checksum.toml` as a separate asset. TinyBus
 checks that manifest before downloading and extracting the selected platform
 archive. Install directly from a tagged release with:

@@ -11,6 +11,7 @@ readme = "README.md"
 keywords = ["accessibility", "macos", "permissions", "focus"]
 categories = ["os"]
 publish = false
+build = "build.rs"
 
 [features]
 default = []
