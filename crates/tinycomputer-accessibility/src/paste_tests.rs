@@ -172,6 +172,24 @@ fn an_unreachable_keyboard_is_an_error() {
 }
 
 #[test]
+fn a_failed_insertion_does_not_clear_clipboard_when_saved_text_is_unavailable() {
+    let p = platform(|f| {
+        *f.clipboard.get_mut().unwrap() = None;
+        f.fail_keyboard = true;
+    });
+
+    let err = insert_with(&p, "hello", None, NONE, NONE).unwrap_err();
+
+    assert!(err.starts_with("failed to create enigo"), "{err}");
+    assert_eq!(
+        *p.0.writes.lock().unwrap(),
+        1,
+        "only the paste text is written"
+    );
+    assert_eq!(p.0.clipboard.lock().unwrap().as_deref(), Some("hello"));
+}
+
+#[test]
 fn each_keystroke_failure_names_its_step() {
     for (at, expected) in [
         (0, "failed to press modifier"),

@@ -5,8 +5,8 @@
 //! This is atomic and instantaneous, unlike enigo's `text()` which types
 //! character-by-character and causes garbled/repeated output on macOS.
 //!
-//! The previous clipboard contents are saved and restored after a short
-//! delay so the user's clipboard is not permanently overwritten.
+//! The previous text clipboard contents are saved and restored when available
+//! after a short delay so the user's clipboard is not permanently overwritten.
 
 use std::time::Duration;
 
@@ -230,11 +230,12 @@ fn insert_with_target<P: Platform>(
     })();
 
     if let Err(error) = insertion {
-        let restoration = saved_clipboard.as_deref().unwrap_or_default();
-        if let Err(restore_error) = clipboard.write(restoration) {
-            return Err(format!(
-                "{error}; clipboard restore failed: {restore_error}"
-            ));
+        if let Some(restoration) = saved_clipboard.as_deref() {
+            if let Err(restore_error) = clipboard.write(restoration) {
+                return Err(format!(
+                    "{error}; clipboard restore failed: {restore_error}"
+                ));
+            }
         }
         return Err(error);
     }
