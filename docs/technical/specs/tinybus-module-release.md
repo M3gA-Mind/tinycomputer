@@ -35,4 +35,6 @@ digest in the adjacent allowlist. After publishing, it downloads the Ubuntu
 x86_64 archive through TinyBus's GitHub release API and calls `Version` over an
 in-memory bus. `Version` is chosen because it needs no granted permission and
 touches no other application, so the gate tests the artifact rather than the
-runner's configuration.
+runner's configuration. Before loading the archived module, the workflow
+installs its Linux runtime libraries and checks that `ldd` resolves every
+dependency, so a missing host package cannot masquerade as a broken module.

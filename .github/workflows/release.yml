@@ -611,6 +611,9 @@ jobs:
               --generate-notes
           fi
 
+      - name: Install Linux module runtime dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libasound2t64 libxdo3
+
       - name: Verify the published module through TinyBus
         shell: bash
         env:
@@ -630,6 +633,10 @@ jobs:
             echo "checksum missing for ${archive}" >&2
             exit 1
           fi
+
+          module="release-assets/libtinycomputer.so"
+          tar -xOf "release-assets/${archive}" ./libtinycomputer.so > "$module"
+          scripts/ci/verify-linux-module-runtime-dependencies.sh "$module"
 
           cargo run --manifest-path vendor/tinybus/Cargo.toml --locked \
             --package tinybus --all-features --example github_module_host -- \
