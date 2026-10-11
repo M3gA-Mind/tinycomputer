@@ -28,9 +28,13 @@ distributable without also shipping the TinyBus host runtime.
 ## Verification
 
 CI exercises the bus interface through TinyBus's in-memory transport, enforces
-90% line coverage in every source file, and builds the `cdylib`. The release
-workflow opens a checked version pull request before tagging and builds each
-native module from the tagged source, recording its exact
+90% line coverage in every source file, and builds the `cdylib`. Maintainers
+update the root workspace package version and lockfile in a reviewed pull
+request, then push a `vX.Y.Z` tag at the merged commit. Release also accepts
+an existing tag through its required `tag` dispatch input. The shared release
+workflow verifies that the tagged commit is on `main` and that the module's
+Cargo version matches the tag; it never commits or pushes version updates.
+It builds each native module from the tagged source, recording its exact
 digest in the adjacent allowlist. After publishing, it downloads the Ubuntu
 x86_64 archive through TinyBus's GitHub release API and calls `Version` over an
 in-memory bus. `Version` is chosen because it needs no granted permission and
