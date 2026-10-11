@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cargo test --locked --workspace
+cargo test --locked --workspace --all-features
+cargo run --locked -p tinycomputer-examples --bin basic
+forbidden="$(cargo tree -p tinycomputer-bus -e normal,build --prefix none | grep -Ei 'tinybus|tokio|reqwest|ureq|hyper|rusqlite|git2|agent-desktop' || true)"
+[[ -z "$forbidden" ]] || { echo "$forbidden" >&2; exit 1; }
