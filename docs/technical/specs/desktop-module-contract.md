@@ -206,7 +206,7 @@ GlobeRead takes a GlobeRead request and returns a retained typed GlobeBatch insi
 the existing DesktopResponse envelope. Identical reads replay the snapshot until
 acknowledged; repeated acknowledgments cannot skip the next snapshot. Native
 queue loss and legacy Poll gaps are explicit overflow/reset facts. GlobeShutdown
-is a zero-argument terminal joined native cleanup barrier, including pending
-startup/compiler work; hosts must await success before ABI unload. Stop remains
+is a zero-argument terminal joined native cleanup barrier for the listener
+process and its readers; hosts must await success before ABI unload. Stop remains
 per-lease/reusable and retains ownership on native cleanup faults. Existing
 member arities and legacy poll JSON are unchanged. See [Globe replay](globe-replay.md).

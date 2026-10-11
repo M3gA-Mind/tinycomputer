@@ -37,8 +37,8 @@ and await a physical release before rearming. Mixing legacy destructive GlobePol
 with reliable reads marks the next new batch as overflow; use Read exclusively for
 reliable composition. Retired handles never receive successor events.
 
-GlobeShutdown closes admission, cancels pending native compiler work and waits
-joined cleanup. It is terminal and must succeed before ABI unload. Use per-handle
+GlobeShutdown closes admission to new listener work and waits for joined native
+cleanup. It is terminal and must succeed before ABI unload. Use per-handle
 Stop for sign-out/reconnect while reusing the module. Dropping the final module
 owner attempts the same cleanup, but cannot replace this fallible unload barrier.
 Permission/approval decisions stay with the host and computer module; Voice

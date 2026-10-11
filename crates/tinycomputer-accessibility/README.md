@@ -34,6 +34,11 @@ Everything real happens on macOS. Elsewhere focus queries return
 `Error::UnsupportedPlatform`, `validate_focused_target` passes, the Globe listener reports
 `supported: false`, and Accessibility / Input Monitoring are `Unsupported`.
 
+The Globe listener binary is compiled and embedded by the build script. At
+runtime this crate owns the listener process and its stdout reader; cleanup
+must complete before module unload. The unified focus/paste helper has a
+separate runtime owner.
+
 ## Unsafe
 
 The workspace forbids `unsafe`; this crate lowers it to `deny` and only
@@ -51,8 +56,8 @@ pure bus crate; native operations remain in this implementation.
 
 Globe helpers use owned process groups and reader threads. Successful Stop joins
 native cleanup; failed reaping retains ownership for public retry. Native event
-framing is bounded to 128 bytes and stderr uses an 8 KiB discard buffer. Compilation
-uses an owned group with a 30-second deadline and terminal cancellation predicate.
-The module's GlobeShutdown is the required fallible barrier before unloading.
+framing is bounded to 128 bytes and stderr uses an 8 KiB discard buffer. The
+listener executable is compiled into the crate at build time. The module's
+GlobeShutdown is the required fallible barrier before unloading.
 Compatibility Start/Poll/Stop library paths retain their platform/status wires;
 module recovery/start paths pass the terminal predicate through native work.

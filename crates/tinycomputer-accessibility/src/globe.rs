@@ -6,7 +6,7 @@
 #[cfg(target_os = "macos")]
 use super::Error;
 use super::{PermissionState, Result as AccessibilityResult};
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 #[path = "globe/compiler.rs"]
 mod compiler;
 #[cfg(not(target_os = "macos"))]
@@ -270,7 +270,7 @@ pub fn globe_listener_start() -> AccessibilityResult<GlobeHotkeyStatus> {
 /// Start native work under an owning terminal cancellation predicate.
 ///
 /// # Errors
-/// Returns native startup or cleanup failure; pending compiler ownership remains stoppable.
+/// Returns a native listener startup or cleanup failure.
 pub fn globe_listener_start_with_cancel(
     cancel: &std::sync::atomic::AtomicBool,
 ) -> AccessibilityResult<GlobeHotkeyStatus> {
@@ -352,7 +352,6 @@ pub fn globe_listener_stop() -> AccessibilityResult<GlobeHotkeyStatus> {
     let mut guard = GLOBE_LISTENER
         .lock()
         .map_err(|_| Error::GlobeListener("globe listener lock poisoned".to_string()))?;
-    compiler::stop().map_err(Error::GlobeListener)?;
     if let Some(process) = guard.as_mut() {
         process
             .child
