@@ -18,23 +18,21 @@ cargo test --all-features
 
 ## .github/workflows/ci.yml
 
-Runs on every push and pull request, with in-progress runs on the same ref
-cancelled automatically. Five jobs, all on `ubuntu-latest`, all checking out
-submodules recursively:
+Runs for pull requests and pushes to main. The shared module-ci.yml supplies
+the required fmt, clippy, test, coverage, docs, msrv and supply-chain jobs, plus
+module-e2e and feature-tests on Ubuntu, macOS and Windows. Every checkout
+initializes recursive submodules. Main requires all 13 named shared checks
+and an up-to-date branch.
 
-| Job | What it checks |
-|---|---|
-| `rust` | formatting, clippy (`-D warnings`), build, `cargo test --all-features`, `cargo test` (default features), runs `cargo run -p tinycomputer-examples --bin basic` to catch a compiled-but-broken example, asserts `tinycomputer-bus` pulls in no transport/runtime/native dependency, then requires 90% line coverage per source file |
-| `docs` | `cargo doc --no-deps --all-features` with `RUSTDOCFLAGS=-D warnings` |
-| `msrv` | reads `rust-version` from the `tinycomputer` package's metadata and builds with exactly that toolchain |
-| `supply-chain` | `cargo-deny check all` against `deny.toml` |
+Repository scripts retain the bundled example and transport-free contract
+assertion. The loader verifier executes the packaged native library.
 
 Two checks are worth knowing about because they are easy to break by
 accident:
 
 - **The contract-crate check.** `crates/tinycomputer-bus` exists so a host can
   depend on the wire types without compiling the module or an async runtime.
-  The `rust` job runs `cargo tree -p tinycomputer-bus -e normal,build --prefix
+  The feature-test script runs `cargo tree -p tinycomputer-bus -e normal,build --prefix
   none` and greps it for `tinybus`, `tokio`, `reqwest`, `ureq`, `hyper`,
   `rusqlite`, `git2`, or `agent-desktop`. A match fails the build. It has to
   be this direction (scoped `-p`, not `-i`) because the inverse form discards
@@ -46,38 +44,15 @@ accident:
 
 ## .github/workflows/release.yml
 
-A manual `workflow_dispatch` with one input, `bump` (`patch`, `minor`,
-`major`, or `current`). Full narrative in the "Releases" section of the
-repository's `AGENTS.md`/`CLAUDE.md`; the short version:
+Version changes update workspace.package and the lockfile through a reviewed
+PR. After merging, push a vX.Y.Z tag at that commit, or dispatch Release with
+an existing tag. The shared pipeline builds and loads all 17 native/distro
+module archives before creating one immutable release and checksum.toml.
 
-1. **`prepare`** (only runs from `main`) revalidates everything the `ci`
-   workflow checks, plus coverage and docs, computes the next version from
-   the `tinycomputer` package's current version and the chosen bump, and
-   either opens a version-bump pull request (`patch`/`minor`/`major`) or, for
-   `current`, tags the already-merged version as `vX.Y.Z` (resuming cleanly
-   if that tag already exists, so a partially failed release can be
-   re-dispatched).
-2. **`native-bundles`** (only for `bump: current`) builds `crates/tinycomputer`
-   as a release `cdylib` on a matrix of 12 OS/architecture targets (multiple
-   Ubuntu, macOS, and Windows versions), verifies each artifact loads through
-   the real TinyBus dynamic loader (`verify_module` from
-   `tinycomputer-examples`), bundles it with `LICENSE`, `MODULE.md`, a
-   `modules.toml` attestation, and on macOS and Windows the extra helper
-   binaries (`agent-desktop-macos-helper`, `tinycomputer-cursor-overlay`)
-   those platforms need, then uploads the archive.
-3. **`distro-bundles`** does the same inside Fedora 43/44 and Arch Linux
-   containers, for hosts that need a distro-native build rather than the
-   generic Ubuntu one.
-4. **`github-release`** downloads every bundle, expects exactly 16 archives,
-   builds a checksum manifest with TinyBus's own `modules checksum` command,
-   creates an immutable GitHub release (skipping creation if the tag's
-   release already exists, so this step is also safe to resume), and
-   verifies the published release by fetching one archive back through
-   TinyBus's `github_module_host` example and the local `verify_github_release`
-   binary.
-
-The workspace version lives only in `[workspace.package]` in the root
-`Cargo.toml`; this workflow owns writing it. Do not hand-edit it.
+Packaging scripts preserve the macOS clipboard helper and macOS/Windows
+cursor overlays. The workflow verifies the reviewed source commit and Cargo
+version; it never pushes a version bump directly to main. Full instructions
+are in [the release guide](../../crates/tinycomputer/releases.md).
 
 ## .github/scripts/check-file-coverage.sh
 
