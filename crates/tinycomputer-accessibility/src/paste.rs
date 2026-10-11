@@ -230,12 +230,12 @@ fn insert_with_target<P: Platform>(
     })();
 
     if let Err(error) = insertion {
-        if let Some(restoration) = saved_clipboard.as_deref() {
-            if let Err(restore_error) = clipboard.write(restoration) {
-                return Err(format!(
-                    "{error}; clipboard restore failed: {restore_error}"
-                ));
-            }
+        if let Some(restoration) = saved_clipboard.as_deref()
+            && let Err(restore_error) = clipboard.write(restoration)
+        {
+            return Err(format!(
+                "{error}; clipboard restore failed: {restore_error}"
+            ));
         }
         return Err(error);
     }
