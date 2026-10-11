@@ -10,5 +10,8 @@ forbidden="$(cargo tree -p tinycomputer-bus -e normal,build --prefix none | grep
 [[ -z "$forbidden" ]] || { echo "$forbidden" >&2; exit 1; }
 case "${RUNNER_OS:-$(uname -s)}" in
   Windows|MINGW*|MSYS*|CYGWIN*) ;;
-  *) python3 scripts/test-package-layout.py ;;
+  *)
+    python3 scripts/test-package-layout.py
+    python3 scripts/test-published-release.py
+    ;;
 esac

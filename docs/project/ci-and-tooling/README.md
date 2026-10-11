@@ -48,6 +48,9 @@ Version changes update workspace.package and the lockfile through a reviewed
 PR. After merging, push a vX.Y.Z tag at that commit, or dispatch Release with
 an existing tag. The shared pipeline builds and loads all 17 native/distro
 module archives before creating one immutable release and checksum.toml.
+A dependent Ubuntu job downloads the published archive and checksum manifest,
+checks its digest and Linux runtime dependencies, then uses TinyBus’s GitHub
+release API to load it and call `Version` over an in-memory bus.
 
 Packaging scripts preserve the macOS clipboard helper and macOS/Windows
 cursor overlays. The workflow verifies the reviewed source commit and Cargo
