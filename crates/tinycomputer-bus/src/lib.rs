@@ -11,12 +11,14 @@
 //! # What is here
 //!
 //! - [`names`] — the interface name, the object path, and one constant per
-//!   member, plus [`names::METHODS`] listing all eighty in dispatch order.
+//!   member, plus [`names::METHODS`] listing all ninety in dispatch order.
 //! - [`catalogue`] — every member with its family (task, flow, desktop,
 //!   browser), a one-line summary, and whether it is confidential; `Describe`
 //!   serves it so a caller can find the right member without this source.
 //! - [`envelope`] — [`DesktopResponse`], the reply every member returns, and
 //!   the structured [`DesktopError`] it carries on failure.
+//! - [`accessibility::Error`] and [`accessibility::Result`] — the failures
+//!   reported by the native accessibility helpers.
 //! - [`vocabulary`] — the enumerations shared across payloads: surfaces,
 //!   modifiers, mouse buttons, element properties.
 //! - [`observation`], [`interaction`], [`input`], [`apps`], [`clipboard`],
@@ -82,7 +84,8 @@
 //! vendored as a submodule whose manifest inherits fields from its own nested
 //! `[workspace.package]`. A crate that every workspace member can depend on has
 //! to stay transport-free, and staying transport-free is what keeps this crate
-//! down to two pure-Rust dependencies.
+//! down to three pure-Rust dependencies: `thiserror`, `serde`, and
+//! `serde_json`.
 //!
 //! **No session, trace, or skills members.** The engine also offers session
 //! lifecycle, trace read and export, and a bundled documentation loader. They
@@ -117,6 +120,7 @@ pub mod browser;
 pub mod catalogue;
 pub mod clipboard;
 pub mod envelope;
+mod error;
 pub mod flow;
 pub mod input;
 pub mod interaction;
@@ -166,3 +170,6 @@ pub use vocabulary::{
     StatePredicate, Surface,
 };
 pub use waiting::WaitRequest;
+
+/// Native accessibility DTOs shared with the compiled module and compatibility library.
+pub mod accessibility;

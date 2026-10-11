@@ -6,7 +6,7 @@ v1. Install only the archive matching the host operating system and
 architecture.
 
 The module claims `ai.tinyhumans.tinycomputer.Desktop`, serves the object at
-`/ai/tinyhumans/tinycomputer/Desktop`, and provides eighty members:
+`/ai/tinyhumans/tinycomputer/Desktop`, and provides ninety members:
 
 - 54 desktop primitives: accessibility-tree observation, ref-addressed
   interaction, synthesized keyboard and mouse input, application and window
@@ -22,6 +22,11 @@ The module claims `ai.tinyhumans.tinycomputer.Desktop`, serves the object at
   `BrowserEvaluate`, `BrowserScreenshot`, `BrowserReadOutput`, and the
   session, output, and download members around them. They share one browser
   with the tasks, so a task's session and screenshots are reachable too.
+
+Ten native accessibility members cover permission/focus/paste and Globe leases,
+including reliable GlobeRead and joined terminal GlobeShutdown. Existing members
+retain their arities. Shutdown must succeed before unloading; sign-out can Stop a
+lease and keep the module available for reconnection.
 
 Every member takes one request payload, or none, and returns a structured
 reply carrying either the data or an error with its code, suggestion, and
@@ -91,6 +96,12 @@ The archive contains one `.so`, `.dylib`, or `.dll` plus `modules.toml`. Keep
 those files together when copying them into a TinyBus module directory. The
 allowlist binds the native library filename to its SHA-256 digest so TinyBus can
 reject a missing, renamed, or modified artifact before initialization.
+
+Linux hosts must also have the native runtime libraries used by the module:
+ALSA (`libasound2`, or the distribution's equivalent) and libxdo (`libxdo3`
+on Debian/Ubuntu, the distribution's `libxdo` runtime package on Fedora, or
+`xdotool` on Arch Linux). Install these before loading the module; the release
+archive contains the module library, not copies of system libraries.
 
 The GitHub release also publishes `checksum.toml` as a separate asset. TinyBus
 checks that manifest before downloading and extracting the selected platform

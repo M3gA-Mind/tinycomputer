@@ -554,21 +554,24 @@ pub fn validate_focused_target(
 }
 
 #[cfg(not(target_os = "macos"))]
-/// Validate that the currently focused element still matches the target the
-/// caller captured (`expected_app`, and `expected_role` when given).
+/// Validate a captured focus target on platforms without a focus-query backend.
 ///
-/// Inconclusive checks pass: no expected app, a failed focus query, or an
-/// unsupported platform.
+/// Validation succeeds only when no expected focus fields are supplied. A
+/// managed insertion that names a target fails closed because this platform
+/// cannot confirm that target before sending the paste keystroke.
 ///
 /// # Errors
 ///
-/// Returns a message when focus moved to a different application, or to a
-/// role that is not an interchangeable text-editable role.
+/// Returns [`Error::UnsupportedPlatform`] when `expected_app`, `expected_role`,
+/// or `expected_bounds` is supplied.
 pub fn validate_focused_target(
-    _expected_app: Option<&str>,
-    _expected_role: Option<&str>,
-    _expected_bounds: Option<super::types::ElementBounds>,
+    expected_app: Option<&str>,
+    expected_role: Option<&str>,
+    expected_bounds: Option<super::types::ElementBounds>,
 ) -> AccessibilityResult<()> {
+    if expected_app.is_some() || expected_role.is_some() || expected_bounds.is_some() {
+        return Err(Error::UnsupportedPlatform);
+    }
     Ok(())
 }
 

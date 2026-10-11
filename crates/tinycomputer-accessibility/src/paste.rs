@@ -5,14 +5,15 @@
 //! This is atomic and instantaneous, unlike enigo's `text()` which types
 //! character-by-character and causes garbled/repeated output on macOS.
 //!
-//! The previous clipboard contents are saved and restored after a short
-//! delay so the user's clipboard is not permanently overwritten.
+//! The previous text clipboard contents are saved and restored when available
+//! after a short delay so the user's clipboard is not permanently overwritten.
 
 use std::time::Duration;
 
 use arboard::Clipboard;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use log::{debug, info, warn};
+use tinycomputer_bus::accessibility::FocusTarget;
 
 const LOG_PREFIX: &str = "[voice_input]";
 
@@ -47,14 +48,61 @@ const FOCUS_RESTORE_DELAY: Duration = Duration::from_millis(100);
 /// reached, or when a keystroke cannot be sent. Empty or whitespace-only text
 /// is a successful no-op.
 pub fn insert_text(text: &str, expected_app: Option<&str>) -> Result<(), String> {
-    insert_with(
+    let target = FocusTarget {
+        app: expected_app.map(str::to_owned),
+        ..FocusTarget::default()
+    };
+    insert_with_target(
         &System,
         text,
-        expected_app,
+        &target,
         PASTE_DELAY,
         CLIPBOARD_RESTORE_DELAY,
+        |target| {
+            #[cfg(target_os = "macos")]
+            if let Some(app_name) = target.app.as_deref()
+                && crate::validate_focused_target(Some(app_name), None, None).is_err()
+            {
+                restore_focus_to_app(app_name)?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = target;
+            Ok(())
+        },
     )
     .map(|_| ())
+}
+
+/// Insert text only while the complete captured focus target still matches.
+///
+/// Returns the clipboard restoration worker, if one was started. A module
+/// owner must retain and join that worker before unloading this library.
+///
+/// # Errors
+///
+/// Returns an error if the target changed, clipboard access failed, or a
+/// synthetic key operation failed. Previously readable text clipboard contents
+/// are restored on failed insertion when available. Clipboard formats this
+/// text-only API cannot read are not reconstructed.
+pub fn insert_text_managed(
+    text: &str,
+    target: &FocusTarget,
+) -> Result<Option<std::thread::JoinHandle<()>>, String> {
+    insert_with_target(
+        &System,
+        text,
+        target,
+        PASTE_DELAY,
+        CLIPBOARD_RESTORE_DELAY,
+        |target| {
+            crate::validate_focused_target(
+                target.app.as_deref(),
+                target.role.as_deref(),
+                target.bounds,
+            )
+            .map_err(|error| error.to_string())
+        },
+    )
 }
 
 /// The clipboard operations the paste flow needs.
@@ -109,6 +157,7 @@ impl Platform for System {
 
 /// The paste flow over an injectable platform. Returns the clipboard-restore
 /// thread, when one was started, so tests can wait for it.
+#[cfg(test)]
 fn insert_with<P: Platform>(
     platform: &P,
     text: &str,
@@ -116,13 +165,30 @@ fn insert_with<P: Platform>(
     paste_delay: Duration,
     restore_delay: Duration,
 ) -> Result<Option<std::thread::JoinHandle<()>>, String> {
+    let target = FocusTarget {
+        app: expected_app.map(str::to_owned),
+        ..FocusTarget::default()
+    };
+    insert_with_target(platform, text, &target, paste_delay, restore_delay, |_| {
+        Ok(())
+    })
+}
+
+fn insert_with_target<P: Platform>(
+    platform: &P,
+    text: &str,
+    target: &FocusTarget,
+    paste_delay: Duration,
+    restore_delay: Duration,
+    validate: impl Fn(&FocusTarget) -> Result<(), String>,
+) -> Result<Option<std::thread::JoinHandle<()>>, String> {
     if text.trim().is_empty() {
         warn!("{LOG_PREFIX} transcription was empty/whitespace, skipping insertion");
         return Ok(None);
     }
 
-    #[cfg(not(target_os = "macos"))]
-    let _ = expected_app;
+    validate(target)
+        .map_err(|error| format!("focused target changed before insertion: {error}"))?;
 
     info!(
         "{LOG_PREFIX} inserting {} chars via clipboard-paste",
@@ -145,38 +211,35 @@ fn insert_with<P: Platform>(
         .map_err(|e| format!("failed to write text to clipboard: {e}"))?;
     debug!("{LOG_PREFIX} transcription written to clipboard");
 
-    // Step 3: Brief delay to let clipboard write settle, then simulate paste.
-    std::thread::sleep(paste_delay);
+    let insertion = (|| {
+        // The target can change while the clipboard write settles. Re-check
+        // all captured fields immediately before synthesizing the keypress.
+        std::thread::sleep(paste_delay);
+        validate(target).map_err(|error| format!("focus changed before paste: {error}"))?;
 
-    #[cfg(target_os = "macos")]
-    if let Some(app_name) = expected_app {
-        debug!("{LOG_PREFIX} validating focus before paste; expected_app='{app_name}'");
-        if let Err(validation_err) = crate::validate_focused_target(Some(app_name), None, None) {
-            warn!("{LOG_PREFIX} focus changed before paste: {validation_err}");
-            // Always try to restore focus — even if the user hasn't clicked a
-            // text field yet, activating the app brings it to front and most
-            // apps will accept Cmd+V into their last-focused element.
-            if let Err(restore_err) = restore_focus_to_app(app_name) {
-                warn!(
-                    "{LOG_PREFIX} focus restore failed: {restore_err} — will attempt paste anyway"
-                );
-            } else {
-                info!("{LOG_PREFIX} focus restored to '{app_name}' before paste");
-            }
+        let mut keys = platform
+            .keyboard()
+            .map_err(|e| format!("failed to create enigo instance: {e}"))?;
+        let modifier = paste_modifier_key();
+        keys.key(modifier, Direction::Press)
+            .map_err(|e| format!("failed to press modifier: {e}"))?;
+        keys.key(Key::Unicode('v'), Direction::Click)
+            .map_err(|e| format!("failed to press 'v': {e}"))?;
+        keys.key(modifier, Direction::Release)
+            .map_err(|e| format!("failed to release modifier: {e}"))?;
+        Ok::<(), String>(())
+    })();
+
+    if let Err(error) = insertion {
+        if let Some(restoration) = saved_clipboard.as_deref()
+            && let Err(restore_error) = clipboard.write(restoration)
+        {
+            return Err(format!(
+                "{error}; clipboard restore failed: {restore_error}"
+            ));
         }
+        return Err(error);
     }
-
-    let mut keys = platform
-        .keyboard()
-        .map_err(|e| format!("failed to create enigo instance: {e}"))?;
-
-    let modifier = paste_modifier_key();
-    keys.key(modifier, Direction::Press)
-        .map_err(|e| format!("failed to press modifier: {e}"))?;
-    keys.key(Key::Unicode('v'), Direction::Click)
-        .map_err(|e| format!("failed to press 'v': {e}"))?;
-    keys.key(modifier, Direction::Release)
-        .map_err(|e| format!("failed to release modifier: {e}"))?;
 
     debug!("{LOG_PREFIX} paste keystroke sent");
 

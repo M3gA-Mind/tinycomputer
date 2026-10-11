@@ -14,9 +14,10 @@ payload vocabulary has to be published as an ordinary library. This is it.
 
 | module          | what it holds                                                      |
 | --------------- | ------------------------------------------------------------------ |
-| `names`         | interface name, object path, one constant per member — 80 of them   |
+| `names`         | interface name, object path, one constant per member — 90 of them   |
 | `catalogue`     | every member's family, one-line summary, and confidentiality        |
 | `envelope`      | `DesktopResponse` and the structured `DesktopError` it carries      |
+| `error`         | crate-wide typed accessibility errors                              |
 | `vocabulary`    | surfaces, modifiers, buttons, element properties                    |
 | `observation`   | `Snapshot`, `Find`, `Get`, `Is`, `Screenshot` payloads              |
 | `interaction`   | the ref-addressed action payloads                                   |
@@ -31,7 +32,7 @@ payload vocabulary has to be published as an ordinary library. This is it.
 | `browser`       | the `Browser…` members' payloads, names, and error codes            |
 | `version`       | `CONTRACT_VERSION` and the bind rule a host applies to it           |
 
-Two dependencies, both pure Rust: `serde` and `serde_json`.
+Three dependencies, all pure Rust: `thiserror`, `serde`, and `serde_json`.
 
 ## This crate sits underneath `tinycomputer`
 
@@ -70,9 +71,9 @@ policy, its timeouts, its tracing — and the useful part is the vocabulary.
 
 That is also structural, not just preference: `tinybus` is vendored as a
 submodule whose manifest inherits fields from its own nested
-`[workspace.package]`. Keeping the contract crate transport-free is what keeps
-it down to two dependencies and what lets anything in the workspace — or outside
-it — depend on it freely. CI asserts the dependency tree stays that way.
+`[workspace.package]`. Keeping the contract crate transport-free is what lets
+anything in the workspace — or outside it — depend on it freely. CI asserts the
+dependency tree stays free of transports, runtimes, engines, and native libraries.
 
 ## Making a call
 
@@ -151,3 +152,17 @@ which tracks the shipped artifact.
 The payload tests pin the serde representation, because that representation is
 the wire form: a host and a module that disagree about a field name fail at
 runtime with a decode error, so the shape is asserted rather than assumed.
+
+Contract 2.11 adds the eight native accessibility members. Their serialized
+vocabulary and opaque Globe listener handles live in `accessibility`; native
+execution remains inside the compiled module. Focus, target validation and paste
+require confidential calls. Hosts must pin a released 2.11-compatible artifact
+and verify its digest before adopting this surface.
+
+Contract 2.12 adds acknowledged GlobeRead batches and terminal GlobeShutdown.
+Read retains one snapshot of at most 64 events until acknowledgment, reports native
+queue loss and legacy-poll gaps explicitly, and preserves existing poll payloads.
+The joined shutdown barrier must succeed before unloading the native artifact.
+See the [Globe contract](src/accessibility/README.md).
+
+Reliable Globe callers require a released 2.12-compatible artifact with a verified digest.

@@ -168,6 +168,25 @@ fn an_unreachable_keyboard_is_an_error() {
     let p = platform(|f| f.fail_keyboard = true);
     let err = insert_with(&p, "hello", None, NONE, NONE).unwrap_err();
     assert!(err.starts_with("failed to create enigo"), "{err}");
+    assert_eq!(p.0.clipboard.lock().unwrap().as_deref(), Some("previous"));
+}
+
+#[test]
+fn a_failed_insertion_does_not_clear_clipboard_when_saved_text_is_unavailable() {
+    let p = platform(|f| {
+        *f.clipboard.get_mut().unwrap() = None;
+        f.fail_keyboard = true;
+    });
+
+    let err = insert_with(&p, "hello", None, NONE, NONE).unwrap_err();
+
+    assert!(err.starts_with("failed to create enigo"), "{err}");
+    assert_eq!(
+        *p.0.writes.lock().unwrap(),
+        1,
+        "only the paste text is written"
+    );
+    assert_eq!(p.0.clipboard.lock().unwrap().as_deref(), Some("hello"));
 }
 
 #[test]
@@ -180,7 +199,42 @@ fn each_keystroke_failure_names_its_step() {
         let p = platform(|f| f.fail_key_at = Some(at));
         let err = insert_with(&p, "hello", None, NONE, NONE).unwrap_err();
         assert!(err.starts_with(expected), "{err}");
+        assert_eq!(p.0.clipboard.lock().unwrap().as_deref(), Some("previous"));
     }
+}
+
+#[test]
+fn a_target_change_during_clipboard_settle_aborts_before_any_keypress() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let p = platform(|_| {});
+    let target = FocusTarget {
+        app: Some("Editor".into()),
+        role: Some("AXTextArea".into()),
+        bounds: Some(tinycomputer_bus::accessibility::ElementBounds {
+            x: 1,
+            y: 2,
+            width: 30,
+            height: 40,
+        }),
+    };
+    let checks = AtomicUsize::new(0);
+    let error = insert_with_target(&p, "authorized", &target, NONE, NONE, |seen| {
+        assert_eq!(seen.app.as_deref(), Some("Editor"));
+        assert_eq!(seen.role.as_deref(), Some("AXTextArea"));
+        assert_eq!(seen.bounds, target.bounds);
+        if checks.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(())
+        } else {
+            Err("focused element moved".into())
+        }
+    })
+    .unwrap_err();
+
+    assert!(error.starts_with("focus changed before paste"), "{error}");
+    assert!(p.0.keys.lock().unwrap().is_empty());
+    assert_eq!(p.0.clipboard.lock().unwrap().as_deref(), Some("previous"));
+    assert_eq!(checks.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -200,9 +254,10 @@ fn a_failed_restore_write_is_only_logged() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn the_system_platform_reports_a_missing_display_instead_of_panicking() {
-    // Headless CI has no clipboard or input device; with one, a paste of
-    // whitespace-free text would really type, so only the error path runs here.
+    // This checks the Linux display-server error path. A macOS CI runner has a
+    // usable desktop session even when DISPLAY and WAYLAND_DISPLAY are unset.
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
         assert!(insert_text("x", None).is_err());
     }

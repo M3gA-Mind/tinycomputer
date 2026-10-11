@@ -18,6 +18,8 @@ publish = false
 # a native library — see `src/lib.rs` for why the transport and the engine in
 # particular are absent. CI asserts it.
 [dependencies]
+# Derives the crate-wide typed error messages without adding runtime behavior.
+thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
