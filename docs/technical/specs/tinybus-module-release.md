@@ -18,7 +18,8 @@ distributable without also shipping the TinyBus host runtime.
   — plus, on macOS, the engine's `agent-desktop-macos-helper`, which the
   engine's clipboard only trusts beside the loaded module.
 - Each GitHub release publishes a separate `checksum.toml` mapping every
-  archive filename to its SHA-256 digest for TinyBus's release loader.
+  archive filename to its SHA-256 digest under a `[sha256]` table for TinyBus's
+  release loader.
 - Release builds cover the stable native Ubuntu, macOS, and Windows runners,
   Fedora 43/44 containers, and rolling Arch Linux where official runners or
   images exist for the architecture.

@@ -18,7 +18,7 @@ import re
 import sys
 import tomllib
 with open(sys.argv[1], 'rb') as manifest:
-    digest = tomllib.load(manifest)[sys.argv[2]]
+    digest = tomllib.load(manifest)["sha256"][sys.argv[2]]
 if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
     raise ValueError('archive checksum must be a SHA-256 digest')
 with open(sys.argv[1].rsplit('/', 1)[0] + '/' + sys.argv[2], 'rb') as archive:

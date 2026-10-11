@@ -33,7 +33,7 @@ class PublishedReleaseTests(unittest.TestCase):
                 member.size = len(b"fixture")
                 package.addfile(member, io.BytesIO(b"fixture"))
             digest = hashlib.sha256((root / archive).read_bytes()).hexdigest()
-            (root / "checksum.toml").write_text(f'"{archive}" = "{"0" * 64 if corrupt else digest}"\n')
+            (root / "checksum.toml").write_text(f'[sha256]\n"{archive}" = "{"0" * 64 if corrupt else digest}"\n')
             commands = {
                 "gh": '#!/usr/bin/env python3\nimport pathlib,shutil,sys\na=sys.argv\n'
                       'dest=pathlib.Path(a[a.index("--dir")+1])\n'
