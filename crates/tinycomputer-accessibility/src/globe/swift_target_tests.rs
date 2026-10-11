@@ -1,3 +1,4 @@
+//! Pure target-selection fixtures for the build-time Swift listener helper.
 use super::triple;
 
 #[test]

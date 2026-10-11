@@ -1,3 +1,4 @@
+//! Local fixtures verify private, atomic installation of the embedded helper.
 #![allow(
     clippy::expect_used,
     reason = "filesystem fixtures use descriptive setup and assertion failures"
