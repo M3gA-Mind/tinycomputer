@@ -81,8 +81,9 @@ pub fn insert_text(text: &str, expected_app: Option<&str>) -> Result<(), String>
 /// # Errors
 ///
 /// Returns an error if the target changed, clipboard access failed, or a
-/// synthetic key operation failed. The previous clipboard is restored on
-/// every failed insertion path.
+/// synthetic key operation failed. Previously readable text clipboard contents
+/// are restored on failed insertion when available. Clipboard formats this
+/// text-only API cannot read are not reconstructed.
 pub fn insert_text_managed(
     text: &str,
     target: &FocusTarget,
