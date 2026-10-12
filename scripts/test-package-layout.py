@@ -13,6 +13,59 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 
 class PackageTests(unittest.TestCase):
+    def test_archive_accepts_dotted_release_host_key_and_attests_library(self):
+        """Package an Ubuntu matrix host key containing dots."""
+        target = ROOT / "target"; target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=target) as directory:
+            root = Path(directory); (root/"scripts").mkdir(); (root/"bin").mkdir()
+            shutil.copy2(ROOT/"scripts/build-module.sh", root/"scripts/build-module.sh")
+            for file in ["LICENSE", "README.md", "MODULE.md"]: (root/file).write_text("fixture")
+            cargo = root/"bin/cargo"
+            cargo.write_text(
+                "#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\n"
+                "root=Path.cwd()\n"
+                "if 'metadata' in sys.argv: print(json.dumps({'target_directory':str(root/'target')}))\n"
+                "else:\n"
+                " target=sys.argv[sys.argv.index('--target')+1]\n"
+                " output=root/'target'/target/'release'; output.mkdir(parents=True,exist_ok=True)\n"
+                " (output/'libtinycomputer.so').write_bytes(b'compiled-fixture')\n"
+            )
+            cargo.chmod(0o755)
+            env = dict(os.environ, PATH=str(root/"bin")+os.pathsep+os.environ["PATH"])
+            env.pop("CARGO_TARGET_DIR", None)
+            host = "ubuntu-22.04-x86_64"
+            result = subprocess.run(
+                ["bash", str(root/"scripts/build-module.sh"), "--crate", "tinycomputer",
+                 "--version", "1.2.3", "--target", "x86_64-unknown-linux-gnu", "--host", host],
+                cwd=root, env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            archive = root/f"release-assets/tinycomputer-1.2.3-{host}.tar.gz"
+            with tarfile.open(archive) as package:
+                data = package.extractfile("./libtinycomputer.so").read()
+                manifest = tomllib.loads(package.extractfile("./modules.toml").read().decode())
+                self.assertEqual(data, b"compiled-fixture")
+                self.assertEqual(manifest, {"libtinycomputer.so": hashlib.sha256(data).hexdigest()})
+
+    def test_arch_package_install_disables_only_landlock_filesystem_sandbox(self):
+        """Pacman receives the filesystem-only sandbox exception offline."""
+        target = ROOT / "target"; target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=target) as directory:
+            root = Path(directory); bin_dir = root/"bin"; bin_dir.mkdir()
+            (bin_dir/"bash").symlink_to(shutil.which("bash"))
+            pacman = bin_dir/"pacman"
+            pacman.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$PACMAN_ARGS\"\n")
+            pacman.chmod(0o755)
+            env = {"PATH": str(bin_dir), "PACMAN_ARGS": str(root/"pacman-args")}
+            result = subprocess.run([str(ROOT/"scripts/install-distro-packages.sh")],
+                                    cwd=ROOT, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = (root/"pacman-args").read_text().splitlines()
+            self.assertEqual(args, ["-Syu", "--disable-sandbox-filesystem", "--noconfirm",
+                                    "base-devel", "cmake", "curl", "git", "gzip", "jq",
+                                    "openssl", "perl", "alsa-lib", "xdotool"])
+            self.assertNotIn("--disable-sandbox", args)
+
     def test_archive_attests_host_library_bytes_from_a_symlinked_checkout(self):
         """Package the actual build script and verify the shipped bytes and attestation."""
         target = ROOT / "target"; target.mkdir(exist_ok=True)
