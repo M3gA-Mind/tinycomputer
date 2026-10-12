@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -27,8 +28,9 @@ class PackageTests(unittest.TestCase):
                              "'library':str(library),'mode':library.parent.stat().st_mode & 0o777}))\n")
             cargo.chmod(0o755)
             archive = root/"module.tar.gz"
+            library_name = "libtinycomputer.dylib" if sys.platform == "darwin" else "libtinycomputer.so"
             with tarfile.open(archive, "w:gz") as package:
-                for name, data in [("libtinycomputer.so", b"module"), ("modules.toml", b"module = 'fixture'\n")]:
+                for name, data in [(library_name, b"module"), ("modules.toml", b"module = 'fixture'\n")]:
                     member = tarfile.TarInfo(name); member.size = len(data); member.mode = 0o644
                     package.addfile(member, io.BytesIO(data))
             env = dict(os.environ, PATH=str(bin_dir)+os.pathsep+os.environ["PATH"],
@@ -38,7 +40,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             verified = json.loads((root/"verify-args").read_text())
             library = Path(verified["library"])
-            self.assertEqual(library.name, "libtinycomputer.so")
+            self.assertEqual(library.name, library_name)
             self.assertTrue(library.is_relative_to(home), library)
             self.assertEqual(verified["mode"], 0o700)
 
