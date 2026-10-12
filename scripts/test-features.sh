@@ -5,6 +5,7 @@ python3 scripts/test-e2e-version.py
 python3 scripts/test-source-line-endings.py
 cargo test --locked --workspace
 cargo test --locked --workspace --all-features
+cargo test --locked -p tinycomputer --features static-link
 cargo run --locked -p tinycomputer-examples --bin basic
 forbidden="$(cargo tree -p tinycomputer-bus -e normal,build --prefix none | grep -Ei 'tinybus|tokio|reqwest|ureq|hyper|rusqlite|git2|agent-desktop' || true)"
 [[ -z "$forbidden" ]] || { echo "$forbidden" >&2; exit 1; }

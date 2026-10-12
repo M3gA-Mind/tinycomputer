@@ -69,7 +69,7 @@ served object rather than falling back to defaults.
 
 ## The manifest
 
-`tinybus_module::module_export!` emits the descriptor, embedded manifest, and
+`tinybus_module::module_export_optional_static!` emits (C exports by default; `linked_module()` under `static-link`) the descriptor, embedded manifest, and
 initialization symbols consumed by the dynamic loader. The manifest method list
 must stay aligned with the interface macro's dispatch table and with
 `tinycomputer_bus::names::METHODS`; the unit tests check both relationships. The

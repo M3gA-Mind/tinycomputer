@@ -92,6 +92,13 @@
 
 mod tinybus_module;
 
+/// Constructs this module for registration with an in-process `TinyBus` host.
+///
+/// Only present under the `static-link` feature, which replaces the C exports
+/// with a Rust-addressable entry point so several modules can share a process.
+#[cfg(feature = "static-link")]
+pub use tinybus_module::linked_module;
+
 pub use tinycomputer_desktop::{Desktop, Error, Result};
 
 // The wire contract, re-exported by module rather than by item so every path
