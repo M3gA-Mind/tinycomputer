@@ -13,8 +13,8 @@ pub const CONTRACT_VERSION: (u32, u32) = (2, 12);
 ```
 
 This describes the *vocabulary*: the member set and the payload shapes,
-not the crate's own package version (which the release workflow owns
-separately; see the root `CLAUDE.md`'s "Releases" section). It is a plain
+not the crate's own package version (updated separately through a reviewed
+PR; see the root `AGENTS.md`'s "Releases" section). It is a plain
 `(major, minor)` pair with no pre-release component, and the rule for
 bumping it is fixed:
 

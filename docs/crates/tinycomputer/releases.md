@@ -17,65 +17,29 @@ itself, is a major bump. The interface was last renamed at contract 2.0, from
 [`../../technical/specs/desktop-module-contract.md`](../../technical/specs/desktop-module-contract.md)
 is the authoritative history of every contract bump.
 
-Nobody hand-edits the crate version in `Cargo.toml`. The release workflow
-owns that field entirely.
+Version updates change the root workspace.package version and lockfile in a
+reviewed PR; every workspace member inherits that version.
 
 ## How a release actually happens
 
-Releases run from `.github/workflows/release.yml`, triggered by hand
-(`workflow_dispatch`) with one of four choices: `patch`, `minor`, `major`, or
-`current`.
+Update the workspace version and lockfile through a PR. Main requires an
+up-to-date branch and the shared CI checks, including module E2E and feature
+tests on Linux, macOS and Windows. After merging, push a vX.Y.Z tag at that
+commit, or dispatch Release with an existing tag.
 
-Dispatching `patch`, `minor`, or `major`:
+The shared pipeline verifies that the tag is on main and matches the Cargo
+module version. It builds each native/distro archive and verifies the actual
+packaged cdylib using the existing verify_module binary before publishing
+one immutable release. Archives include the library, modules.toml, LICENSE,
+README.md, MODULE.md, the macOS clipboard helper, and macOS/Windows cursor
+overlay binaries. checksum.toml covers the module archives.
 
-1. Runs the full validation suite (`cargo fmt --all -- --check`,
-   `cargo clippy --all-targets --all-features -- -D warnings`,
-   `cargo build --all-targets --all-features`, `cargo test --all-features`),
-   plus a check that every source file keeps 90% line coverage, plus a
-   rustdoc build with warnings promoted to errors.
-2. Computes the next version from the chosen bump.
-3. Updates the root `[workspace.package]` version and `Cargo.lock`.
-4. Opens a pull request with that version bump, so branch protection can run
-   its required checks on it like any other change.
-
-Nothing is tagged or published yet at this point. A human reviews and merges
-that version pull request first.
-
-Dispatching `current` after that merge:
-
-1. Revalidates the now-checked version on `main`.
-2. Creates the `vX.Y.Z` tag if it does not already exist (or reuses it, which
-   is what makes `current` safe to redispatch if a release was interrupted
-   partway through).
-3. Builds `tinycomputer` as a native module for every platform in the matrix
-   below.
-4. Verifies each built module through `verify_module`, loading the actual
-   compiled `cdylib` through TinyBus's real dynamic loader and calling
-   `Version` on it, before that platform's archive is assembled at all.
-5. Packages each platform's archive: the library, `modules.toml` with its
-   SHA-256 digest, `LICENSE`, `MODULE.md`, and, on macOS, the clipboard helper
-   and cursor overlay binary described in
-   [installing-and-loading.md](installing-and-loading.md).
-6. Uploads every archive as a build artifact, then a final job downloads all
-   of them, generates one `checksum.toml` covering every archive in the
-   release using TinyBus's own `modules checksum` tool, and creates an
-   immutable GitHub release with `--verify-tag`.
-7. As a last gate, downloads the published Ubuntu x86_64 archive back down
-   through TinyBus's actual GitHub release loader and calls `Version` on it
-   over a real in-memory bus, using
-   `crates/tinycomputer-examples/src/bin/verify_github_release.rs`. This is
-   deliberately the same call `verify_module` used locally, chosen again
-   because `Version` needs no granted permission and touches no other
-   application, so this step tests that the published, downloaded artifact
-   works, not whether the runner happens to be configured a particular way.
-
-If any of that fails, the release is not created (or, for the last step, is
-created but flagged as broken by a failing workflow run), rather than an
-archive going out that was never actually loaded and called.
+See the [shared contract](https://github.com/tinyhumansai/.github/blob/main/docs/module-ci-contract.md).
+The release workflow never pushes a version-bump commit to main.
 
 ## The platform matrix
 
-Sixteen archives per release, checked at the point in `release.yml` that
+Seventeen archives per release, checked at the point in the shared release workflow that
 insists exactly that many exist before generating `checksum.toml`:
 
 Native runners, verified through `verify_module` on the real OS:
@@ -105,6 +69,7 @@ image, and still verified through `verify_module` for that container's own
 | Fedora 44 x86_64 | `fedora:44` |
 | Fedora 44 arm64 | `fedora:44` |
 | Arch Linux rolling x86_64 | `archlinux:base-devel` |
+| Arch Linux ARM64 | `menci/archlinuxarm:base-devel` |
 
 Every runner also carries a check that the actual `rustc` host target matches
 what the matrix entry claims before building anything, so a runner image
