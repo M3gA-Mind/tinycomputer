@@ -1,5 +1,6 @@
 """Verify the shipped module archive layout without compiling native code."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,34 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 
 class PackageTests(unittest.TestCase):
+    def test_verifier_extracts_untrusted_archive_under_current_users_home(self):
+        """Do not leave root-extracted module files in the workspace target."""
+        target = ROOT / "target"; target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=target) as directory:
+            root = Path(directory); bin_dir = root/"bin"; home = root/"home"
+            bin_dir.mkdir(); home.mkdir()
+            cargo = bin_dir/"cargo"
+            cargo.write_text("#!/usr/bin/env python3\nimport json,os,sys\nfrom pathlib import Path\n"
+                             "library=Path(sys.argv[-1])\n"
+                             "Path(os.environ['VERIFY_ARGS']).write_text(json.dumps({"
+                             "'library':str(library),'mode':library.parent.stat().st_mode & 0o777}))\n")
+            cargo.chmod(0o755)
+            archive = root/"module.tar.gz"
+            with tarfile.open(archive, "w:gz") as package:
+                for name, data in [("libtinycomputer.so", b"module"), ("modules.toml", b"module = 'fixture'\n")]:
+                    member = tarfile.TarInfo(name); member.size = len(data); member.mode = 0o644
+                    package.addfile(member, io.BytesIO(data))
+            env = dict(os.environ, PATH=str(bin_dir)+os.pathsep+os.environ["PATH"],
+                       HOME=str(home), VERIFY_ARGS=str(root/"verify-args"))
+            result = subprocess.run([str(ROOT/"scripts/verify-module.sh"), "--archive", str(archive)],
+                                    cwd=ROOT, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            verified = json.loads((root/"verify-args").read_text())
+            library = Path(verified["library"])
+            self.assertEqual(library.name, "libtinycomputer.so")
+            self.assertTrue(library.is_relative_to(home), library)
+            self.assertEqual(verified["mode"], 0o700)
+
     def test_archive_accepts_dotted_release_host_key_and_attests_library(self):
         """Package an Ubuntu matrix host key containing dots."""
         target = ROOT / "target"; target.mkdir(exist_ok=True)
