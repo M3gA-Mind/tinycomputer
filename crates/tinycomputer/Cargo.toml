@@ -53,6 +53,13 @@ serde_json = { workspace = true }
 
 [features]
 default = []
+# Export `linked_module()` and drop the C ABI symbols so the module can be linked
+# into a host executable beside other modules (local dev and tests only; shipped
+# builds load the release `cdylib`). The process-global state in the
+# accessibility crate (helper process, globe listener) is a singleton per
+# process and is only touched on macOS/Windows, so co-linking is safe.
+static-link = []
+linked = ["static-link"]
 
 [lints]
 workspace = true
