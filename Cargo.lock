@@ -2623,6 +2623,7 @@ dependencies = [
  "tinycomputer-accessibility",
  "tinycomputer-browser",
  "tinycomputer-bus",
+ "tinycomputer-core",
  "tinycomputer-desktop",
  "tinycomputer-engine",
  "tokio",

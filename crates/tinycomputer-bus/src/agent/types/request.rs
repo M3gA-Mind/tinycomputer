@@ -77,6 +77,13 @@ pub struct StartTaskRequest {
     /// records only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<TaskOutput>,
+    /// The site the task starts on, a plain host name. When set and the host
+    /// serves `SiteMemoryHost`, the module hands the task what finished tasks
+    /// on that site left (a saved plan for the same goal and facts, grounding
+    /// hints) and, once the task ends, keeps what it learned there. Absent,
+    /// the task neither reads nor writes site memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
 }
 
 /// What a finished task returns, beyond its raw records.
