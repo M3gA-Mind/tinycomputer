@@ -241,7 +241,7 @@ async fn a_key_for_an_element_the_focus_misses_is_refused_unsent() -> tinybus::R
         json!({
             "session": session,
             "action": "press",
-            "key": " ",
+            "key": "Enter",
             "target": {"kind": "ref", "value": "e5"},
         }),
     )
