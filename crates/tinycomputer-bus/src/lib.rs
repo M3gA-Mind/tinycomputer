@@ -119,6 +119,7 @@ pub mod apps;
 pub mod browser;
 pub mod catalogue;
 pub mod clipboard;
+pub mod desktop_tool;
 pub mod envelope;
 mod error;
 pub mod flow;
