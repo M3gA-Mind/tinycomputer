@@ -37,6 +37,7 @@ mod fake;
 #[cfg(feature = "agent-browser")]
 mod linked;
 mod origins;
+mod profile_lock;
 mod outputs;
 mod reply;
 mod sessions;
@@ -47,6 +48,7 @@ pub use error::{Error, Result};
 #[cfg(feature = "agent-browser")]
 pub use linked::AgentBrowser;
 pub use outputs::SWEEP_INTERVAL;
+pub use profile_lock::{claim_profile, in_use as profile_in_use, release as release_profile};
 pub use sessions::{Browser, MAX_SESSIONS};
 pub use surface::{BrowserSurface, Denoised, Perception, Settle};
 pub use tinycomputer_bus::browser::*;

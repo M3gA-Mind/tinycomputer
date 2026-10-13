@@ -24,7 +24,7 @@ fn methods_lists_every_member_once() {
     sorted.dedup();
 
     assert_eq!(sorted.len(), count, "METHODS contains a duplicate");
-    assert_eq!(count, 13);
+    assert_eq!(count, 15);
 }
 
 #[test]
@@ -64,6 +64,8 @@ fn every_member_constant_appears_in_methods() {
         methods::RELEASE_OUTPUT,
         methods::LIST_DOWNLOADS,
         methods::WAIT_DOWNLOAD,
+        methods::CLAIM_PROFILE,
+        methods::RELEASE_PROFILE,
     ] {
         assert!(
             METHODS.contains(&member),

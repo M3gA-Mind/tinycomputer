@@ -343,6 +343,8 @@ pub const METHODS: &[&str] = &[
     crate::browser::names::methods::RELEASE_OUTPUT,
     crate::browser::names::methods::LIST_DOWNLOADS,
     crate::browser::names::methods::WAIT_DOWNLOAD,
+    crate::browser::names::methods::CLAIM_PROFILE,
+    crate::browser::names::methods::RELEASE_PROFILE,
 ];
 
 #[cfg(test)]

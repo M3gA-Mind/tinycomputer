@@ -106,6 +106,7 @@ sha2 = "0.10"
 # opens. The version agent-browser takes, so the lockfile holds one copy.
 url = "2"
 # Module integration tests exercise the real asynchronous in-memory TinyBus.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 # Lints apply to every member that opts in with `[lints] workspace = true`, and

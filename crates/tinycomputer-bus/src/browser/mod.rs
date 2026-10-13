@@ -79,6 +79,7 @@ pub mod errors;
 pub mod names;
 pub mod output;
 pub mod page;
+pub mod profile;
 pub mod session;
 pub mod snapshot;
 
@@ -92,4 +93,5 @@ pub use page::{
     EvaluateRequest, NavigateRequest, PageState, PageText, ReadFormat, ReadRequest, WaitUntil,
 };
 pub use session::{SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, Viewport};
+pub use profile::{ClaimProfileRequest, ClaimProfileResponse, ProfileClaim, ReleaseProfileRequest};
 pub use snapshot::{ElementRef, Snapshot, SnapshotRequest};

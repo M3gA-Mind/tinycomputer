@@ -270,6 +270,10 @@ fn the_wire_sweep_covers_every_member_except_the_one_with_no_safe_input() {
             // stop that lease again without carrying the returned handle.
             &names::accessibility::GLOBE_START,
             &browser_methods::OPEN_SESSION,
+            // Every valid claim touches the filesystem; `browser_tests.rs`
+            // exercises these two over the bus.
+            &browser_methods::CLAIM_PROFILE,
+            &browser_methods::RELEASE_PROFILE,
         ],
         "the task members answer in their own reply shape; see the agent tests below"
     );

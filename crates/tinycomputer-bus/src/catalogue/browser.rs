@@ -84,4 +84,16 @@ pub(super) const BROWSER: &[Member] = &[
         "Waits for a session's next download to finish.",
         false,
     ),
+    entry(
+        browser::CLAIM_PROFILE,
+        Family::Browser,
+        "Claims a persistent browser profile folder, waiting for a closing Chrome.",
+        false,
+    ),
+    entry(
+        browser::RELEASE_PROFILE,
+        Family::Browser,
+        "Gives up a browser profile claim.",
+        false,
+    ),
 ];

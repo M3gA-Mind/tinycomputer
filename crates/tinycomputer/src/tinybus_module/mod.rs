@@ -78,7 +78,7 @@ tinybus_module::module_export_optional_static! {
         "BrowserOpenSession", "BrowserCloseSession", "BrowserListSessions", "BrowserNavigate",
         "BrowserSnapshot", "BrowserPerform", "BrowserReadPage", "BrowserEvaluate",
         "BrowserScreenshot", "BrowserReadOutput", "BrowserReleaseOutput", "BrowserListDownloads",
-        "BrowserWaitDownload",
+        "BrowserWaitDownload", "BrowserClaimProfile", "BrowserReleaseProfile",
     ],
     signals = [],
     requires = [],

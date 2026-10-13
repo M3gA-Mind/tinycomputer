@@ -354,3 +354,37 @@ fn a_timed_out_observation_retries_without_a_snapshot() {
     );
     assert!(other.error.expect("fails").recovery.is_none());
 }
+
+#[tokio::test]
+async fn a_profile_is_claimed_once_and_free_again_after_release() -> tinybus::Result<()> {
+    let scratch = Scratch::new("profile-claim");
+    let (_server, proxy) = serve(&scratch).await?;
+    let folder = scratch.0.join("profile");
+    std::fs::create_dir_all(&folder).expect("the profile folder is creatable");
+    let path = folder.to_string_lossy().into_owned();
+
+    let first = call(&proxy, methods::CLAIM_PROFILE, json!({"path": path})).await?;
+    assert_eq!(data(&first)["outcome"], "claimed");
+    assert_eq!(data(&first)["path"], json!(path));
+
+    let busy = call(
+        &proxy,
+        methods::CLAIM_PROFILE,
+        json!({"path": path, "fall_back_to_fresh": false}),
+    )
+    .await?;
+    assert_eq!(data(&busy)["outcome"], "busy");
+
+    let fresh = call(&proxy, methods::CLAIM_PROFILE, json!({"path": path})).await?;
+    assert_eq!(data(&fresh)["outcome"], "fell_back_to_fresh");
+    let fresh_path = data(&fresh)["path"].as_str().expect("a fresh path").to_owned();
+    assert_ne!(fresh_path, path);
+    let _ = std::fs::remove_dir_all(&fresh_path);
+
+    let released = call(&proxy, methods::RELEASE_PROFILE, json!({"path": path})).await?;
+    assert_eq!(data(&released)["released"], true);
+    let again = call(&proxy, methods::CLAIM_PROFILE, json!({"path": path})).await?;
+    assert_eq!(data(&again)["outcome"], "claimed");
+    call(&proxy, methods::RELEASE_PROFILE, json!({"path": path})).await?;
+    Ok(())
+}

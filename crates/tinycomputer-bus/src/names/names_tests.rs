@@ -25,7 +25,7 @@ fn every_member_name_is_listed_exactly_once() {
 
 #[test]
 fn the_member_list_has_the_eighty_members_the_contract_documents() {
-    assert_eq!(METHODS.len(), 90);
+    assert_eq!(METHODS.len(), 92);
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn the_families_appear_in_the_documented_order() {
     assert_eq!(METHODS.first(), Some(&methods::RESOLVE_INTENT));
     assert_eq!(
         METHODS.last(),
-        Some(&crate::browser::names::methods::WAIT_DOWNLOAD)
+        Some(&crate::browser::names::methods::RELEASE_PROFILE)
     );
 }
 
