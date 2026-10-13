@@ -24,6 +24,8 @@
 //! - [`action`] — every interaction, and the three ways to name an element.
 //! - [`download`] — browser download events retained as waitable handles.
 //! - [`output`] — screenshots, and the handle protocol that carries them.
+//! - [`tool`] — the agent-facing `browser` tool: recorded parameter schema and
+//!   pure argument parsing into [`Action`].
 //! - [`errors`] — the failure names, the envelope code each one travels as,
 //!   and which of them an agent can act on.
 //!
@@ -82,6 +84,7 @@ pub mod page;
 pub mod profile;
 pub mod session;
 pub mod snapshot;
+pub mod tool;
 
 pub use action::{Action, ActionOutcome, LocateBy, Locator, ScrollDirection, Target, WaitState};
 pub use download::{DownloadId, DownloadInfo, DownloadState, DownloadWaitRequest};
@@ -93,5 +96,6 @@ pub use page::{
     EvaluateRequest, NavigateRequest, PageState, PageText, ReadFormat, ReadRequest, WaitUntil,
 };
 pub use session::{SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, Viewport};
+pub use tool::{ToolAction, ToolArgError, ToolArgs};
 pub use profile::{ClaimProfileRequest, ClaimProfileResponse, ProfileClaim, ReleaseProfileRequest};
 pub use snapshot::{ElementRef, Snapshot, SnapshotRequest};
