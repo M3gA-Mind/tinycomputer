@@ -151,6 +151,11 @@ Two distinctions worth knowing:
   there, the only way to trigger the per-keystroke handlers an
   autocomplete or search-as-you-type box depends on, which a bulk value
   assignment skips entirely.
+- **Keys go only where an action points.** `Focus`, `Fill`, and `Type` and
+  `Press` with a `target` (a press's target is optional, from 2.17) are
+  refused, `NOT_ACTIONABLE`, unless the page's focus lands on the target,
+  rather than sending keys to whichever element last had the focus. `Type`
+  and `Press` without a target go wherever the focus is.
 - **`Click` fails loudly, not quietly, when covered.** A click on an element
   another element covers (a consent banner, a modal) fails and names the
   covering element, rather than reporting success while the click actually

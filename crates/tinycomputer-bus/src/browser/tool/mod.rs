@@ -258,6 +258,7 @@ impl ToolArgs {
             ToolAction::Hover => Action::Hover { target: target()? },
             ToolAction::Press => Action::Press {
                 key: Self::required(&self.key, "key")?.into(),
+                target: self.selector.as_deref().map(Target::parse),
             },
             ToolAction::Scroll => Action::Scroll {
                 direction: match Self::required(&self.direction, "direction")? {

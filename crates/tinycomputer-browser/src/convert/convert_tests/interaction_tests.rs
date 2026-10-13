@@ -103,6 +103,7 @@ fn every_plain_action_names_its_engine_command() {
         (
             Action::Press {
                 key: "Enter".to_owned(),
+                target: None,
             },
             "press",
         ),
@@ -117,11 +118,29 @@ fn every_plain_action_names_its_engine_command() {
     assert!(
         invalid(action(
             &Action::Press {
-                key: " ".to_owned()
+                key: " ".to_owned(),
+                target: None,
             },
             1_000
         ))
         .contains("key")
+    );
+}
+
+#[test]
+fn a_press_on_a_target_is_the_plain_key_the_focus_check_precedes() {
+    // `Browser::perform` gives the target the focus and checks it first; the
+    // key itself goes to the focus, as every press does.
+    assert_eq!(
+        action(
+            &Action::Press {
+                key: "Enter".to_owned(),
+                target: Some(Target::reference("e4")),
+            },
+            1_000
+        )
+        .unwrap(),
+        json!({"action": "press", "key": "Enter"})
     );
 }
 

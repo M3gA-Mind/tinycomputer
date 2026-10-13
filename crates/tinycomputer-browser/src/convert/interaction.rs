@@ -35,7 +35,9 @@ pub(crate) fn action(action: &Action, default_timeout_ms: u64) -> Result<Value> 
         Action::Back => Ok(json!({"action": "back"})),
         Action::Forward => Ok(json!({"action": "forward"})),
         Action::Reload => Ok(json!({"action": "reload"})),
-        Action::Press { key } => {
+        // A press goes wherever the focus is: with a target, `Browser::perform`
+        // first puts the focus there and checks it landed.
+        Action::Press { key, .. } => {
             if key.trim().is_empty() {
                 return Err(Error::invalid_input("press needs a key"));
             }
@@ -168,7 +170,7 @@ fn wait_for(
 ///
 /// [`Error::InvalidInput`] for a locator, which agent-browser only accepts on
 /// its semantic commands (click, fill, check, hover, text).
-pub(super) fn selector(target: &Target, operation: &str) -> Result<String> {
+pub(crate) fn selector(target: &Target, operation: &str) -> Result<String> {
     match target {
         Target::Ref { value } if !value.trim().is_empty() => {
             Ok(format!("@{}", value.trim_start_matches('@')))

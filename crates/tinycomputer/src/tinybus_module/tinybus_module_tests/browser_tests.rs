@@ -226,6 +226,44 @@ async fn a_stale_ref_fails_with_the_desktop_code_and_recovery() -> tinybus::Resu
 }
 
 #[tokio::test]
+async fn a_key_for_an_element_the_focus_misses_is_refused_unsent() -> tinybus::Result<()> {
+    // The scripted page never shows the focus on anything, as a heading that
+    // takes none would leave it: the press is refused, not sent.
+    let scratch = Scratch::new("focus");
+    let launcher = Arc::new(ScriptedLauncher::default());
+    let (_server, proxy) = serve_with(&scratch, &json!({}), launcher.clone()).await?;
+    let opened = call(&proxy, methods::OPEN_SESSION, json!({})).await?;
+    let session = data(&opened)["id"].clone();
+
+    let reply = call(
+        &proxy,
+        methods::PERFORM,
+        json!({
+            "session": session,
+            "action": "press",
+            "key": " ",
+            "target": {"kind": "ref", "value": "e5"},
+        }),
+    )
+    .await?;
+    let error = reply.error.expect("a missed focus fails");
+    assert_eq!(error.code, "NOT_ACTIONABLE");
+    assert_eq!(
+        error.details.expect("details carry the wire name")["name"],
+        tinycomputer_bus::browser::errors::NOT_ACTIONABLE
+    );
+    assert!(
+        error
+            .suggestion
+            .is_some_and(|hint| hint.contains("act on the field itself"))
+    );
+    let sent = launcher.0.lock().expect("the log is not poisoned");
+    assert!(sent.iter().any(|command| command["action"] == "focus"));
+    assert!(!sent.iter().any(|command| command["action"] == "press"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn an_unknown_session_is_refused_before_anything_is_sent() -> tinybus::Result<()> {
     let scratch = Scratch::new("unknown");
     let (_server, proxy) = serve(&scratch).await?;

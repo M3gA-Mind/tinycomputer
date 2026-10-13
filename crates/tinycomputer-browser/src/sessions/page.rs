@@ -101,20 +101,33 @@ impl Browser {
 
     /// Performs one interaction and reports the page it left.
     ///
+    /// Keys go only where the action points: an element focused, filled,
+    /// typed into, or sent a key is given the focus first, and the action is
+    /// refused unless the focus lands on it (see `sessions/focus.rs`). A
+    /// locator's fill, which only the engine resolves, has the focus taken
+    /// off whatever held it first, so its text lands in the field or nowhere.
+    ///
     /// # Errors
     ///
     /// [`Error::NoSuchSession`], [`Error::InvalidInput`] for an action the
     /// engine cannot express, [`Error::StaleRef`] for a ref from an earlier
-    /// snapshot, [`Error::BlockedByPolicy`] when the page it would act on, or
-    /// the page it leads to, is outside the allowed origins, and whatever
-    /// else the action reports.
+    /// snapshot, [`Error::FocusMissed`] when the focus does not land on the
+    /// element keys were meant for, [`Error::BlockedByPolicy`] when the page
+    /// it would act on, or the page it leads to, is outside the allowed
+    /// origins, and whatever else the action reports.
     pub async fn perform(&self, id: &SessionId, action: Action) -> Result<ActionOutcome> {
         let session = self.session(id)?;
         let mut session = session.lock().await;
         let command = convert::action(&action, session.options.default_timeout_ms)?;
+        let keys = keys_go_to(&action)?;
         // The page may have moved on its own since the last call (a redirect,
         // a timer): an action is never sent to a refused one.
         session.check_if_readable(false).await?;
+        match keys {
+            Keys::Checked(selector) => session.focus_only(&selector).await?,
+            Keys::Blurred => session.blur().await?,
+            Keys::Anywhere => {}
+        }
         let data = session.run(command).await?;
         let value = match &action {
             Action::GetText { .. } => data.get("text").cloned().unwrap_or(Value::Null),
@@ -293,4 +306,38 @@ impl Browser {
         self.lock_outputs()?
             .insert(bytes, request.format.media_type(), width, height)
     }
+}
+
+/// How an action's keys, or focus, are kept on its target.
+enum Keys {
+    /// The target's selector: focus it and check the focus landed there.
+    Checked(String),
+    /// A target only the engine resolves: take the focus off whatever held it.
+    Blurred,
+    /// Nothing to keep on a target: no keys, or keys for whatever has focus.
+    Anywhere,
+}
+
+/// Where `action` sends keys or focus.
+///
+/// # Errors
+///
+/// [`Error::InvalidInput`] for a press on a locator, which has no selector to
+/// check the focus against.
+fn keys_go_to(action: &Action) -> Result<Keys> {
+    Ok(match action {
+        Action::Focus { target } | Action::Fill { target, .. } => match target {
+            Target::Locator { .. } => Keys::Blurred,
+            other => Keys::Checked(convert::selector(other, "focus")?),
+        },
+        Action::Type {
+            target: Some(target),
+            ..
+        }
+        | Action::Press {
+            target: Some(target),
+            ..
+        } => Keys::Checked(convert::selector(target, "press")?),
+        _ => Keys::Anywhere,
+    })
 }

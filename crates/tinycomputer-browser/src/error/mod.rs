@@ -60,6 +60,16 @@ pub enum Error {
         reason: String,
     },
 
+    /// The element did not take the keyboard focus, so nothing was typed or
+    /// pressed: the keys would have gone to whatever held the focus instead,
+    /// such as a field filled earlier or a button.
+    #[error("the element did not take the keyboard focus (it is on {focused}), nothing was sent")]
+    FocusMissed {
+        /// What holds the focus instead: a tag name, such as `input`, or
+        /// `nothing`.
+        focused: String,
+    },
+
     /// An operation ran out of time.
     #[error("{operation} timed out after {elapsed_ms}ms")]
     Timeout {
@@ -156,7 +166,7 @@ impl Error {
             Self::NoSuchSession { .. } | Self::ConnectionLost { .. } => errors::NO_SUCH_SESSION,
             Self::NoSuchElement { .. } => errors::NO_SUCH_ELEMENT,
             Self::StaleRef { .. } => errors::STALE_REF,
-            Self::NotActionable { .. } => errors::NOT_ACTIONABLE,
+            Self::NotActionable { .. } | Self::FocusMissed { .. } => errors::NOT_ACTIONABLE,
             Self::Timeout { .. } => errors::TIMEOUT,
             Self::BlockedByPolicy { .. } | Self::LeftRefusedPage { .. } => {
                 errors::BLOCKED_BY_POLICY
@@ -215,6 +225,9 @@ impl Error {
             Self::NotActionable { .. } => {
                 Some("dismiss whatever covers the element, or scroll it into view, then retry")
             }
+            Self::FocusMissed { .. } => Some(
+                "act on the field itself (an input, a text area, or an editable region), not its label or heading; take a fresh BrowserSnapshot to find it",
+            ),
             Self::NoSuchSession { .. } | Self::ConnectionLost { .. } => {
                 Some("open a new session with BrowserOpenSession")
             }

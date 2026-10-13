@@ -222,11 +222,18 @@ pub enum Action {
         target: Target,
     },
     /// Give an element keyboard focus without clicking it.
+    ///
+    /// Refused when the focus does not land on the element (a heading, say,
+    /// which takes none), rather than reported done with the focus elsewhere.
     Focus {
         /// The element to focus.
         target: Target,
     },
     /// Clear a field and set its value in one step.
+    ///
+    /// The field is given the focus first, and the fill is refused unless the
+    /// focus lands on it: a value meant for one field never goes into
+    /// whichever field last had the focus.
     Fill {
         /// The field to fill.
         target: Target,
@@ -239,7 +246,9 @@ pub enum Action {
     /// — an autocomplete, a search-as-you-type box — never sees the input event
     /// a bulk value assignment skips.
     Type {
-        /// The field to type into. Defaults to whatever currently has focus.
+        /// The field to type into: it is given the focus first, and typing is
+        /// refused unless the focus lands on it. Without one, the text goes to
+        /// whatever has the focus.
         #[serde(default)]
         target: Option<Target>,
         /// The text to type.
@@ -252,6 +261,12 @@ pub enum Action {
     Press {
         /// The key or chord.
         key: String,
+        /// The element to press it on: it is given the focus first, and the
+        /// press is refused unless the focus lands on it, so a key meant for
+        /// one element never presses whichever control last had the focus.
+        /// Without one, the key goes to whatever has the focus.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
     },
     /// Choose one or more options in a `<select>`.
     Select {

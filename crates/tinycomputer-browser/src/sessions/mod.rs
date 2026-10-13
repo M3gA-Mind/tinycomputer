@@ -20,6 +20,7 @@ use crate::outputs::OutputStore;
 use crate::reply;
 
 mod artifacts;
+mod focus;
 mod page;
 
 /// How many sessions may be open at once.

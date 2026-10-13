@@ -243,7 +243,7 @@ impl Surface for BrowserSurface {
                 DesktopError::new("INVALID_KEY", "press needs a key"),
             );
         }
-        self.perform("press", Action::Press { key })
+        self.perform("press", Action::Press { key, target: None })
     }
 
     fn launch(&self, _app: &str) -> DesktopResponse {

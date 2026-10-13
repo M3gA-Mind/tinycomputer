@@ -103,6 +103,9 @@ fn every_variant() -> Vec<Error> {
             reference: "e1".to_string(),
         },
         Error::not_actionable("covered by a banner"),
+        Error::FocusMissed {
+            focused: "input".to_string(),
+        },
         Error::timeout("navigate", 30_000),
         Error::BlockedByPolicy {
             url: "https://evil.test/".to_string(),
@@ -237,5 +240,25 @@ fn a_lost_connection_suggests_a_new_session() {
         envelope
             .suggestion
             .is_some_and(|s| s.contains("BrowserOpenSession"))
+    );
+}
+
+#[test]
+fn a_missed_focus_is_not_actionable_and_says_to_act_on_the_field() {
+    let error = Error::FocusMissed {
+        focused: "input".to_string(),
+    };
+    assert_eq!(error.wire_name(), errors::NOT_ACTIONABLE);
+    assert!(errors::is_agent_recoverable(error.wire_name()));
+    let envelope = error.envelope();
+    assert!(
+        envelope.message.contains("it is on input"),
+        "{}",
+        envelope.message
+    );
+    assert!(
+        envelope
+            .suggestion
+            .is_some_and(|hint| hint.contains("act on the field itself")),
     );
 }
