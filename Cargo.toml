@@ -73,13 +73,13 @@ agent-desktop-linux = { path = "vendor/agent-desktop/crates/linux" }
 # TinyBus defines the message types, interface macro, and frozen module ABI
 # used by the generated integration. Socket and CLI features are unnecessary
 # here.
-tinybus = { path = "vendor/tinybus/crates/tinybus", version = "0.1.2", default-features = false, features = [
+tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = [
     "macros",
     "modules",
 ] }
 # The module-side SDK owns the isolated runtime and exports the ABI entrypoints
 # required by TinyBus's dynamic loader.
-tinybus-module = { path = "vendor/tinybus/crates/tinybus-module", version = "0.1.2" }
+tinybus-module = { version = ">=0.1.3, <0.2" }
 # Derive macros for the crate-wide error types, e.g.
 # `crates/tinycomputer-desktop/src/error/`.
 # Every dependency entry should carry a comment like this one saying why it is
@@ -112,6 +112,15 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 # Lints apply to every member that opts in with `[lints] workspace = true`, and
 # to every target of that member. CI runs clippy with `-D warnings`, so anything
 # set to "warn" here fails the build in CI.
+# TinyBus is not published to crates.io: it resolves to the nested submodule so
+# standalone builds work, while a host workspace (OpenHuman) can override the
+# same crates-io entries with its own single copy. The dependencies above are
+# version ranges, never exact pins, so that one copy can satisfy every module.
+[patch.crates-io]
+tinybus = { path = "vendor/tinybus/crates/tinybus" }
+tinybus-macros = { path = "vendor/tinybus/crates/tinybus-macros" }
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
