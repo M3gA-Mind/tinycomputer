@@ -5,13 +5,16 @@ use std::sync::Arc;
 
 use tinybus::{Error as TinyBusError, Result as TinyBusResult};
 use tinycomputer_browser::{AgentBrowser, Browser};
-use tinycomputer_bus::agent::{SurfaceAvailability, SurfaceKind};
+use tinycomputer_bus::agent::{
+    AgentResponse, StartTaskRequest, SurfaceAvailability, SurfaceKind, TaskView,
+};
 use tinycomputer_bus::{DesktopResponse, JevConfig};
 use tinycomputer_engine as agentic;
 
 use super::DesktopService;
 use crate::tinybus_module::config::{BrowserDefaults, cursor_config};
 use crate::tinybus_module::runner::WorkspaceRunner;
+use crate::tinybus_module::site_memory::{SiteLink, SiteMemoryPort, refused_flow};
 use crate::{Desktop, Result};
 
 impl DesktopService {
@@ -87,6 +90,7 @@ impl DesktopService {
             browser,
             browser_defaults,
             accessibility: Arc::new(super::accessibility::Access::default()),
+            site_link: None,
         })
     }
 
@@ -198,5 +202,56 @@ impl DesktopService {
     pub(crate) fn with_native_fixture(mut self) -> Self {
         self.accessibility = super::accessibility::fixture();
         self
+    }
+}
+
+impl DesktopService {
+    /// Keeps what browser tasks learn about a site through `port`, the host's
+    /// `SiteMemoryHost`.
+    pub(crate) fn with_site_memory(mut self, port: Box<dyn SiteMemoryPort>) -> Self {
+        self.site_link = Some(Arc::new(SiteLink::new(port)));
+        self
+    }
+
+    /// Starts a task with what earlier tasks on its `site` left, and follows
+    /// it for what it may teach. A saved plan the engine refuses is
+    /// forgotten and the task started again to be planned afresh.
+    pub(super) async fn start_remembering(
+        &self,
+        mut request: StartTaskRequest,
+    ) -> TinyBusResult<AgentResponse<TaskView>> {
+        let Some(link) = self.site_link.clone() else {
+            return self.on_tasks(move |tasks| tasks.start(&request)).await;
+        };
+        let mut prepared = link.prepare(&mut request).await;
+        let mut reply = self.start_once(request.clone()).await?;
+        if refused_flow(&reply)
+            && let Some(reusing) = prepared.as_mut().filter(|reusing| reusing.reuses_plan())
+        {
+            link.refused(reusing).await;
+            request.flow = None;
+            reply = self.start_once(request).await?;
+        }
+        if let (Some(prepared), Some(view)) = (prepared, reply.data.as_ref()) {
+            link.follow(&view.id, prepared);
+        }
+        self.learn_from(&reply).await;
+        Ok(reply)
+    }
+
+    async fn start_once(
+        &self,
+        request: StartTaskRequest,
+    ) -> TinyBusResult<AgentResponse<TaskView>> {
+        self.on_tasks(move |tasks| tasks.start(&request)).await
+    }
+
+    /// Learns from `reply`'s task once it has ended.
+    pub(super) async fn learn_from(&self, reply: &AgentResponse<TaskView>) {
+        let (Some(link), Some(view)) = (&self.site_link, reply.data.as_ref()) else {
+            return;
+        };
+        let tasks = self.tasks.clone();
+        link.learn(view, |id| tasks.report(id)).await;
     }
 }

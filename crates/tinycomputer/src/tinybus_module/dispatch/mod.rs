@@ -48,6 +48,7 @@ use tinycomputer_bus::agent::{
 };
 
 use super::runner::jev_not_configured;
+use super::site_memory::SiteLink;
 use crate::Desktop;
 use tinycomputer_browser::{
     Action, Browser, DownloadWaitRequest, EvaluateRequest, NavigateRequest, OutputRequest,
@@ -75,6 +76,8 @@ pub(crate) struct DesktopService {
     /// `BrowserOpenSession` wherever the caller left them unset.
     browser_defaults: crate::tinybus_module::config::BrowserDefaults,
     accessibility: Arc<accessibility::Access>,
+    /// The host's per-site memory, when the module was set up on a bus.
+    site_link: Option<Arc<SiteLink>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.Desktop")]
@@ -149,7 +152,7 @@ impl DesktopService {
         &self,
         request: StartTaskRequest,
     ) -> TinyBusResult<AgentResponse<TaskView>> {
-        self.on_tasks(move |tasks| tasks.start(&request)).await
+        self.start_remembering(request).await
     }
 
     /// Waits until a task needs something, finishes, or the timeout passes.
@@ -157,7 +160,9 @@ impl DesktopService {
         &self,
         request: AwaitTaskRequest,
     ) -> TinyBusResult<AgentResponse<TaskView>> {
-        Ok(self.tasks.await_task(request).await)
+        let reply = self.tasks.await_task(request).await;
+        self.learn_from(&reply).await;
+        Ok(reply)
     }
 
     /// Answers what a paused task asked for, and resumes it.
@@ -166,13 +171,23 @@ impl DesktopService {
         &self,
         request: ContinueTaskRequest,
     ) -> TinyBusResult<AgentResponse<TaskView>> {
-        self.on_tasks(move |tasks| tasks.continue_task(request))
-            .await
+        if let Some(link) = &self.site_link {
+            link.note_inputs(&request.id, &request.inputs);
+        }
+        let reply = self
+            .on_tasks(move |tasks| tasks.continue_task(request))
+            .await?;
+        self.learn_from(&reply).await;
+        Ok(reply)
     }
 
     /// Stops a task.
     async fn cancel_task(&self, request: TaskRef) -> TinyBusResult<AgentResponse<TaskView>> {
-        self.on_tasks(move |tasks| tasks.cancel(&request.id)).await
+        let reply = self
+            .on_tasks(move |tasks| tasks.cancel(&request.id))
+            .await?;
+        self.learn_from(&reply).await;
+        Ok(reply)
     }
 
     /// Everything a task did.

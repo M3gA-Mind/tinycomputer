@@ -22,6 +22,7 @@
 mod config;
 mod dispatch;
 mod runner;
+mod site_memory;
 
 use serde_json::Value;
 use tinybus::{Connection, Result as TinyBusResult};
@@ -38,6 +39,9 @@ pub(crate) use dispatch::DesktopService;
 async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
     let service = DesktopService::from_config(&config)
         .map_err(|error| tinybus::Error::failed(error.to_string()))?;
+    // The host's per-site memory; a host that does not serve it only costs
+    // tasks what earlier ones learned.
+    let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
     #[cfg(test)]
     let service = service.with_native_fixture();
     service.sweep_outputs();
@@ -82,7 +86,7 @@ tinybus_module::module_export_optional_static! {
     ],
     signals = [],
     requires = [],
-    optional = [],
+    optional = ["ai.tinyhumans.tinycomputer.SiteMemoryHost"],
     lazy = false,
 }
 
