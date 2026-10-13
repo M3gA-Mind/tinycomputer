@@ -58,7 +58,7 @@ fn expected_schemas() -> Vec<(DesktopTool, serde_json::Value)> {
                     "required":["kind"]},"description":"All predicates must match a fresh accessibility observation before completion. name_contains requires fragment and within"},
                 "max_steps":{"type":"integer","minimum":1,"maximum":20},
                 "max_model_calls":{"type":"integer","minimum":1,"maximum":40},
-                "max_elapsed_ms":{"type":"integer","minimum":1000,"maximum":300000}},
+                "max_elapsed_ms":{"type":"integer","minimum":1000,"maximum":300_000}},
                 "required":["app","goal","allowed_operations","allowed_targets","success"],"additionalProperties":false}),
         ),
         (
