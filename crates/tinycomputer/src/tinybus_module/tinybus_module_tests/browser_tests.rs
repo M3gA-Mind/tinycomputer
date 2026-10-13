@@ -377,7 +377,10 @@ async fn a_profile_is_claimed_once_and_free_again_after_release() -> tinybus::Re
 
     let fresh = call(&proxy, methods::CLAIM_PROFILE, json!({"path": path})).await?;
     assert_eq!(data(&fresh)["outcome"], "fell_back_to_fresh");
-    let fresh_path = data(&fresh)["path"].as_str().expect("a fresh path").to_owned();
+    let fresh_path = data(&fresh)["path"]
+        .as_str()
+        .expect("a fresh path")
+        .to_owned();
     assert_ne!(fresh_path, path);
     let _ = std::fs::remove_dir_all(&fresh_path);
 

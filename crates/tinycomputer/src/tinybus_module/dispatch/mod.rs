@@ -771,7 +771,7 @@ impl DesktopService {
     }
 
     /// Gives up a profile claim.
-    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+    #[allow(clippy::unused_async)]
     async fn browser_release_profile(
         &self,
         request: tinycomputer_bus::browser::ReleaseProfileRequest,

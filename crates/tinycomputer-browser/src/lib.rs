@@ -37,8 +37,8 @@ mod fake;
 #[cfg(feature = "agent-browser")]
 mod linked;
 mod origins;
-mod profile_lock;
 mod outputs;
+mod profile_lock;
 mod reply;
 mod sessions;
 mod surface;

@@ -95,10 +95,12 @@ fn desktop_arguments_reject_missing_or_blank_required_values() {
         "TextEdit"
     );
     for args in [json!({}), json!({"app":"  "}), json!({"app":42})] {
-        assert!(required(&args, "app")
-            .unwrap_err()
-            .to_string()
-            .contains("missing required parameter: app"));
+        assert!(
+            required(&args, "app")
+                .unwrap_err()
+                .to_string()
+                .contains("missing required parameter: app")
+        );
     }
 }
 
@@ -125,7 +127,9 @@ fn raw_ref_action_requires_a_snapshot_ref_and_declares_a_write_effect() {
     assert_eq!(schema["required"], json!(["operation", "ref_id"]));
     assert_eq!(
         schema["properties"]["operation"]["enum"],
-        json!(["click", "focus", "type", "check", "uncheck", "expand", "collapse"])
+        json!([
+            "click", "focus", "type", "check", "uncheck", "expand", "collapse"
+        ])
     );
     assert!(schema["properties"].get("args").is_none());
     assert!(schema["properties"].get("env").is_none());
@@ -165,9 +169,11 @@ fn act_maps_each_operation_to_its_member() {
 
 #[test]
 fn snapshot_can_bind_the_window_listed_by_desktop() {
-    assert!(DesktopTool::Snapshot.parameters_schema()["properties"]
-        .get("window_id")
-        .is_some());
+    assert!(
+        DesktopTool::Snapshot.parameters_schema()["properties"]
+            .get("window_id")
+            .is_some()
+    );
     let (member, request) =
         snapshot_request(&json!({"app":"TextEdit","window_id":"w-515619"})).unwrap();
     assert_eq!(member, names::methods::SNAPSHOT);
@@ -251,10 +257,12 @@ fn goal_request_carries_scoped_task_and_disables_confirmations() {
 
     let without_targets = json!({"app":"TextEdit","goal":"type", "allowed_operations":["TYPE_TEXT"],
         "success":[{"kind":"name_present","name":"Text Entry Area"}]});
-    assert!(goal_request(&without_targets, false)
-        .unwrap_err()
-        .to_string()
-        .contains("needs_inspection"));
+    assert!(
+        goal_request(&without_targets, false)
+            .unwrap_err()
+            .to_string()
+            .contains("needs_inspection")
+    );
     let mut blank_target = without_targets.clone();
     blank_target["allowed_targets"] = json!(["  "]);
     assert!(goal_request(&blank_target, false).is_err());

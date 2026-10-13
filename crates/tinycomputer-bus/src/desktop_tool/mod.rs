@@ -8,11 +8,11 @@
 //! function below, and sends it to the member the request names. Nothing here
 //! performs I/O.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{
-    names, FindRequest, LaunchRequest, ListAppsRequest, ListWindowsRequest, RefRequest,
-    RunGoalRequest, SnapshotRequest, TypeRequest, VisiblePredicate,
+    FindRequest, LaunchRequest, ListAppsRequest, ListWindowsRequest, RefRequest, RunGoalRequest,
+    SnapshotRequest, TypeRequest, VisiblePredicate, names,
 };
 
 /// The tool family every desktop tool belongs to.
