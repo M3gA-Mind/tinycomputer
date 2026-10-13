@@ -152,7 +152,7 @@ Two distinctions worth knowing:
   autocomplete or search-as-you-type box depends on, which a bulk value
   assignment skips entirely.
 - **Keys go only where an action points.** `Focus`, `Fill`, and `Type` and
-  `Press` with a `target` (a press's target is optional, from 2.17) are
+  `Press` with a `target` (a press's target is optional, from 2.18) are
   refused, `NOT_ACTIONABLE`, unless the page's focus lands on the target,
   rather than sending keys to whichever element last had the focus. `Type`
   and `Press` without a target go wherever the focus is.

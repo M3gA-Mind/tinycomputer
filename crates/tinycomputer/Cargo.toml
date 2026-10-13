@@ -27,6 +27,8 @@ getrandom = "0.4"
 # takes one dependency rather than two, and so `tinycomputer::SnapshotRequest`
 # and `tinycomputer_bus::SnapshotRequest` are the same type.
 tinycomputer-bus = { workspace = true }
+# The per-site memory rules (reuse, fact filtering, expiry) a task is run under.
+tinycomputer-core = { workspace = true }
 # The agent-desktop adapter. `Desktop`, `Error`, and `Result` are re-exported.
 tinycomputer-desktop = { workspace = true }
 # The agent runtime behind the agentic and task members: Jev loops, goals,

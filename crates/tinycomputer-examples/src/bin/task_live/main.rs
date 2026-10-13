@@ -161,6 +161,7 @@ async fn main() -> Result<(), LabError> {
             trace: true,
             output,
             memory,
+            site: None,
         })
         .await?;
     let limit = Duration::from_secs(

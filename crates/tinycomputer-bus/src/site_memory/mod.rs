@@ -101,6 +101,13 @@ pub struct LoadSiteResponse {
     /// What is kept; empty for a site with nothing.
     #[serde(default)]
     pub memory: SiteMemory,
+    /// Counts the times the site was forgotten (`Forget`). The module sends
+    /// back the value it loaded with its `Save`, and the host refuses a save
+    /// whose epoch is no longer current, so a task that was running when its
+    /// site was forgotten cannot write it back. A host that never forgets
+    /// under a running task may always answer `0`.
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 /// `Save`: replaces one site's memory.
@@ -110,12 +117,17 @@ pub struct SaveSiteRequest {
     pub site: String,
     /// What to keep; empty removes the site.
     pub memory: SiteMemory,
+    /// The `epoch` the site was loaded with; see [`LoadSiteResponse::epoch`].
+    #[serde(default)]
+    pub epoch: u64,
 }
 
 /// The reply to `Save`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveSiteResponse {
-    /// Whether the host holds the memory as sent.
+    /// Whether the host holds the memory as sent. `false` when the host
+    /// refused it: too large, learning switched off, or the site forgotten
+    /// since it was loaded (a stale `epoch`).
     pub saved: bool,
 }
 

@@ -38,3 +38,26 @@ fn forgetting_without_a_site_means_every_site() {
     let request: ForgetSiteRequest = serde_json::from_str("{}").unwrap();
     assert_eq!(request.site, None);
 }
+
+#[test]
+fn an_epoch_is_optional_on_the_wire() {
+    let load: LoadSiteResponse = serde_json::from_str(r#"{"memory":{}}"#).unwrap();
+    assert_eq!(load.epoch, 0);
+    let save: SaveSiteRequest =
+        serde_json::from_str(r#"{"site":"example.com","memory":{}}"#).unwrap();
+    assert_eq!(save.epoch, 0);
+    let save: SaveSiteRequest =
+        serde_json::from_str(r#"{"site":"example.com","memory":{},"epoch":3}"#).unwrap();
+    assert_eq!(save.epoch, 3);
+}
+
+#[test]
+fn a_start_task_site_is_optional_and_left_out_when_absent() {
+    use crate::agent::StartTaskRequest;
+    let request: StartTaskRequest = serde_json::from_str("{}").unwrap();
+    assert_eq!(request.site, None);
+    let json = serde_json::to_value(&request).unwrap();
+    assert!(json.get("site").is_none());
+    let request: StartTaskRequest = serde_json::from_str(r#"{"site":"example.com"}"#).unwrap();
+    assert_eq!(request.site.as_deref(), Some("example.com"));
+}
