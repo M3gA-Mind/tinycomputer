@@ -758,4 +758,28 @@ impl DesktopService {
                 .await,
         ))
     }
+
+    /// Claims a persistent profile folder for a browser about to start.
+    async fn browser_claim_profile(
+        &self,
+        request: tinycomputer_bus::browser::ClaimProfileRequest,
+    ) -> TinyBusResult<DesktopResponse> {
+        Ok(browser_reply(
+            "browser-claim-profile",
+            Ok(tinycomputer_browser::claim_profile(&request).await),
+        ))
+    }
+
+    /// Gives up a profile claim.
+    #[allow(unknown_lints, clippy::unused_async, clippy::unused_async_trait_impl)]
+    async fn browser_release_profile(
+        &self,
+        request: tinycomputer_bus::browser::ReleaseProfileRequest,
+    ) -> TinyBusResult<DesktopResponse> {
+        tinycomputer_browser::release_profile(std::path::Path::new(&request.path));
+        Ok(browser_reply(
+            "browser-release-profile",
+            Ok(serde_json::json!({"path": request.path, "released": true})),
+        ))
+    }
 }

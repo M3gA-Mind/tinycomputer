@@ -119,6 +119,20 @@ pub mod methods {
     /// [`crate::browser::DownloadWaitRequest`]; its `data` is a
     /// [`crate::browser::DownloadInfo`].
     pub const WAIT_DOWNLOAD: &str = "BrowserWaitDownload";
+
+    /// Claims a persistent profile folder for a browser about to start,
+    /// waiting for a closing Chrome that holds it.
+    ///
+    /// Takes a [`crate::browser::ClaimProfileRequest`]; its `data` is a
+    /// [`crate::browser::ClaimProfileResponse`].
+    pub const CLAIM_PROFILE: &str = "BrowserClaimProfile";
+
+    /// Gives up a profile claim. Releasing a folder that is not claimed
+    /// succeeds.
+    ///
+    /// Takes a [`crate::browser::ReleaseProfileRequest`]; its `data` is
+    /// `{"path": path, "released": true}`.
+    pub const RELEASE_PROFILE: &str = "BrowserReleaseProfile";
 }
 
 /// Every browser member of [`INTERFACE`], in dispatch order.
@@ -136,6 +150,8 @@ pub const METHODS: &[&str] = &[
     methods::RELEASE_OUTPUT,
     methods::LIST_DOWNLOADS,
     methods::WAIT_DOWNLOAD,
+    methods::CLAIM_PROFILE,
+    methods::RELEASE_PROFILE,
 ];
 
 #[cfg(test)]

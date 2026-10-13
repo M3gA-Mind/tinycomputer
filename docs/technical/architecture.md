@@ -183,7 +183,7 @@ members share it; their names do not collide.
 | Primitives | `Snapshot`, `Click`, `SetValue`, `Press`, `Launch`, … (54 desktop members) | the caller | the caller | the caller already knows the interface, or wants full control |
 | Goals and flows | `ResolveIntent`, `RunGoal`, `RunFlow`, `ValidateFlow`, `FlowGuide` | the caller (a flow) or nobody (a goal) | Jev | the caller knows what it wants but not the interface |
 | Tasks | `Describe`, `PlanTask`, `StartTask`, `AwaitTask`, `ContinueTask`, `CancelTask`, `TaskReport`, `ListTasks` | the caller or the planner | Jev | an outside agent wants a job done, across the browser and desktop apps, with pauses for approvals |
-| Browser primitives | `BrowserOpenSession`, `BrowserNavigate`, `BrowserSnapshot`, `BrowserPerform`, `BrowserReadPage`, `BrowserScreenshot`, `BrowserReadOutput`, … (13 members) | the caller | the caller | the caller wants to drive a web page itself, or inspect a task's session |
+| Browser primitives | `BrowserOpenSession`, `BrowserNavigate`, `BrowserSnapshot`, `BrowserPerform`, `BrowserReadPage`, `BrowserScreenshot`, `BrowserReadOutput`, … (15 members) | the caller | the caller | the caller wants to drive a web page itself, or inspect a task's session |
 
 `Describe` returns all four levels as `Capabilities.catalogue`: every member,
 its family, and one sentence on what it is for.

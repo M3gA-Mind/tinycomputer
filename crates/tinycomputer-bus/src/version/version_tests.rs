@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 12));
+    assert_eq!(CONTRACT_VERSION, (2, 16));
 }
 
 #[test]
@@ -16,13 +16,22 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 12)));
+    assert!(is_compatible((2, 16)));
     assert!(is_compatible((2, 97)));
     // 2.12 adds replayable GlobeRead and joined terminal GlobeShutdown.
     // A 2.11 module does not implement those members.
     // 2.10 gives `StartTask` constraints `browser_executable` and
     // `browser_profile`, and `*` among the origins: a 2.10 host may send
     // them, which a 2.9 module would ignore, or hand `*` to its engine.
+    // 2.13 adds the SiteMemoryHost host-callback interface (Load/Save/Forget):
+    // a 2.13 host serves it, which a 2.12 module does not call.
+    // 2.14 adds BrowserClaimProfile and BrowserReleaseProfile.
+    // 2.15 adds browser::tool: the recorded `browser` tool schema and ToolArgs.
+    // 2.16 adds desktop_tool: the eight desktop tool declarations and request builders.
+    assert!(!is_compatible((2, 15)));
+    assert!(!is_compatible((2, 14)));
+    assert!(!is_compatible((2, 13)));
+    assert!(!is_compatible((2, 12)));
     assert!(!is_compatible((2, 11)));
     // 2.9 gives `RunFlow` and its result `dialog_left_open`: a 2.9 host may
     // send it, which a 2.8 module would ignore.
