@@ -251,7 +251,7 @@ async fn a_reused_plan_that_fails_is_forgotten_and_a_running_task_stays_followed
         |_| panic!("no report for a failed task"),
     )
     .await;
-    assert!(host.memory("shop.test").plans.is_empty());
+    assert_eq!(host.memory("shop.test").plans.len(), 0);
 }
 
 #[tokio::test]
@@ -270,7 +270,7 @@ async fn a_refused_plan_is_forgotten_so_the_task_is_planned_afresh() {
     assert!(prepared.reuses_plan());
     link.refused(&mut prepared).await;
     assert!(!prepared.reuses_plan());
-    assert!(host.memory("shop.test").plans.is_empty());
+    assert_eq!(host.memory("shop.test").plans.len(), 0);
 }
 
 #[tokio::test]
@@ -284,7 +284,7 @@ async fn values_given_to_a_paused_task_are_not_kept() {
     link.note_inputs(&id, &BTreeMap::from([("code".into(), "Zanzibar77".into())]));
     let report = report_of("t1", json!([hint("k1", "Zanzibar77 button")]), json!([]));
     link.learn(&done("t1"), |_| report).await;
-    assert!(host.memory("shop.test").hints.is_empty());
+    assert_eq!(host.memory("shop.test").hints.len(), 0);
 }
 
 #[tokio::test]
