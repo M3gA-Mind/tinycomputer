@@ -127,6 +127,7 @@ pub mod interaction;
 pub mod names;
 pub mod notifications;
 pub mod observation;
+pub mod site_memory;
 pub mod system;
 pub mod version;
 pub mod vocabulary;
