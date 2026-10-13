@@ -82,7 +82,7 @@ fn every_tool_is_listed_once_and_round_trips_its_name() {
     assert_eq!(expected_schemas().len(), DesktopTool::ALL.len());
     for tool in DesktopTool::ALL {
         assert_eq!(DesktopTool::from_name(tool.name()), Some(tool));
-        assert!(!tool.description().is_empty());
+        assert_ne!(tool.description(), "");
         assert_ne!(tool.parameters_schema(), Value::Null);
     }
     assert_eq!(DesktopTool::from_name("desktop_nope"), None);
