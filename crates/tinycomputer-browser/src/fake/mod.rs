@@ -12,13 +12,32 @@ use crate::engine::{Engine, Launcher, Reply};
 type Script = dyn Fn(&Value) -> Option<Value> + Send + Sync;
 type Stall = dyn Fn(&Value) -> bool + Send + Sync;
 
-/// Records every command; answers from an optional override, else like the
-/// engine would, and never answers a command it is told to stall on.
+/// Where a page puts the focus once an element is given it, as the focus
+/// check (`sessions/focus.rs`) reads it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PageFocus {
+    /// On the element: every element named takes it. The default.
+    OnTarget,
+    /// On another element, by its tag.
+    Elsewhere(&'static str),
+    /// On nothing: the element took none, and nothing else holds it.
+    Nowhere,
+    /// Inside a cross-origin frame, which the page cannot see into.
+    InAFrame,
+    /// On the element, whose ref the engine no longer resolves when asked
+    /// for its mark.
+    Stale,
+}
+
+/// Records every command; answers the focus check as its page's focus says,
+/// the rest from an optional override, else like the engine would, and never
+/// answers a command it is told to stall on.
 #[derive(Clone)]
 pub(crate) struct Fake {
     sent: Arc<Mutex<Vec<Value>>>,
     script: Arc<Script>,
     stall: Arc<Stall>,
+    focus: PageFocus,
 }
 
 impl std::fmt::Debug for Fake {
@@ -39,7 +58,15 @@ impl Fake {
             sent: Arc::new(Mutex::new(Vec::new())),
             script: Arc::new(script),
             stall: Arc::new(|_| false),
+            focus: PageFocus::OnTarget,
         }
+    }
+
+    /// The same fake, its page putting the focus where `focus` says once an
+    /// element is given it.
+    pub(crate) fn with_focus(mut self, focus: PageFocus) -> Self {
+        self.focus = focus;
+        self
     }
 
     /// The same fake, never answering a command `stall` picks, as a page
@@ -149,9 +176,59 @@ impl Engine for Fake {
         if (self.stall)(&command) {
             return Box::pin(std::future::pending());
         }
-        let reply = (self.script)(&command).unwrap_or_else(|| default_reply(&command));
+        let reply = self
+            .focus_reply(&command)
+            .or_else(|| (self.script)(&command))
+            .unwrap_or_else(|| default_reply(&command));
         Box::pin(async move { reply })
     }
+}
+
+impl Fake {
+    /// The page's answer to the focus check (`sessions/focus.rs`): where
+    /// the marking script finds the focus, and the target's mark.
+    fn focus_reply(&self, command: &Value) -> Option<Value> {
+        let script = command["script"].as_str().unwrap_or_default();
+        if command["action"] == "evaluate" && script.contains("setAttribute('data-tc-focus'") {
+            let found = match self.focus {
+                PageFocus::OnTarget | PageFocus::Stale => {
+                    json!({"focus": "element", "on": "input"})
+                }
+                PageFocus::Elsewhere(tag) => json!({"focus": "element", "on": tag}),
+                PageFocus::Nowhere => json!({"focus": "none", "on": "nothing"}),
+                PageFocus::InAFrame => json!({"focus": "frame", "on": "a frame"}),
+            };
+            return Some(ok(&json!({"result": found})));
+        }
+        if command["action"] == "getattribute" && command["attribute"] == "data-tc-focus" {
+            let target = command["selector"].as_str().unwrap_or_default();
+            return Some(match self.focus {
+                PageFocus::OnTarget => {
+                    let sent = self.sent.lock().unwrap();
+                    let mark = sent
+                        .iter()
+                        .rev()
+                        .find_map(|earlier| focus_mark(earlier["script"].as_str()?));
+                    ok(&json!({"value": mark}))
+                }
+                PageFocus::Stale => {
+                    failure(&format!("Unknown ref: {}", target.trim_start_matches('@')))
+                }
+                _ => ok(&json!({"value": null})),
+            });
+        }
+        None
+    }
+}
+
+/// The mark value a focus-marking script was called with, if `script` is one.
+pub(crate) fn focus_mark(script: &str) -> Option<String> {
+    if !script.contains("setAttribute('data-tc-focus'") {
+        return None;
+    }
+    let start = script.rfind("(\"tc-")? + 2;
+    let end = start + script[start..].find('"')?;
+    Some(script[start..end].to_owned())
 }
 
 impl Launcher for Fake {

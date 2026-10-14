@@ -15,6 +15,7 @@ use super::Browser;
 use crate::fake::Fake;
 
 mod artifacts_tests;
+mod focus_tests;
 mod lifecycle_tests;
 mod origins_tests;
 mod page_tests;

@@ -120,6 +120,7 @@ async fn actions_return_read_values_and_the_page_they_left() {
             &id,
             Action::Press {
                 key: "Enter".to_owned(),
+                target: None,
             },
         )
         .await

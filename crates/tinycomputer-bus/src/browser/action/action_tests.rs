@@ -125,6 +125,40 @@ fn typing_defaults_to_the_focused_element() {
 }
 
 #[test]
+fn a_press_carries_its_target_only_when_it_has_one() {
+    let untargeted = Action::Press {
+        key: "Enter".to_string(),
+        target: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&untargeted).expect("serializes"),
+        json!({ "action": "press", "key": "Enter" })
+    );
+    assert_eq!(
+        serde_json::from_value::<Action>(json!({ "action": "press", "key": "Enter" }))
+            .expect("deserializes"),
+        untargeted
+    );
+    let targeted = Action::Press {
+        key: " ".to_string(),
+        target: Some(Target::reference("e5")),
+    };
+    let encoded = json!({
+        "action": "press",
+        "key": " ",
+        "target": { "kind": "ref", "value": "e5" },
+    });
+    assert_eq!(
+        serde_json::to_value(&targeted).expect("serializes"),
+        encoded
+    );
+    assert_eq!(
+        serde_json::from_value::<Action>(encoded).expect("deserializes"),
+        targeted
+    );
+}
+
+#[test]
 fn wait_for_defaults_to_waiting_for_visibility() {
     let action: Action = serde_json::from_value(json!({
         "action": "wait_for",

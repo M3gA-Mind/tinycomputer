@@ -70,7 +70,12 @@ engine's argument types, the permission preflight, and the bus surface.
   `not_delivered`; every other failure's delivery is `unknown`. The members share
   one `Browser` with the task runner, so `BrowserReadOutput` reads a
   screenshot in a task's `TaskReport.artifacts` (never in a task view) and
-  `BrowserListSessions` shows a task's session. The `ai.tinyhumans.tinycomputer.Browser` interface and its
+  `BrowserListSessions` shows a task's session. `BrowserPerform` sends keys
+  only where an action points (2.18 gives `Press` an optional `target`): a
+  `Focus`, a `Fill`, a `Type` with a target, and a `Press` with one first take
+  the page's focus off whatever holds it, give it to the target, and check it
+  landed there, or fail `NOT_ACTIONABLE` with nothing typed or pressed; a
+  2.17 module ignores a press's `target`. The `ai.tinyhumans.tinycomputer.Browser` interface and its
   unprefixed names, never served by any release, are retired; the error
   names keep that prefix because they are published values, not members.
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with

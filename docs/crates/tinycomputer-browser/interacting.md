@@ -21,7 +21,9 @@ the same `convert` functions and the same agent-browser engine:
 
 This page is mostly about the second path, because it is where the
 interesting behavior lives. The direct path is a straightforward
-`Action → JSON command` mapping in `convert/interaction.rs`, with no logic of its own.
+`Action → JSON command` mapping in `convert/interaction.rs`, with no logic of its own
+beyond the focus check every action that sends keys passes first (see "Keys go only
+where an action points").
 
 ## Targets: ref, selector, or locator
 
@@ -169,6 +171,38 @@ up. Selecting is idempotent, so pressing an already-selected element a
 second time is harmless; a checkbox, which *toggles* rather than selects,
 is never pressed this way.
 
+## Keys go only where an action points
+
+agent-browser types and presses into whatever holds the keyboard focus. It
+asks the target to take the focus first, but an element that takes none (a
+heading, a label) leaves the focus where it was, so text typed "into" a
+heading lands in the field filled before it, a card number say, and a key
+pressed on one presses whatever button last had the focus.
+
+So `Browser::perform` checks first (`sessions/focus.rs`), for `Focus`,
+`Fill`, `Type` with a target, and `Press` with a target:
+
+1. It takes the focus off whatever holds it, reaching through open shadow
+   roots and same-origin frames.
+2. It gives the target the focus (agent-browser's `focus`).
+3. It marks the elements now holding the focus with a fresh random value
+   (`data-tc-focus`) and asks agent-browser for that attribute on the
+   target, which resolves the target in its own frame. Only the target, or
+   a shadow host around it, carries the mark. The marks come off again
+   either way.
+4. If the mark is not on the target, the action fails with
+   `Error::FocusMissed` (`NOT_ACTIONABLE` on the wire, naming only the tag
+   that holds the focus) and nothing is typed or pressed.
+
+Two limits. Inside a cross-origin frame (a payment provider's card field)
+the page cannot see where the focus is; with the focus taken off everything
+first, it can only be there because the target took it, so that goes ahead.
+And a page's own scripts run between these steps and could fool the check:
+it stops mistakes, not a page set on defeating it. A locator's `Fill`, which
+only agent-browser resolves, cannot be checked; the focus is taken off
+whatever held it first, so its text lands in the field or nowhere. `Type`
+and `Press` without a target still go wherever the focus is.
+
 ## Typing text
 
 There are two distinct actions, on purpose:
@@ -206,7 +240,9 @@ the same `NOT_A_TEXT_FIELD` case as typing.
 
 ## Pressing keys
 
-`Action::Press` sends one key or chord (`Enter`, `Tab`, `Control+a`).
+`Action::Press` sends one key or chord (`Enter`, `Tab`, `Control+a`), to
+whatever has the focus, or, with a `target`, to that element once the focus
+is checked to be on it (see "Keys go only where an action points").
 `BrowserSurface::press` takes a logical combo string like `cmd+a` or
 `return` and spells it the way agent-browser expects (`browser_key` in
 `surface/operations.rs`): the logical `cmd` becomes whichever platform key

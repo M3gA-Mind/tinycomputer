@@ -104,6 +104,28 @@ fn click_fill_and_type_parse_their_targets() {
 }
 
 #[test]
+fn a_press_takes_the_selector_as_its_target_when_one_is_given() {
+    assert_eq!(
+        args(json!({"action":"press","key":"Enter"}))
+            .to_action()
+            .unwrap(),
+        Action::Press {
+            key: "Enter".into(),
+            target: None
+        }
+    );
+    assert_eq!(
+        args(json!({"action":"press","key":"Enter","selector":"@e5"}))
+            .to_action()
+            .unwrap(),
+        Action::Press {
+            key: "Enter".into(),
+            target: Some(Target::parse("@e5"))
+        }
+    );
+}
+
+#[test]
 fn a_blank_required_parameter_is_missing() {
     let err = args(json!({"action":"click","selector":"  "}))
         .to_action()
