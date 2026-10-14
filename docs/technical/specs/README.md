@@ -20,6 +20,8 @@ After the specification is accepted, create a linked implementation plan in
 [`../plans/`](../plans/README.md). Keep code snippets small enough to clarify
 the contract; production code still belongs under `src/`.
 
+See [`process-containment.md`](process-containment.md) for which spawned processes the host cannot contain.
+
 See [`desktop-module-contract.md`](desktop-module-contract.md) for a complete
 example, [`jev-intent-flows.md`](jev-intent-flows.md) for the flow runtime, and
 [`unified-agent.md`](unified-agent.md) for browser and desktop behind one task API,
