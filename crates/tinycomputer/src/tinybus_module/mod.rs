@@ -20,6 +20,7 @@
 //! an `await`.
 
 mod config;
+mod consequence_gate;
 mod dispatch;
 mod runner;
 mod site_memory;
@@ -42,6 +43,10 @@ async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
     // The host's per-site memory; a host that does not serve it only costs
     // tasks what earlier ones learned.
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
+    // The host's consequence review; a host that does not serve it leaves a
+    // task's own approval pause as the only gate.
+    let service = service
+        .with_consequence_review(Box::new(consequence_gate::BusPort::new(connection.clone())));
     #[cfg(test)]
     let service = service.with_native_fixture();
     service.sweep_outputs();
@@ -86,7 +91,10 @@ tinybus_module::module_export_optional_static! {
     ],
     signals = [],
     requires = [],
-    optional = ["ai.tinyhumans.tinycomputer.SiteMemoryHost"],
+    optional = [
+        "ai.tinyhumans.tinycomputer.SiteMemoryHost",
+        "ai.tinyhumans.tinycomputer.ConsequenceHost",
+    ],
     lazy = false,
 }
 

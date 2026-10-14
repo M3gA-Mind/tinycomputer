@@ -6,13 +6,15 @@ use std::sync::Arc;
 use tinybus::{Error as TinyBusError, Result as TinyBusResult};
 use tinycomputer_browser::{AgentBrowser, Browser};
 use tinycomputer_bus::agent::{
-    AgentResponse, StartTaskRequest, SurfaceAvailability, SurfaceKind, TaskView,
+    AgentResponse, ContinueTaskRequest, StartTaskRequest, SurfaceAvailability, SurfaceKind,
+    TaskStatus, TaskView,
 };
 use tinycomputer_bus::{DesktopResponse, JevConfig};
 use tinycomputer_engine as agentic;
 
 use super::DesktopService;
 use crate::tinybus_module::config::{BrowserDefaults, cursor_config};
+use crate::tinybus_module::consequence_gate::{ConsequenceLink, ConsequencePort};
 use crate::tinybus_module::runner::WorkspaceRunner;
 use crate::tinybus_module::site_memory::{SiteLink, SiteMemoryPort, refused_flow};
 use crate::{Desktop, Result};
@@ -91,6 +93,7 @@ impl DesktopService {
             browser_defaults,
             accessibility: Arc::new(super::accessibility::Access::default()),
             site_link: None,
+            consequence_link: None,
         })
     }
 
@@ -211,6 +214,43 @@ impl DesktopService {
     pub(crate) fn with_site_memory(mut self, port: Box<dyn SiteMemoryPort>) -> Self {
         self.site_link = Some(Arc::new(SiteLink::new(port)));
         self
+    }
+
+    /// Has the host rule on actions its tasks are approved to take, through
+    /// `port`, the host's `ConsequenceHost`.
+    pub(crate) fn with_consequence_review(mut self, port: Box<dyn ConsequencePort>) -> Self {
+        self.consequence_link = Some(Arc::new(ConsequenceLink::new(port)));
+        self
+    }
+
+    /// Before an approval reaches the task, asks the host whether the action
+    /// it is paused on may go ahead. A denial turns the approval into a
+    /// decline, so the task never takes the action; an approval of nothing
+    /// pending, a decline, or a host that does not review actions passes
+    /// through unchanged.
+    pub(super) async fn review_approval(
+        &self,
+        request: &mut ContinueTaskRequest,
+    ) -> TinyBusResult<()> {
+        let Some(link) = self.consequence_link.clone() else {
+            return Ok(());
+        };
+        if request.approve != Some(true) {
+            return Ok(());
+        }
+        let id = request.id.clone();
+        let listed = self.on_tasks(agentic::Tasks::list).await?;
+        let paused = listed
+            .data
+            .unwrap_or_default()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| match view.status {
+                TaskStatus::NeedsApproval { action, target, .. } => Some((action, target)),
+                _ => None,
+            });
+        link.screen(request, paused).await;
+        Ok(())
     }
 
     /// Starts a task with what earlier tasks on its `site` left, and follows
