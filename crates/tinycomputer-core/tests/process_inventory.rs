@@ -2,6 +2,8 @@
 //! `docs/technical/specs/process-containment.md`, so a new one cannot slip in
 //! unsandboxable without a documented decision.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
