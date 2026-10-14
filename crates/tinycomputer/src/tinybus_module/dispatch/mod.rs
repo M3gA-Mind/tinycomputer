@@ -47,6 +47,7 @@ use tinycomputer_bus::agent::{
     TaskReportRequest, TaskView,
 };
 
+use super::consequence_gate::ConsequenceLink;
 use super::runner::jev_not_configured;
 use super::site_memory::SiteLink;
 use crate::Desktop;
@@ -78,6 +79,8 @@ pub(crate) struct DesktopService {
     accessibility: Arc<accessibility::Access>,
     /// The host's per-site memory, when the module was set up on a bus.
     site_link: Option<Arc<SiteLink>>,
+    /// The host's consequence review, when the module was set up on a bus.
+    consequence_link: Option<Arc<ConsequenceLink>>,
 }
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.Desktop")]
@@ -169,11 +172,12 @@ impl DesktopService {
     #[tinybus(confidential)]
     async fn continue_task(
         &self,
-        request: ContinueTaskRequest,
+        mut request: ContinueTaskRequest,
     ) -> TinyBusResult<AgentResponse<TaskView>> {
         if let Some(link) = &self.site_link {
             link.note_inputs(&request.id, &request.inputs);
         }
+        self.review_approval(&mut request).await?;
         let reply = self
             .on_tasks(move |tasks| tasks.continue_task(request))
             .await?;

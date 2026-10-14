@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 18));
+    assert_eq!(CONTRACT_VERSION, (2, 19));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 18)));
+    assert!(is_compatible((2, 19)));
     assert!(is_compatible((2, 97)));
     // 2.12 adds replayable GlobeRead and joined terminal GlobeShutdown.
     // A 2.11 module does not implement those members.
@@ -32,6 +32,10 @@ fn a_newer_minor_on_the_module_side_binds() {
     // 2.18 gives `Press` an optional `target`, which the module focuses and
     // checks before the key goes: a 2.17 module would ignore the field and
     // press the key wherever the focus is.
+    // 2.19 adds the ConsequenceHost host-callback interface (Review): a 2.19
+    // host serves it, which a 2.18 module does not call, so its approvals
+    // would never reach the host's policy.
+    assert!(!is_compatible((2, 18)));
     assert!(!is_compatible((2, 17)));
     assert!(!is_compatible((2, 16)));
     assert!(!is_compatible((2, 15)));

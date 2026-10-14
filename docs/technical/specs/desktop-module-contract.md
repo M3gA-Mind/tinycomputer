@@ -78,6 +78,16 @@ engine's argument types, the permission preflight, and the bus surface.
   2.17 module ignores a press's `target`. The `ai.tinyhumans.tinycomputer.Browser` interface and its
   unprefixed names, never served by any release, are retired; the error
   names keep that prefix because they are published values, not members.
+
+Consequence review (2.19): a host may serve the optional
+`ai.tinyhumans.tinycomputer.ConsequenceHost` interface (`tinycomputer_bus::consequence_host`),
+one member, `Review`, taking the task, the action, the target and the module's
+classification (`irreversible` or `payment`). The module calls it from
+`ContinueTask` when `approve` is `true` and the task is paused on a
+`needs_approval`, before the approval reaches the task. A denial, or a host that
+serves the interface and fails to answer, turns the approval into a decline, so
+the task never takes the action. A host that serves nothing leaves the pause as
+the only gate. A payment checkpoint is never continuable and needs no review.
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string
