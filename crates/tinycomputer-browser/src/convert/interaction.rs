@@ -164,6 +164,42 @@ fn wait_for(
     }
 }
 
+/// The raw mouse event that moves the pointer to the window's point (`x`,
+/// `y`), as a person's hand does: whatever is on top there sees it arrive.
+#[must_use]
+pub(crate) fn move_to(x: f64, y: f64) -> Value {
+    json!({
+        "action": "mouse",
+        "eventType": "mouseMoved",
+        "x": x,
+        "y": y,
+        "button": "none",
+        "clickCount": 0,
+    })
+}
+
+/// The raw mouse events of a person's press at the window's point (`x`,
+/// `y`): the pointer moved there, then its left button pressed and
+/// released. Whatever is on top there takes the press as trusted input.
+#[must_use]
+pub(crate) fn press_at(x: f64, y: f64) -> [Value; 3] {
+    let button = |event: &str| {
+        json!({
+            "action": "mouse",
+            "eventType": event,
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        })
+    };
+    [
+        move_to(x, y),
+        button("mousePressed"),
+        button("mouseReleased"),
+    ]
+}
+
 /// The engine selector for a ref or CSS target.
 ///
 /// # Errors
