@@ -2,10 +2,13 @@
 //! pressing, hovering, and refusing the `d` refs it hands out, over a
 //! scripted engine.
 
-use serde_json::{Value, json};
-use tinycomputer_bus::browser::{Action, SnapshotRequest, Target};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::deep_page::{TREE, click, mouse, op, ops, page, shown};
+use serde_json::json;
+use tinycomputer_bus::browser::{Action, NavigateRequest, SnapshotRequest, Target};
+
+use super::deep_page::{TREE, click, mouse, op, ops, options, page, shown};
 use super::open;
 use crate::error::Error;
 use crate::fake::{Fake, failure, ok};
@@ -29,24 +32,19 @@ async fn a_snapshot_lists_the_deep_controls_with_refs_of_their_own() {
         .map(|element| element.id.as_str())
         .collect();
     assert_eq!(ids, ["e1", "d1", "d2"]);
-    // The next look keeps the numbers handed out, and mints past them.
+    // The next look keeps the numbers handed out on what still shows the
+    // same words, and mints past them.
     browser
         .snapshot(&id, SnapshotRequest::default())
         .await
         .unwrap();
-    let looks: Vec<_> = fake
-        .sent()
-        .into_iter()
-        .filter(|command| op(command).as_deref() == Some("find"))
-        .collect();
-    let options = |look: &Value| {
-        let script = look["script"].as_str().unwrap();
-        let call = script.rfind(")(\"find\", ").unwrap() + ")(\"find\", ".len();
-        serde_json::from_str::<Value>(&script[call..script.len() - 1]).unwrap()
-    };
-    assert_eq!(options(&looks[0])["keep"], json!([]));
-    assert_eq!(options(&looks[1])["keep"], json!([1, 2]));
-    assert_eq!(options(&looks[1])["next"], json!(3));
+    let looks = options(&fake, "find");
+    assert_eq!(looks[0]["keep"], json!([]));
+    assert_eq!(
+        looks[1]["keep"],
+        json!([{"n": 1, "text": "LOG IN"}, {"n": 2, "text": ""}])
+    );
+    assert_eq!(looks[1]["next"], json!(3));
 }
 
 #[tokio::test]
@@ -91,7 +89,15 @@ async fn a_click_presses_the_middle_of_the_element_with_the_pointer() {
     let outcome = browser.perform(&id, click("@d1")).await.unwrap();
     assert!(outcome.value.is_null());
     assert_eq!(outcome.page.url, "https://flights.test/");
-    assert_eq!(ops(&fake), ["find", "aim"]);
+    // Aimed at the element still showing its words, guarded, pressed, and
+    // the guard read.
+    assert_eq!(ops(&fake), ["find", "aim", "pressed"]);
+    let aimed = &options(&fake, "aim")[0];
+    assert_eq!(aimed["words"], "LOG IN");
+    assert_eq!(
+        (&aimed["guard"], &aimed["field"]),
+        (&json!(true), &json!(false))
+    );
     assert_eq!(
         mouse(&fake),
         [
@@ -122,6 +128,12 @@ async fn a_hover_only_moves_the_pointer_there() {
         .await
         .unwrap();
     assert_eq!(mouse(&fake), [("mouseMoved".to_owned(), 40.0, 12.0)]);
+    assert_eq!(
+        options(&fake, "aim")[0]["guard"],
+        false,
+        "a hover is no press"
+    );
+    assert_eq!(ops(&fake), ["find", "aim"]);
 }
 
 #[tokio::test]
@@ -225,4 +237,144 @@ async fn what_a_deep_ref_cannot_take_is_refused_before_the_page_is_touched() {
     let refused = session.act_deep(1, &Action::Back).await.unwrap_err();
     assert!(matches!(refused, Error::InvalidInput { .. }));
     assert_eq!(fake.sent().len(), sent, "nothing was sent");
+}
+
+#[tokio::test]
+async fn a_press_stopped_on_its_way_is_refused_and_one_that_left_the_page_is_not() {
+    let moved = page(|op| match op {
+        "pressed" => json!({"missed": "div.popup"}),
+        other => shown(other),
+    });
+    let (browser, id) = open(&moved, "deep-missed").await;
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    let refused = browser.perform(&id, click("d1")).await.unwrap_err();
+    assert!(
+        matches!(&refused, Error::NotActionable { reason }
+            if reason == "@d1 moved, or <div.popup> came over it, as it was pressed, so the press was stopped; take a fresh snapshot and retry"),
+        "{refused}"
+    );
+    // A press whose page went away with it pressed something: it went.
+    let left = Fake::scripted(|command| {
+        if command["action"] == "snapshot" {
+            return Some(ok(&json!({"snapshot": TREE, "refs": {}})));
+        }
+        Some(match op(command)?.as_str() {
+            "pressed" => failure("Execution context was destroyed."),
+            "find" => ok(&json!({"result": {
+                "found": [{"n": 1, "kind": "clickable", "text": "LOG IN"}],
+                "next": 2,
+            }})),
+            other => ok(&json!({ "result": shown(other) })),
+        })
+    });
+    let (browser, id) = open(&left, "deep-left").await;
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    assert!(browser.perform(&id, click("d1")).await.is_ok());
+}
+
+#[tokio::test]
+async fn an_element_that_will_not_hold_still_or_shows_another_control_is_not_pressed() {
+    for (aimed, said) in [
+        (json!({"moving": true}), "would not hold still"),
+        (
+            json!({"nested": "button.details"}),
+            "shows another control everywhere a press could reach it (<button.details>)",
+        ),
+    ] {
+        let fake = page(move |op| {
+            if op == "aim" {
+                aimed.clone()
+            } else {
+                shown(op)
+            }
+        });
+        let (browser, id) = open(&fake, "deep-unsteady").await;
+        browser
+            .snapshot(&id, SnapshotRequest::default())
+            .await
+            .unwrap();
+        let refused = browser.perform(&id, click("d1")).await.unwrap_err();
+        assert!(
+            matches!(&refused, Error::NotActionable { reason } if reason.contains(said)),
+            "{refused}"
+        );
+        assert_eq!(mouse(&fake).len(), 0, "nothing was pressed");
+    }
+}
+
+#[tokio::test]
+async fn while_agent_browser_reads_a_frame_a_snapshot_has_no_look() {
+    let fake = page(shown);
+    let (browser, id) = open(&fake, "deep-frame").await;
+    browser
+        .command(&id, json!({"action": "frame", "selector": "#payment"}))
+        .await
+        .unwrap();
+    let framed = browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(framed.tree, TREE);
+    assert_eq!(
+        ops(&fake).len(),
+        0,
+        "the script never sees a frame's document"
+    );
+    browser
+        .command(&id, json!({"action": "mainframe"}))
+        .await
+        .unwrap();
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(ops(&fake), ["find"]);
+    // A page loaded anew is read from its top document too.
+    browser
+        .command(&id, json!({"action": "frame", "selector": "#payment"}))
+        .await
+        .unwrap();
+    browser
+        .navigate(&id, NavigateRequest::new("https://flights.test/pay"))
+        .await
+        .unwrap();
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(ops(&fake), ["find", "find"]);
+}
+
+#[tokio::test]
+async fn a_look_that_never_replies_hands_out_none_and_its_numbers_never() {
+    // The first look is never answered, as on a page being replaced; it may
+    // still have marked elements before its time ran out.
+    let stalled = Arc::new(AtomicBool::new(false));
+    let fake = page(shown).stalling(move |command| {
+        op(command).as_deref() == Some("find") && !stalled.swap(true, Ordering::SeqCst)
+    });
+    let (browser, id) = open(&fake, "deep-lost").await;
+    let lost = browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    assert_eq!(lost.tree, TREE);
+    assert_eq!(lost.refs.len(), 1);
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    let looks = options(&fake, "find");
+    assert_eq!(looks[0]["next"], 1);
+    assert_eq!(
+        looks[1]["next"], 41,
+        "no number the lost look had is handed out"
+    );
+    assert_eq!(looks[1]["keep"], json!([]));
 }

@@ -27,14 +27,18 @@
 //!
 //! Each is handed out as a ref `d1`, `d2`, …, which agent-browser's `eN`
 //! cannot collide with, and placed in the snapshot's tree (`merge.rs`). A
-//! number is handed out once per session, and an element keeps its number
-//! from one snapshot to the next while it lives and is still listed, so a
-//! ref never comes to name another element. A page with nothing to list
-//! comes out exactly as agent-browser gave it.
+//! number is handed out once per session, a look that went unread
+//! included, and an element keeps its number from one snapshot to the next
+//! only while it lives, is still listed, and still shows the words it was
+//! handed out with: a node a page re-draws in place to show another item
+//! gets a new one, so a ref never comes to name another element. A page
+//! with nothing to list comes out exactly as agent-browser gave it. While a
+//! raw `frame` command has agent-browser read a frame, there is no look:
+//! the script sees only the top document.
 //!
 //! An action on a `d` ref is the session's own (`sessions/deep.rs`): the
-//! element is found by its mark, and pressed where it shows with the
-//! pointer's own events.
+//! element is found by its mark and its words, and pressed where it shows
+//! with the pointer's own events.
 
 mod merge;
 
@@ -96,8 +100,21 @@ pub(crate) struct Control {
     /// How it responds.
     pub(crate) kind: Kind,
     /// The words it shows, whitespace collapsed, at most [`LONGEST`]
-    /// characters; empty when it shows none.
+    /// characters; empty when it shows none. An editable region shows its
+    /// label, never what was typed into it.
     pub(crate) text: String,
+    /// Where its words show among the page's text, when they show there.
+    pub(crate) spot: Option<Spot>,
+}
+
+/// Where a control's words show among the page's text, counted as the tree
+/// shows its lines (`merge.rs`): the `seen`th place, from 0, of `of`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Spot {
+    /// How many places showing the same words come before it.
+    pub(crate) seen: usize,
+    /// How many places show them in all.
+    pub(crate) of: usize,
 }
 
 impl Control {
@@ -215,12 +232,14 @@ pub(crate) fn unsupported(action: &Action) -> Error {
     ))
 }
 
-/// The deep refs a session's latest snapshot handed out, and the next
-/// number to mint, which no ref of the session has had.
+/// The deep refs a session's latest snapshot handed out with the words each
+/// showed, the next number to mint, which no ref of the session has had,
+/// and whether a raw `frame` command has agent-browser read a frame.
 #[derive(Debug)]
 pub(crate) struct Minted {
-    live: Vec<u64>,
+    live: Vec<(u64, String)>,
     next: u64,
+    framed: bool,
 }
 
 impl Default for Minted {
@@ -228,51 +247,118 @@ impl Default for Minted {
         Self {
             live: Vec::new(),
             next: 1,
+            framed: false,
         }
     }
 }
 
 impl Minted {
-    /// Whether the latest snapshot handed out deep control `number`.
-    pub(crate) fn holds(&self, number: u64) -> bool {
-        self.live.contains(&number)
+    /// The words deep control `number` showed when the latest snapshot
+    /// handed it out; `None` when it did not.
+    pub(crate) fn words(&self, number: u64) -> Option<&str> {
+        self.live
+            .iter()
+            .find(|(held, _)| *held == number)
+            .map(|(_, words)| words.as_str())
+    }
+
+    /// Whether to look at all: not while agent-browser reads a frame, whose
+    /// document the script, run in the top document, never sees.
+    pub(crate) fn looks(&self) -> bool {
+        !self.framed
     }
 
     /// The look for deep controls under `scope`, a CSS selector, or all
     /// the page when `None`: an element still marked with a ref this table
-    /// holds keeps it, and any other is given a number from `next`.
+    /// holds keeps it while it shows the same words, and any other is given
+    /// a number from `next`.
     pub(crate) fn look(&self, scope: Option<&str>) -> String {
+        let keep: Vec<Value> = self
+            .live
+            .iter()
+            .map(|(number, words)| json!({"n": number, "text": words}))
+            .collect();
         call(
             "find",
             &json!({
                 "scope": scope,
                 "next": self.next,
-                "keep": self.live,
+                "keep": keep,
                 "most": MOST,
                 "longest": LONGEST,
             }),
         )
     }
 
-    /// Takes what a look replied, `None` when it did not reply, and returns
-    /// the controls it found, which are now the ones this table holds. A
-    /// reply that is not a look's holds none.
+    /// Takes what a look replied, `None` when its reply never came, and
+    /// returns the controls it found, which are now the ones this table
+    /// holds. A look whose reply is lost, or is no look's, holds none, and
+    /// the numbers it may have marked elements with are never handed out:
+    /// a page that comes back from the back-forward cache still carries
+    /// them.
     pub(crate) fn take(&mut self, result: Option<&Value>) -> Vec<Control> {
         let Some((controls, next)) = result.and_then(|result| read(result, self.next)) else {
             self.live.clear();
+            self.next = self.next.saturating_add(MOST as u64);
             return Vec::new();
         };
-        self.live = controls.iter().map(|control| control.number).collect();
+        self.live = controls
+            .iter()
+            .map(|control| (control.number, control.text.clone()))
+            .collect();
         self.next = next;
         controls
     }
+
+    /// Hands out nothing for a snapshot that had no look.
+    pub(crate) fn skip(&mut self) {
+        self.live.clear();
+    }
+
+    /// Follows agent-browser's choice of the frame it reads, after the raw
+    /// command `action` ran: a frame once one is picked, the top document
+    /// once the main frame is, or the page or tab changes.
+    pub(crate) fn follow(&mut self, action: &str) {
+        match action {
+            "frame" => self.framed = true,
+            "mainframe" | "navigate" | "tab_new" | "tab_switch" | "tab_close" => {
+                self.framed = false;
+            }
+            _ => {}
+        }
+    }
 }
 
-/// `op` on the element marked `number`: `aim`, `focus`, `end`, `select`,
-/// `text`, or `visible` (`deep.js`). With `field`, an aim also says whether
-/// the element takes text, or holds something that does.
-pub(crate) fn act(op: &str, number: u64, field: bool) -> String {
-    call(op, &json!({ "number": number, "field": field }))
+/// `op` on the element marked `number`: `focus`, `end`, `select`, `text`, or
+/// `visible` (`deep.js`). With `words`, the element must still show the
+/// words its ref was handed out with.
+pub(crate) fn act(op: &str, number: u64, words: Option<&str>) -> String {
+    call(
+        op,
+        &json!({ "number": number, "words": words, "longest": LONGEST }),
+    )
+}
+
+/// The aim at the element marked `number`, which must still show `words`:
+/// where a press on it goes. With `field`, also whether it takes text or
+/// holds something that does; with `guard`, the press that follows is
+/// stopped if it would reach anything else (read by [`pressed`]).
+pub(crate) fn aim(number: u64, words: &str, field: bool, guard: bool) -> String {
+    call(
+        "aim",
+        &json!({
+            "number": number,
+            "words": words,
+            "longest": LONGEST,
+            "field": field,
+            "guard": guard,
+        }),
+    )
+}
+
+/// Whether the press an aim guarded went where it was aimed.
+pub(crate) fn pressed() -> String {
+    call("pressed", &json!({}))
 }
 
 fn call(op: &str, options: &Value) -> String {
@@ -302,17 +388,30 @@ fn read(result: &Value, next: u64) -> Option<(Vec<Control>, u64)> {
         if controls.iter().any(|control| control.number == number) {
             continue;
         }
+        // As the page gave them: an action compares them with what the
+        // element shows then, in the same words.
         let text = item
             .get("text")
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
             .chars()
             .take(LONGEST)
             .collect();
-        controls.push(Control { number, kind, text });
+        let index = |key: &str| {
+            item.get(key)
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+        };
+        let spot = index("seen")
+            .zip(index("of"))
+            .filter(|(seen, of)| seen < of)
+            .map(|(seen, of)| Spot { seen, of });
+        controls.push(Control {
+            number,
+            kind,
+            text,
+            spot,
+        });
     }
     let after = controls
         .iter()

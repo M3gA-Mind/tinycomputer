@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod live_results_tests;
 mod live_tests;
 mod merge_tests;
 
@@ -11,7 +12,9 @@ use tinycomputer_bus::browser::{Action, Target};
 
 use tinycomputer_bus::browser::{ScrollDirection, WaitState};
 
-use super::{Control, Kind, Minted, aimed_at, number, supports, unsupported};
+use super::{
+    Control, Kind, Minted, Spot, act, aim, aimed_at, number, pressed, supports, unsupported,
+};
 use crate::error::Error;
 
 #[test]
@@ -215,18 +218,21 @@ fn a_control_reads_as_a_line_of_the_tree() {
         number: 4,
         kind: Kind::Clickable,
         text: "Say \"hi\"".to_owned(),
+        spot: None,
     };
     assert_eq!(named.line(2), "    - clickable \"Say \\\"hi\\\"\" [ref=d4]");
     let nameless = Control {
         number: 9,
         kind: Kind::Editable,
         text: String::new(),
+        spot: None,
     };
     assert_eq!(nameless.line(0), "- editable [ref=d9]");
     let tab_stop = Control {
         number: 10,
         kind: Kind::Focusable,
         text: "Ride options".to_owned(),
+        spot: None,
     };
     assert_eq!(tab_stop.line(1), "  - focusable \"Ride options\" [ref=d10]");
 }
@@ -236,26 +242,35 @@ fn look(found: &Value, next: u64) -> Value {
     json!({"found": found, "next": next})
 }
 
+/// The `op` a script calls `deep.js` with, and its options.
+fn call(script: &str) -> (String, Value) {
+    let at = script.rfind(")(\"").expect("the script is called") + 3;
+    let op_end = at + script[at..].find('"').expect("the op is a string");
+    let options = &script[op_end + 3..script.len() - 1];
+    (
+        script[at..op_end].to_owned(),
+        serde_json::from_str(options).expect("the options are JSON"),
+    )
+}
+
 /// The options a look's script is called with.
 fn options(script: &str) -> Value {
-    let call = script
-        .rfind(")(\"find\", ")
-        .expect("a look calls the script with find");
-    let options = &script[call + ")(\"find\", ".len()..script.len() - 1];
-    serde_json::from_str(options).expect("the options are JSON")
+    let (op, options) = call(script);
+    assert_eq!(op, "find");
+    options
 }
 
 #[test]
-fn a_session_hands_out_what_its_latest_look_found() {
+fn a_session_hands_out_what_its_latest_look_found_with_its_words() {
     let mut minted = Minted::default();
-    assert!(!minted.holds(1));
+    assert_eq!(minted.words(1), None);
     assert_eq!(
         options(&minted.look(None)),
         json!({"keep": [], "longest": 100, "most": 40, "next": 1, "scope": null})
     );
     let controls = minted.take(Some(&look(
         &json!([
-            {"n": 1, "kind": "clickable", "text": "  LOG\n IN "},
+            {"n": 1, "kind": "clickable", "text": "LOG IN", "seen": 0, "of": 1},
             {"n": 2, "kind": "editable", "text": ""},
         ]),
         3,
@@ -266,27 +281,119 @@ fn a_session_hands_out_what_its_latest_look_found() {
             Control {
                 number: 1,
                 kind: Kind::Clickable,
-                text: "LOG IN".to_owned()
+                text: "LOG IN".to_owned(),
+                spot: Some(Spot { seen: 0, of: 1 }),
             },
             Control {
                 number: 2,
                 kind: Kind::Editable,
-                text: String::new()
+                text: String::new(),
+                spot: None,
             },
         ]
     );
-    assert!(minted.holds(1) && minted.holds(2));
+    assert_eq!(minted.words(1), Some("LOG IN"));
+    assert_eq!(minted.words(2), Some(""));
+    // The next look keeps a number only on an element that still shows
+    // the words it was handed out with.
     assert_eq!(
         options(&minted.look(Some("#app"))),
-        json!({"keep": [1, 2], "longest": 100, "most": 40, "next": 3, "scope": "#app"})
+        json!({
+            "keep": [{"n": 1, "text": "LOG IN"}, {"n": 2, "text": ""}],
+            "longest": 100, "most": 40, "next": 3, "scope": "#app",
+        })
     );
-    // A look that does not reply hands out none: the refs before are stale.
-    assert_eq!(minted.take(None).len(), 0);
-    assert!(!minted.holds(1));
-    assert_eq!(minted.take(Some(&json!(42))).len(), 0);
     // Numbers never go back, even when the page reports a lower next.
     minted.take(Some(&look(&json!([]), 1)));
     assert_eq!(options(&minted.look(None))["next"], 3);
+}
+
+#[test]
+fn a_look_whose_reply_is_lost_hands_out_none_and_its_numbers_never() {
+    let mut minted = Minted::default();
+    minted.take(Some(&look(
+        &json!([{"n": 1, "kind": "clickable", "text": "Mini"}]),
+        2,
+    )));
+    // The look may have marked elements 2 to 41 before its reply was lost:
+    // the refs before are stale, and those numbers are never handed out.
+    assert_eq!(minted.take(None).len(), 0);
+    assert_eq!(minted.words(1), None);
+    assert_eq!(options(&minted.look(None))["next"], 42);
+    assert_eq!(minted.take(Some(&json!(42))).len(), 0);
+    assert_eq!(options(&minted.look(None))["next"], 82);
+}
+
+#[test]
+fn the_look_follows_the_frame_agent_browser_reads() {
+    let mut minted = Minted::default();
+    assert!(minted.looks());
+    minted.take(Some(&look(
+        &json!([{"n": 1, "kind": "clickable", "text": "Mini"}]),
+        2,
+    )));
+    minted.follow("frame");
+    assert!(!minted.looks(), "the script never sees a frame's document");
+    minted.skip();
+    assert_eq!(
+        minted.words(1),
+        None,
+        "a snapshot with no look hands out none"
+    );
+    assert_eq!(options(&minted.look(None))["next"], 2, "nothing was marked");
+    minted.follow("evaluate");
+    assert!(!minted.looks());
+    for back in [
+        "mainframe",
+        "navigate",
+        "tab_new",
+        "tab_switch",
+        "tab_close",
+    ] {
+        minted.follow("frame");
+        minted.follow(back);
+        assert!(minted.looks(), "{back}");
+    }
+}
+
+#[test]
+fn a_control_knows_where_its_words_show_only_when_the_look_says_so_plainly() {
+    let mut minted = Minted::default();
+    let controls = minted.take(Some(&look(
+        &json!([
+            {"n": 1, "kind": "clickable", "text": "Select", "seen": 1, "of": 3},
+            {"n": 2, "kind": "clickable", "text": "Select", "seen": 3, "of": 3},
+            {"n": 3, "kind": "clickable", "text": "Select", "seen": 0},
+            {"n": 4, "kind": "clickable", "text": "Select", "seen": -1, "of": 2},
+        ]),
+        5,
+    )));
+    let spots: Vec<_> = controls.iter().map(|control| control.spot).collect();
+    assert_eq!(spots, [Some(Spot { seen: 1, of: 3 }), None, None, None]);
+}
+
+#[test]
+fn an_action_asks_for_the_element_by_its_mark_and_its_words() {
+    assert_eq!(
+        call(&aim(3, "LOG IN", true, true)),
+        (
+            "aim".to_owned(),
+            json!({"number": 3, "words": "LOG IN", "longest": 100, "field": true, "guard": true})
+        )
+    );
+    assert_eq!(
+        call(&act("text", 3, Some("LOG IN"))),
+        (
+            "text".to_owned(),
+            json!({"number": 3, "words": "LOG IN", "longest": 100})
+        )
+    );
+    assert_eq!(
+        call(&act("visible", 3, None)).1["words"],
+        Value::Null,
+        "a check of what shows asks for no words"
+    );
+    assert_eq!(call(&pressed()), ("pressed".to_owned(), json!({})));
 }
 
 #[test]
@@ -307,6 +414,7 @@ fn a_look_reply_is_read_defensively() {
     assert_eq!(controls[0].number, 6);
     assert_eq!(controls[0].kind, Kind::Focusable);
     assert_eq!(controls[0].text.chars().count(), 100);
+    assert_eq!(minted.words(6), Some(controls[0].text.as_str()));
     // Past every number found, whatever the page said.
     assert_eq!(options(&minted.look(None))["next"], 7);
     let many = (1..=50)

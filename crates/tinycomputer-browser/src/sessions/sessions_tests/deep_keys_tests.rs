@@ -5,7 +5,7 @@
 use serde_json::json;
 use tinycomputer_bus::browser::{Action, SnapshotRequest, Target};
 
-use super::deep_page::{mouse, ops, page, shown};
+use super::deep_page::{mouse, ops, options, page, shown};
 use super::open;
 use crate::error::Error;
 
@@ -28,7 +28,19 @@ async fn text_is_typed_where_the_press_put_the_focus() {
         )
         .await
         .unwrap();
-    assert_eq!(ops(&fake), ["find", "aim", "aim", "end"]);
+    // Checked to take text, before the focus moves; aimed again, guarded;
+    // pressed; the guard read; the caret put at the end.
+    assert_eq!(ops(&fake), ["find", "aim", "aim", "pressed", "end"]);
+    let aims = options(&fake, "aim");
+    assert_eq!(
+        (&aims[0]["field"], &aims[0]["guard"]),
+        (&json!(true), &json!(false))
+    );
+    assert_eq!(
+        (&aims[1]["field"], &aims[1]["guard"]),
+        (&json!(true), &json!(true))
+    );
+    assert_eq!(aims[1]["words"], "");
     assert_eq!(mouse(&fake).len(), 3, "pressed into the field");
     assert_eq!(
         fake.last("keyboard"),
@@ -91,7 +103,7 @@ async fn a_fill_replaces_what_the_field_held() {
         value: value.to_owned(),
     };
     browser.perform(&id, fill("Airport")).await.unwrap();
-    assert_eq!(ops(&fake), ["find", "aim", "aim", "select"]);
+    assert_eq!(ops(&fake), ["find", "aim", "aim", "pressed", "select"]);
     assert_eq!(
         fake.last("inserttext"),
         json!({"action": "inserttext", "text": "Airport"})
@@ -245,5 +257,47 @@ async fn focus_press_and_reads_reach_the_marked_element() {
         .unwrap();
     assert_eq!(visible.value, json!(true));
     assert_eq!(ops(&fake), ["find", "focus", "focus", "text", "visible"]);
+    // The element must still show the words its ref was handed out with,
+    // to be focused or read; whether it shows at all asks for none.
+    assert_eq!(options(&fake, "focus")[0]["words"], "LOG IN");
+    assert_eq!(options(&fake, "text")[0]["words"], "LOG IN");
+    assert_eq!(options(&fake, "visible")[0]["words"], json!(null));
     assert!(mouse(&fake).is_empty(), "a focus is no press");
+}
+
+#[tokio::test]
+async fn a_field_with_no_caret_to_set_is_typed_into_after_its_end_key() {
+    // An `email` or `number` field cannot have its caret set by script.
+    let fake = page(|op| match op {
+        "end" => json!({"inside": true, "on": "input", "takes": true, "caret": false}),
+        other => shown(other),
+    });
+    let (browser, id) = open(&fake, "deep-no-caret").await;
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+    browser
+        .perform(
+            &id,
+            Action::Type {
+                target: Some(Target::reference("d2")),
+                text: "4".to_owned(),
+                delay_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+    let keys: Vec<_> = fake
+        .sent()
+        .into_iter()
+        .filter(|command| command["action"] == "press" || command["action"] == "keyboard")
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            json!({"action": "press", "key": "End"}),
+            json!({"action": "keyboard", "subaction": "type", "text": "4"}),
+        ]
+    );
 }

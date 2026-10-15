@@ -1,16 +1,24 @@
 //! Placing deep controls in a snapshot's tree: on the line that shows their
-//! words, or in a group after the tree, which a cut never drops.
+//! words in their place, or in a group after the tree, which a cut never
+//! drops.
 
 use tinycomputer_bus::browser::{ElementRef, Snapshot};
 
-use crate::deep::{Control, Kind, place};
+use crate::deep::{Control, Kind, Spot, place};
 
-fn clickable(number: u64, text: &str) -> Control {
+/// A control whose words the page shows `of` times, its own the `seen`th.
+fn nth(number: u64, text: &str, seen: usize, of: usize) -> Control {
     Control {
         number,
         kind: Kind::Clickable,
         text: text.to_owned(),
+        spot: Some(Spot { seen, of }),
     }
+}
+
+/// A control the only one on the page to show its words.
+fn clickable(number: u64, text: &str) -> Control {
+    nth(number, text, 0, 1)
 }
 
 /// A snapshot of `tree` as agent-browser gave it, with one ref of its own.
@@ -102,7 +110,7 @@ fn a_container_showing_other_words_is_passed_over() {
     let tree =
         "- generic\n  - StaticText \"Prime\"\n  - StaticText \"Mini\"\n- StaticText \"Mini\"";
     assert_eq!(
-        placed(tree, &[clickable(1, "Mini")]),
+        placed(tree, &[nth(1, "Mini", 0, 2)]),
         "- generic\n  - StaticText \"Prime\"\n  - clickable \"Mini\" [ref=d1]\n- StaticText \"Mini\""
     );
 }
@@ -110,10 +118,9 @@ fn a_container_showing_other_words_is_passed_over() {
 #[test]
 fn words_shown_twice_go_to_the_line_in_the_controls_place() {
     let tree = "- StaticText \"Mini\"\n- StaticText \"Prime\"\n- StaticText \"Mini\"";
-    // The first control takes the first "Prime" there is; the one after it
-    // can only be a "Mini" after that.
+    // The page's second "Mini" is the control: the second line showing it.
     assert_eq!(
-        placed(tree, &[clickable(1, "Prime"), clickable(2, "Mini")]),
+        placed(tree, &[clickable(1, "Prime"), nth(2, "Mini", 1, 2)]),
         "- StaticText \"Mini\"\n- clickable \"Prime\" [ref=d1]\n- clickable \"Mini\" [ref=d2]"
     );
 }
@@ -130,6 +137,7 @@ fn controls_no_line_shows_follow_the_tree_in_a_group() {
             number: 4,
             kind: Kind::Editable,
             text: String::new(),
+            spot: None,
         },
     ];
     let mut shot = snapshot(tree);
@@ -184,4 +192,55 @@ fn a_cut_keeps_the_group_whole_and_cuts_the_tree_shorter() {
     place(&mut roomy, tree, &controls, 10_000);
     assert!(!roomy.truncated);
     assert!(roomy.tree.ends_with(group));
+}
+
+/// Three result rows, each with its own "Select".
+const ROWS: &str = "- generic\n  - StaticText \"Flight A\"\n  - StaticText \"Select\"\n\
+                    - generic\n  - StaticText \"Flight B\"\n  - StaticText \"Select\"\n\
+                    - generic\n  - StaticText \"Flight C\"\n  - StaticText \"Select\"";
+
+#[test]
+fn a_row_the_page_does_not_list_moves_no_control_to_another_row() {
+    // Flight A is sold out: its "Select" shows, but takes no press, and is
+    // not listed. B's and C's are the second and third of three.
+    assert_eq!(
+        placed(ROWS, &[nth(1, "Select", 1, 3), nth(2, "Select", 2, 3)]),
+        "- generic\n  - StaticText \"Flight A\"\n  - StaticText \"Select\"\n\
+         - generic\n  - StaticText \"Flight B\"\n  - clickable \"Select\" [ref=d1]\n\
+         - generic\n  - StaticText \"Flight C\"\n  - clickable \"Select\" [ref=d2]"
+    );
+}
+
+#[test]
+fn words_the_tree_shows_another_number_of_times_go_to_the_group() {
+    // The page shows "Select" four times, the tree three: which line is
+    // whose cannot be told, so none is guessed.
+    let group = "- group \"Controls inside web components\"\n  - clickable \"Select\" [ref=d1]";
+    assert_eq!(
+        placed(ROWS, &[nth(1, "Select", 1, 4)]),
+        format!("{ROWS}\n{group}")
+    );
+    assert_eq!(
+        placed(ROWS, &[nth(1, "Select", 0, 2)]),
+        format!("{ROWS}\n{group}")
+    );
+}
+
+#[test]
+fn words_compare_in_lower_case_as_the_tree_shows_them_drawn() {
+    assert_eq!(
+        placed("- StaticText \"LOG IN\"", &[clickable(1, "Log in")]),
+        "- clickable \"Log in\" [ref=d1]"
+    );
+}
+
+#[test]
+fn a_line_already_taken_is_never_taken_twice() {
+    assert_eq!(
+        placed(
+            "- StaticText \"Mini\"",
+            &[clickable(1, "Mini"), clickable(2, "Mini")]
+        ),
+        "- clickable \"Mini\" [ref=d1]\n- group \"Controls inside web components\"\n  - clickable \"Mini\" [ref=d2]"
+    );
 }

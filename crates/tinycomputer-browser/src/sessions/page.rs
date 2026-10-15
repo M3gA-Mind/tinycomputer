@@ -61,6 +61,7 @@ impl Browser {
             return Err(Error::BlockedByPolicy { url: request.url });
         }
         let data = session.run(command).await?;
+        session.deep.follow("navigate");
         // Under a list the page is read afresh: the engine reports the
         // address it was asked for when the one it reached cannot be read.
         let page = if session.origins.restricts() {
@@ -266,8 +267,12 @@ impl Browser {
         if NEITHER_ACTS_NOR_READS.contains(&action) {
             return session.run(command).await;
         }
+        let action = action.to_owned();
         session.check_if_readable(false).await?;
         let data = session.run(command).await?;
+        // A frame agent-browser now reads, or reads no more: the look for
+        // deep controls follows it.
+        session.deep.follow(&action);
         // What a command read or did on a page it then left for a refused
         // one is never returned.
         session.check_if_readable(true).await?;

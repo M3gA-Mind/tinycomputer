@@ -90,7 +90,7 @@ const LIGHT: &str = r#"<!doctype html>
 /// A real browser with `html` written into a blank tab: `None` unless
 /// `TINYCOMPUTER_LIVE_BROWSER=1`.
 #[cfg(feature = "agent-browser")]
-async fn live_page(html: &str) -> Option<(Browser, SessionId)> {
+pub(super) async fn live_page(html: &str) -> Option<(Browser, SessionId)> {
     use std::sync::Arc;
 
     if std::env::var("TINYCOMPUTER_LIVE_BROWSER").as_deref() != Ok("1") {
@@ -119,7 +119,7 @@ async fn live_page(html: &str) -> Option<(Browser, SessionId)> {
 /// A snapshot as an agent's host reads a page: compact, not only the
 /// interactive lines, cut at 24,000 characters.
 #[cfg(feature = "agent-browser")]
-fn compact() -> SnapshotRequest {
+pub(super) fn compact() -> SnapshotRequest {
     SnapshotRequest {
         compact: true,
         max_chars: 24_000,
@@ -129,7 +129,7 @@ fn compact() -> SnapshotRequest {
 
 /// The ref `snapshot` lists for the element named `name` with `role`.
 #[cfg(feature = "agent-browser")]
-fn ref_of(snapshot: &Snapshot, role: &str, name: &str) -> String {
+pub(super) fn ref_of(snapshot: &Snapshot, role: &str, name: &str) -> String {
     snapshot
         .refs
         .iter()
@@ -141,7 +141,7 @@ fn ref_of(snapshot: &Snapshot, role: &str, name: &str) -> String {
 
 /// What the page's script evaluates `expression` to.
 #[cfg(feature = "agent-browser")]
-async fn page_value(browser: &Browser, id: &SessionId, expression: &str) -> Value {
+pub(super) async fn page_value(browser: &Browser, id: &SessionId, expression: &str) -> Value {
     browser
         .command(id, json!({"action": "evaluate", "script": expression}))
         .await
@@ -151,7 +151,7 @@ async fn page_value(browser: &Browser, id: &SessionId, expression: &str) -> Valu
 
 /// `action` on `target`, as `Browser::perform` does it.
 #[cfg(feature = "agent-browser")]
-async fn on(
+pub(super) async fn on(
     browser: &Browser,
     id: &SessionId,
     target: &str,
@@ -164,7 +164,7 @@ async fn on(
 }
 
 #[cfg(feature = "agent-browser")]
-fn click(target: Target) -> Action {
+pub(super) fn click(target: Target) -> Action {
     Action::Click {
         target,
         new_tab: false,
