@@ -7,8 +7,9 @@ use tinycomputer_bus::browser::{
     ReadFormat, ReadRequest, ScreenshotRequest, SessionId, Snapshot, SnapshotRequest, Target,
 };
 
-use super::Browser;
+use super::{Browser, Session};
 use crate::convert;
+use crate::deep;
 use crate::error::{Error, Result};
 use crate::outputs::within_cap;
 use crate::reply;
@@ -79,6 +80,13 @@ impl Browser {
 
     /// Captures the page's accessibility tree with element refs.
     ///
+    /// The controls a page keeps inside open shadow roots that the tree
+    /// gives no ref (a component's own clickable `span` or `div`, an
+    /// editable region) are looked for after agent-browser replies, and
+    /// listed with refs of their own, `d1`, `d2`, …: on the line that shows
+    /// their words, or after the tree (`crate::deep`). A page with none
+    /// comes out as agent-browser gave it.
+    ///
     /// # Errors
     ///
     /// [`Error::NoSuchSession`], and whatever the snapshot reports.
@@ -87,16 +95,24 @@ impl Browser {
         let mut session = session.lock().await;
         session.check_if_readable(false).await?;
         let data = session.run(convert::snapshot(&request)).await?;
+        let controls = session.find_deep(request.selector.as_deref()).await;
         let page = session.page().await?;
         let page = session.admit(page).await?;
         session.sequence += 1;
-        Ok(reply::snapshot(
+        let mut snapshot = reply::snapshot(
             &data,
             page.url,
             page.title,
             session.sequence,
             request.max_chars,
-        ))
+        );
+        deep::place(
+            &mut snapshot,
+            &reply::text(&data, "snapshot"),
+            &controls,
+            request.max_chars,
+        );
+        Ok(snapshot)
     }
 
     /// Performs one interaction and reports the page it left.
@@ -107,17 +123,34 @@ impl Browser {
     /// locator's fill, which only the engine resolves, has the focus taken
     /// off whatever held it first, so its text lands in the field or nowhere.
     ///
+    /// An action on a deep ref (`d1`, from [`Browser::snapshot`]) is the
+    /// session's own, as agent-browser cannot reach the element: it is found
+    /// by its mark, and pressed, hovered, typed into, or read where it
+    /// shows, with the pointer's and keyboard's own input events
+    /// (`sessions/deep.rs`). `Click`, `Hover`, `Focus`, `Type`, `Fill`,
+    /// `Press`, `GetText`, and `IsVisible` take one.
+    ///
     /// # Errors
     ///
     /// [`Error::NoSuchSession`], [`Error::InvalidInput`] for an action the
-    /// engine cannot express, [`Error::StaleRef`] for a ref from an earlier
-    /// snapshot, [`Error::FocusMissed`] when the focus does not land on the
+    /// engine cannot express or a deep ref cannot take, [`Error::StaleRef`]
+    /// for a ref from an earlier snapshot or a deep ref whose element is
+    /// gone, [`Error::NotActionable`] for a deep ref's element covered or
+    /// not shown, [`Error::FocusMissed`] when the focus does not land on the
     /// element keys were meant for, [`Error::BlockedByPolicy`] when the page
     /// it would act on, or the page it leads to, is outside the allowed
     /// origins, and whatever else the action reports.
     pub async fn perform(&self, id: &SessionId, action: Action) -> Result<ActionOutcome> {
         let session = self.session(id)?;
         let mut session = session.lock().await;
+        if let Some(number) = deep::aimed_at(&action) {
+            deep::supports(&action)?;
+            // The page may have moved on its own since the last call: an
+            // action is never sent to a refused one.
+            session.check_if_readable(false).await?;
+            let value = session.act_deep(number, &action).await?;
+            return session.outcome(value, None).await;
+        }
         let command = convert::action(&action, session.options.default_timeout_ms)?;
         let keys = keys_go_to(&action)?;
         // The page may have moved on its own since the last call (a redirect,
@@ -146,15 +179,7 @@ impl Browser {
             } => Some(format!("{:?} {:?}", value.by, value.value)),
             _ => None,
         };
-        let page = session.page().await?;
-        let page = session.admit(page).await?;
-        session.info.url.clone_from(&page.url);
-        session.info.title.clone_from(&page.title);
-        Ok(ActionOutcome {
-            value,
-            page,
-            matched,
-        })
+        session.outcome(value, matched).await
     }
 
     /// Extracts the active page as text, markdown, or HTML.
@@ -305,6 +330,22 @@ impl Browser {
         let (width, height) = reply::image_size(&bytes);
         self.lock_outputs()?
             .insert(bytes, request.format.media_type(), width, height)
+    }
+}
+
+impl Session {
+    /// What an action read, with the page it left the session on: refused,
+    /// and left, when the allowed origins refuse it.
+    async fn outcome(&mut self, value: Value, matched: Option<String>) -> Result<ActionOutcome> {
+        let page = self.page().await?;
+        let page = self.admit(page).await?;
+        self.info.url.clone_from(&page.url);
+        self.info.title.clone_from(&page.title);
+        Ok(ActionOutcome {
+            value,
+            page,
+            matched,
+        })
     }
 }
 

@@ -29,9 +29,10 @@ where an action points").
 
 Every action that touches an element names a `Target`:
 
-- `Target::Ref`: a ref from a snapshot (`e12`) or a sight mark (`seen:12`).
-  Refs belong to the reading that produced them; acting on one after the
-  page has re-rendered is refused rather than guessed at.
+- `Target::Ref`: a ref from a snapshot (`e12`, or `d3` for a control inside
+  a web component, see below) or a sight mark (`seen:12`). Refs belong to
+  the reading that produced them; acting on one after the page has
+  re-rendered is refused rather than guessed at.
 - `Target::Selector`: a raw CSS selector, matched against the first
   element found.
 - `Target::Locator`: a semantic locator (role, text, label, placeholder,
@@ -46,6 +47,63 @@ Every action that touches an element names a `Target`:
 mark (routed through `sight::selector`, which turns `seen:12` into
 `[data-tc-seen="12"]`) or a tree ref (routed through `Target::reference`,
 which becomes agent-browser's own `@e12` form).
+
+## Controls inside web components: deep refs
+
+Code: `crates/tinycomputer-browser/src/deep/` (the look, and placing what it
+finds in the tree), `src/sessions/deep.rs` (acting on one).
+
+A page built from web components keeps its controls inside shadow roots.
+agent-browser refs what has a control's role there as anywhere, a native
+button or field included, but a component's own control is often a plain
+`span` or `div` drawn with a pointer and wired to a click by its script: no
+role, no tab stop. agent-browser looks for such elements by their pointer in
+the page's light DOM only, so inside a component they come out as bare text,
+or, in a compact snapshot, not at all. Live, a booking page built this way
+showed its log-in link as plain text and dropped its list of results.
+
+So `Browser::snapshot` follows agent-browser's snapshot with one look
+(`deep.js`) through the page's open shadow roots for what a person can press
+or type into that the tree has no ref for: a pointer of its own (not one
+inherited from a row around it), an `onclick`, a tab stop, an editable
+region. Only what is drawn and not hidden from people counts, only the
+outermost of nested ones (a field inside a pressable row stays a field), and
+at most 40, in the order the page draws them. Each is marked
+`data-tc-deep="N"` and listed as ref `dN`, with the role `clickable`,
+`editable`, or `focusable`:
+
+- on the innermost line whose whole text is its words, which becomes it:
+  `- StaticText "LOG IN"` becomes `- clickable "LOG IN" [ref=d1]`;
+- otherwise after the tree, under `- group "Controls inside web components"`,
+  which a cut to `max_chars` never drops: the tree before it is cut shorter.
+
+`Snapshot::refs` lists them after agent-browser's. A page with nothing to
+list comes out exactly as agent-browser gave it. A closed shadow root cannot
+be read and is passed over, as are frames. A number is never handed out
+twice in a session, and an element keeps its number from one snapshot to
+the next while it lives.
+
+`Browser::perform` acts on a `d` ref itself, never through agent-browser,
+which cannot resolve it. The element is found by its mark (gone, or carried
+by two elements: `StaleRef`), brought into the window, and the middle of
+what the window shows of it checked, through open shadow roots, to be the
+element or inside it (otherwise `NotActionable`, naming what covers it by
+tag, id, and class). Then:
+
+- `Click` presses there with raw mouse events, moved, pressed, released
+  (`convert::press_at`, the press the surface uses on a point), so the page
+  sees a person's trusted press with the button going down, never a
+  script's `click()`; `Hover` moves the pointer there;
+- `Type` and `Fill`, only on an element that takes text or holds something
+  that does, press it as a person clicks into a field, and go ahead only if
+  the focus landed in it (`FocusMissed` otherwise, as below): `Type` types
+  a character at a time after what it holds, `Fill` replaces all it holds;
+- `Focus`, and `Press` with a key, give it the focus without a press,
+  checked the same way;
+- `GetText` and `IsVisible` read it.
+
+Any other action on a `d` ref is `InvalidInput`. A host that reads refs from
+a model's text must take `d` refs as well as `e` refs.
 
 ## Clicking
 

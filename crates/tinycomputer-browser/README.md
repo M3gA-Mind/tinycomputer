@@ -19,6 +19,7 @@ it as a surface next to the desktop, and `tinycomputer` serves it over TinyBus.
 | `src/linked/` | `AgentBrowser` (feature `agent-browser`): agent-browser's dispatcher linked in-process, one `DaemonState` per session, built without reading the host's `AGENT_BROWSER_*` environment |
 | `src/convert/` | contract requests to agent-browser commands, as pure functions |
 | `src/reply/` | agent-browser replies to typed results |
+| `src/deep/` | controls a page keeps inside open shadow roots that the accessibility tree gives no ref: looked for after every snapshot (`deep.js`), listed with refs `d1`, `d2`, …, and pressed, typed into, or read where they show (`src/sessions/deep.rs`) |
 | `src/surface/` | `BrowserSurface`: one session as a `tinycomputer-core` `Surface`; `sight/`, which reads the rendered page the way a person looks at it (the default, `docs/technical/specs/browser-sight.md`), and `tree.rs`, which parses snapshot text into a `Screen` when sight cannot reach the page or `Perception::Tree` is chosen |
 | `src/error/` | `Error`: what a caller should do next, one published wire name per variant |
 | `src/outputs/` | held screenshots and PDFs: bounded count, size and lifetime, chunked reads |

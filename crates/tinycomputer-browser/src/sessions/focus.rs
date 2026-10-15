@@ -152,7 +152,7 @@ impl Session {
 
 /// The refusal for a focus that landed elsewhere, naming where by tag only:
 /// anything more would be page text in an error a model reads.
-fn missed(found: &Value) -> Error {
+pub(super) fn missed(found: &Value) -> Error {
     let on = found["on"]
         .as_str()
         .filter(|tag| {

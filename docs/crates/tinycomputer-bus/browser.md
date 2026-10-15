@@ -129,7 +129,10 @@ on the wrong element.
 ## Naming and acting on an element: `action/`
 
 `Target` is how an element is named, with three variants: `Ref` (a snapshot
-ref, e.g. `e12`), `Selector` (CSS, matched against the first element found),
+ref, e.g. `e12`, or `d3` for a control a page keeps inside a web component's
+shadow root, which the module finds after each snapshot; a host reading refs
+from a model's text takes both), `Selector` (CSS, matched against the first
+element found),
 `Locator` (semantic: role, text, label, placeholder, `data-testid`, alt text,
 or title attribute, `LocateBy`'s seven variants). `Target::parse` reads the
 string form a host tool typically receives from a model: a leading `@` means
