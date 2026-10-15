@@ -281,9 +281,9 @@ fn a_session_hands_out_what_its_latest_look_found() {
         json!({"keep": [1, 2], "longest": 100, "most": 40, "next": 3, "scope": "#app"})
     );
     // A look that does not reply hands out none: the refs before are stale.
-    assert!(minted.take(None).is_empty());
+    assert_eq!(minted.take(None).len(), 0);
     assert!(!minted.holds(1));
-    assert!(minted.take(Some(&json!(42))).is_empty());
+    assert_eq!(minted.take(Some(&json!(42))).len(), 0);
     // Numbers never go back, even when the page reports a lower next.
     minted.take(Some(&look(&json!([]), 1)));
     assert_eq!(options(&minted.look(None))["next"], 3);

@@ -131,7 +131,7 @@ async fn a_deep_ref_not_handed_out_or_gone_is_stale() {
     // Before any snapshot, no deep ref is handed out: nothing is sent.
     let before = browser.perform(&id, click("d1")).await.unwrap_err();
     assert!(matches!(&before, Error::StaleRef { reference } if reference == "d1"));
-    assert!(ops(&fake).is_empty());
+    assert_eq!(ops(&fake).len(), 0);
     browser
         .snapshot(&id, SnapshotRequest::default())
         .await
