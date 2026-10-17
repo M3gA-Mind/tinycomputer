@@ -13,7 +13,7 @@ mod interaction;
 mod page;
 mod session;
 
-pub(crate) use interaction::{action, selector};
+pub(crate) use interaction::{action, move_to, press_at, selector};
 pub(crate) use page::{evaluate, navigate, read, screenshot, snapshot};
 pub(crate) use session::{launch, viewport};
 

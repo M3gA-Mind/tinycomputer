@@ -29,9 +29,10 @@ where an action points").
 
 Every action that touches an element names a `Target`:
 
-- `Target::Ref`: a ref from a snapshot (`e12`) or a sight mark (`seen:12`).
-  Refs belong to the reading that produced them; acting on one after the
-  page has re-rendered is refused rather than guessed at.
+- `Target::Ref`: a ref from a snapshot (`e12`, or `d3` for a control inside
+  a web component, see below) or a sight mark (`seen:12`). Refs belong to
+  the reading that produced them; acting on one after the page has
+  re-rendered is refused rather than guessed at.
 - `Target::Selector`: a raw CSS selector, matched against the first
   element found.
 - `Target::Locator`: a semantic locator (role, text, label, placeholder,
@@ -46,6 +47,85 @@ Every action that touches an element names a `Target`:
 mark (routed through `sight::selector`, which turns `seen:12` into
 `[data-tc-seen="12"]`) or a tree ref (routed through `Target::reference`,
 which becomes agent-browser's own `@e12` form).
+
+## Controls inside web components: deep refs
+
+Code: `crates/tinycomputer-browser/src/deep/` (the look, and placing what it
+finds in the tree), `src/sessions/deep.rs` (acting on one).
+
+A page built from web components keeps its controls inside shadow roots.
+agent-browser refs what has a control's role there as anywhere, a native
+button or field included, but a component's own control is often a plain
+`span` or `div` drawn with a pointer and wired to a click by its script: no
+role, no tab stop. agent-browser looks for such elements by their pointer in
+the page's light DOM only, so inside a component they come out as bare text,
+or, in a compact snapshot, not at all. Live, a booking page built this way
+showed its log-in link as plain text and dropped its list of results.
+
+So `Browser::snapshot` follows agent-browser's snapshot with one look
+(`deep.js`) through the page's open shadow roots for what a person can press
+or type into that the tree has no ref for: a pointer of its own (not one
+inherited from a row around it), an `onclick`, a tab stop, an editable
+region. Only what is drawn and not hidden from people counts, only the
+outermost of nested ones (a field inside a pressable row stays a field), and
+at most 40, in the order the page draws them. Each is marked
+`data-tc-deep="N"` and listed as ref `dN`, with the role `clickable`,
+`editable`, or `focusable`, named by its words: its rendered text, or for
+an editable region its label, never what was typed into it.
+
+The same words often show more than once ("Select" on every result), and
+not every place is a listed control: a sold-out row, a heading, a button
+shown only on hover. So the look also counts where each control's words
+show among the page's text, the way the tree shows its lines, and a control
+goes:
+
+- on that place among the lines showing its words, when the tree shows them
+  as many times as the page does: its line becomes the control, as
+  `- StaticText "LOG IN"` becomes `- clickable "LOG IN" [ref=d1]`;
+- otherwise after the tree, under `- group "Controls inside web components"`,
+  which a cut to `max_chars` never drops: the tree before it is cut shorter.
+  A compact snapshot, which drops most text lines, puts most controls here.
+
+`Snapshot::refs` lists them after agent-browser's. A page with nothing to
+list comes out exactly as agent-browser gave it. A closed shadow root cannot
+be read and is passed over, as are frames; while a raw `frame` command has
+agent-browser read a frame, there is no look at all, as the script sees only
+the top document. A number is never handed out twice in a session, not even
+one a look marked elements with before its reply was lost, and an element
+keeps its number from one snapshot to the next only while it lives and
+shows the same words: a list that re-draws a row's own node to show another
+item has that row named anew.
+
+`Browser::perform` acts on a `d` ref itself, never through agent-browser,
+which cannot resolve it. The element is found by its mark and must still
+show the words it was handed out with (gone, carried by two elements, or
+showing something else: `StaleRef`). It is brought into the window, and
+once it has held still for two frames (`NotActionable` if it will not), a
+point on it is chosen, through open shadow roots, where what a press reaches
+is the element or something inside it that is no control of its own: a card
+holding its own "Info" button is pressed beside the button. When nothing on
+it can be reached, the action is `NotActionable`, naming what covers it, or
+the control it holds, by tag, id, and class. Then:
+
+- `Click` presses there with raw mouse events, moved, pressed, released
+  (`convert::press_at`, the press the surface uses on a point), so the page
+  sees a person's trusted press with the button going down, never a
+  script's `click()`. A guard set with the aim stops any part of the press
+  whose path misses the element (something came over it, as a layer a hover
+  raises can), and the action is `NotActionable`; `Hover` moves the pointer
+  there;
+- `Type` and `Fill`, only on an element that takes text or holds something
+  that does (checked before the focus moves), press it as a person clicks
+  into a field, and go ahead only if the focus is in it two frames later
+  (`FocusMissed` otherwise, as below): `Type` types a character at a time
+  after what it holds (after the End key, in a field whose caret a script
+  cannot set), `Fill` replaces all it holds;
+- `Focus`, and `Press` with a key, give it the focus without a press,
+  checked the same way;
+- `GetText` and `IsVisible` read it.
+
+Any other action on a `d` ref is `InvalidInput`. A host that reads refs from
+a model's text must take `d` refs as well as `e` refs.
 
 ## Clicking
 

@@ -20,6 +20,7 @@ use crate::outputs::OutputStore;
 use crate::reply;
 
 mod artifacts;
+mod deep;
 mod focus;
 mod page;
 
@@ -76,6 +77,8 @@ struct Session {
     /// The pages `options.allowed_origins` admits.
     origins: Origins,
     sequence: u64,
+    /// The deep refs the latest snapshot handed out (`crate::deep`).
+    deep: crate::deep::Minted,
     downloads: Vec<DownloadInfo>,
     dir: PathBuf,
 }
@@ -269,6 +272,7 @@ impl Browser {
             origins: Origins::new(&options.allowed_origins),
             options,
             sequence: 0,
+            deep: crate::deep::Minted::default(),
             downloads: Vec::new(),
             dir: self.scratch.join(id.as_str()),
         };

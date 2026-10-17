@@ -47,6 +47,7 @@ the wire shapes those members carry.
 | `src/linked/` | `AgentBrowser`, the real engine, wired to agent-browser's dispatcher | [sessions.md](sessions.md) |
 | `src/convert/` | Turns contract requests (`Action`, `NavigateRequest`, ...) into the JSON commands agent-browser understands | [interacting.md](interacting.md) |
 | `src/reply/` | Turns agent-browser's replies back into typed results, and classifies its failure messages into this crate's `Error` | [errors.md](errors.md) |
+| `src/deep/` | Controls inside web components that the accessibility tree gives no ref, listed in every snapshot as `d` refs and acted on by position | [interacting.md](interacting.md#controls-inside-web-components-deep-refs) |
 | `src/surface/sight/` | `sight.js`: reads the rendered page the way a person looks at it | [sight.md](sight.md) |
 | `src/surface/tree.rs` | Parses agent-browser's accessibility snapshot text, as a fallback for sight | [sight.md](sight.md) |
 | `src/surface/mod.rs`, `operations.rs`, `card.rs`, `fields.rs`, `envelope.rs`, `cursor.rs` | `BrowserSurface`: one session as a `tinycomputer-core` `Surface` (the trait impl in `operations.rs`), plus the on-screen cursor | [surface.md](surface.md) |

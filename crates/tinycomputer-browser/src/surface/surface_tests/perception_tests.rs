@@ -117,7 +117,14 @@ fn the_tree_is_read_when_sight_fails_or_is_turned_off() {
     let Harness { fake, surface, .. } = harness("sight-off", sighted_fake());
     let surface = surface.with_perception(Perception::Tree);
     surface.observe("", None, Depth::Full).unwrap();
-    assert!(!fake.actions().iter().any(|action| action == "evaluate"));
+    // The tree's own look for deep controls runs; sight's reading never does.
+    let read_by_sight = fake.sent().iter().any(|command| {
+        command["action"] == "evaluate"
+            && command["script"]
+                .as_str()
+                .is_some_and(|script| script.contains("__tinycomputerSeen"))
+    });
+    assert!(!read_by_sight);
     assert!(format!("{surface:?}").contains("Tree"));
 }
 

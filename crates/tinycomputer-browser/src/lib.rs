@@ -30,6 +30,7 @@
 //! is the same type as `tinycomputer_bus::browser::Action`.
 
 mod convert;
+mod deep;
 mod engine;
 mod error;
 #[cfg(test)]

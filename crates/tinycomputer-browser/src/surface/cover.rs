@@ -261,20 +261,8 @@ impl BrowserSurface {
     /// Presses the window at (`x`, `y`) as a person's pointer does, with
     /// raw mouse events: whatever is on top there takes it.
     pub(super) fn press_point(&self, id: &SessionId, x: f64, y: f64) -> Option<()> {
-        for event in ["mouseMoved", "mousePressed", "mouseReleased"] {
-            let pressed = event != "mouseMoved";
-            self.block(self.browser.command(
-                id,
-                json!({
-                    "action": "mouse",
-                    "eventType": event,
-                    "x": x,
-                    "y": y,
-                    "button": if pressed { "left" } else { "none" },
-                    "clickCount": i32::from(pressed),
-                }),
-            ))
-            .ok()?;
+        for command in crate::convert::press_at(x, y) {
+            self.block(self.browser.command(id, command)).ok()?;
         }
         Some(())
     }
