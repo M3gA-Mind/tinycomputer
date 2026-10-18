@@ -101,6 +101,75 @@ impl Default for Viewport {
     }
 }
 
+/// One entry of a client-hint brand list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserAgentBrand {
+    /// The brand, such as `Chromium`.
+    pub brand: String,
+    /// Its version, major only in `brands` and full in `full_version_list`.
+    pub version: String,
+}
+
+/// The client hints a browser reports beside its `User-Agent`: the
+/// `sec-ch-ua*` request headers and `navigator.userAgentData`.
+///
+/// A browser whose user agent is overridden without these drops them, which a
+/// site can tell from a real browser of the same user agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserAgentMetadata {
+    /// Brands for `sec-ch-ua` and `navigator.userAgentData.brands`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brands: Option<Vec<UserAgentBrand>>,
+    /// Brands with their full versions, for `sec-ch-ua-full-version-list`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_version_list: Option<Vec<UserAgentBrand>>,
+    /// The browser's full version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_version: Option<String>,
+    /// The operating system, such as `macOS`, `Windows` or `Linux`.
+    pub platform: String,
+    /// The operating system's version.
+    #[serde(default)]
+    pub platform_version: String,
+    /// The CPU architecture, such as `x86` or `arm`.
+    #[serde(default)]
+    pub architecture: String,
+    /// The device model; empty on a desktop.
+    #[serde(default)]
+    pub model: String,
+    /// Whether the browser reports a mobile device.
+    #[serde(default)]
+    pub mobile: bool,
+    /// The CPU's word size, such as `64`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitness: Option<String>,
+    /// Whether a 32-bit browser runs on 64-bit Windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wow64: Option<bool>,
+}
+
+/// What `screen.width`, `screen.height` and `devicePixelRatio` report.
+///
+/// The page's [`Viewport`] keeps its own size: this is the monitor behind it.
+/// A session that sets a screen takes its pixel ratio for the page too, in
+/// place of the viewport's.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Screen {
+    /// Width in CSS pixels.
+    pub width: u32,
+    /// Height in CSS pixels.
+    pub height: u32,
+    /// Device pixel ratio. Defaults to `1.0`.
+    #[serde(default = "Screen::default_scale")]
+    pub device_scale_factor: f64,
+}
+
+impl Screen {
+    fn default_scale() -> f64 {
+        1.0
+    }
+}
+
 /// How to obtain the browser a session drives.
 ///
 /// Every field is optional with a documented default, so the common case —
@@ -156,6 +225,32 @@ pub struct SessionOptions {
     /// Default deadline in milliseconds for operations that do not carry their
     /// own. Defaults to 30 seconds.
     pub default_timeout_ms: u64,
+    /// IANA timezone the page reports, such as `Asia/Tokyo`. Defaults to the
+    /// host's own.
+    ///
+    /// Applies to a browser the module launches, not one it attaches to.
+    pub timezone: Option<String>,
+    /// BCP 47 locale the page reports, such as `ja-JP`. Defaults to the
+    /// browser's own. Applies to a launched browser only.
+    pub locale: Option<String>,
+    /// Languages for the `Accept-Language` request header, comma-separated
+    /// without weights (`ja-JP,ja`). The header does not follow `locale`, so
+    /// a host that sets one usually sets both. Applies to a launched browser
+    /// only.
+    pub accept_language: Option<String>,
+    /// Client hints to go with `user_agent`. Applies to a launched browser
+    /// only.
+    pub user_agent_metadata: Option<UserAgentMetadata>,
+    /// What the page sees as its screen. Applies to a launched browser only.
+    pub screen: Option<Screen>,
+    /// Source code run in every page, and every frame, before the page's own
+    /// scripts. Applies to a launched browser only.
+    pub init_scripts: Vec<String>,
+    /// Keep the browser from announcing that an automation tool drives it:
+    /// the protocol call that does, `Runtime.enable`, is never made. A
+    /// session that asks for it gets no console or page-error capture.
+    /// Defaults to `false`. Applies to a launched browser only.
+    pub stealth: bool,
 }
 
 impl Default for SessionOptions {
@@ -171,6 +266,13 @@ impl Default for SessionOptions {
             args: Vec::new(),
             allowed_origins: Vec::new(),
             default_timeout_ms: 30_000,
+            timezone: None,
+            locale: None,
+            accept_language: None,
+            user_agent_metadata: None,
+            screen: None,
+            init_scripts: Vec::new(),
+            stealth: false,
         }
     }
 }
