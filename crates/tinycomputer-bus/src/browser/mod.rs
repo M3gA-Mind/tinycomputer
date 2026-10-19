@@ -96,6 +96,9 @@ pub use page::{
     EvaluateRequest, NavigateRequest, PageState, PageText, ReadFormat, ReadRequest, WaitUntil,
 };
 pub use profile::{ClaimProfileRequest, ClaimProfileResponse, ProfileClaim, ReleaseProfileRequest};
-pub use session::{SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, Viewport};
+pub use session::{
+    Screen, SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, UserAgentBrand,
+    UserAgentMetadata, Viewport,
+};
 pub use snapshot::{ElementRef, Snapshot, SnapshotRequest};
 pub use tool::{ToolAction, ToolArgError, ToolArgs};

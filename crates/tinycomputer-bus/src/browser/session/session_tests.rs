@@ -6,7 +6,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use super::{SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, Viewport};
+use super::{
+    Screen, SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, UserAgentBrand,
+    UserAgentMetadata, Viewport,
+};
 use crate::browser::{Action, NavigateRequest, Target};
 use serde_json::json;
 
@@ -59,6 +62,7 @@ fn options_serialize_with_the_documented_field_names() {
     assert_eq!(
         keys,
         [
+            "accept_language",
             "allowed_origins",
             "args",
             "default_timeout_ms",
@@ -66,11 +70,119 @@ fn options_serialize_with_the_documented_field_names() {
             "endpoint",
             "executable",
             "headless",
+            "init_scripts",
+            "locale",
+            "screen",
+            "stealth",
+            "timezone",
             "user_agent",
+            "user_agent_metadata",
             "user_data_dir",
             "viewport",
         ]
     );
+}
+
+#[test]
+fn a_host_that_predates_the_identity_fields_still_opens_a_session() {
+    // The wire form of `SessionOptions` before the identity fields: every
+    // field a host could send, and none of the new ones.
+    let old: SessionOptions = serde_json::from_value(json!({
+        "endpoint": null,
+        "executable": "/usr/bin/chromium",
+        "headless": false,
+        "viewport": {"width": 800, "height": 600, "device_scale_factor": 2.0, "mobile": false},
+        "user_agent": "agent",
+        "user_data_dir": "/profiles/trip",
+        "download_dir": "/downloads",
+        "args": ["--lang=en"],
+        "allowed_origins": ["https://example.com"],
+        "default_timeout_ms": 5000,
+    }))
+    .expect("an old client's options deserialize");
+
+    assert_eq!(old.timezone, None);
+    assert_eq!(old.locale, None);
+    assert_eq!(old.accept_language, None);
+    assert_eq!(old.user_agent_metadata, None);
+    assert_eq!(old.screen, None);
+    assert_eq!(old.init_scripts, Vec::<String>::new());
+    assert!(!old.stealth);
+    assert_eq!(old.user_agent.as_deref(), Some("agent"));
+}
+
+#[test]
+fn identity_fields_round_trip_in_snake_case() {
+    let options = SessionOptions {
+        timezone: Some("Asia/Tokyo".to_owned()),
+        locale: Some("ja-JP".to_owned()),
+        accept_language: Some("ja-JP,ja".to_owned()),
+        user_agent_metadata: Some(UserAgentMetadata {
+            brands: Some(vec![UserAgentBrand {
+                brand: "Chromium".to_owned(),
+                version: "140".to_owned(),
+            }]),
+            full_version_list: None,
+            full_version: Some("140.0.0.0".to_owned()),
+            platform: "macOS".to_owned(),
+            platform_version: "14.5.0".to_owned(),
+            architecture: "arm".to_owned(),
+            model: String::new(),
+            mobile: false,
+            bitness: Some("64".to_owned()),
+            wow64: None,
+        }),
+        screen: Some(Screen {
+            width: 1920,
+            height: 1080,
+            device_scale_factor: 2.0,
+        }),
+        init_scripts: vec!["window.marker = 1;".to_owned()],
+        stealth: true,
+        ..SessionOptions::default()
+    };
+
+    let encoded = serde_json::to_value(&options).expect("serializes");
+    assert_eq!(encoded["timezone"], json!("Asia/Tokyo"));
+    assert_eq!(encoded["accept_language"], json!("ja-JP,ja"));
+    assert_eq!(
+        encoded["user_agent_metadata"],
+        json!({
+            "brands": [{"brand": "Chromium", "version": "140"}],
+            "full_version": "140.0.0.0",
+            "platform": "macOS",
+            "platform_version": "14.5.0",
+            "architecture": "arm",
+            "model": "",
+            "mobile": false,
+            "bitness": "64",
+        })
+    );
+    assert_eq!(
+        encoded["screen"],
+        json!({"width": 1920, "height": 1080, "device_scale_factor": 2.0})
+    );
+    assert_eq!(encoded["init_scripts"], json!(["window.marker = 1;"]));
+    assert_eq!(encoded["stealth"], json!(true));
+    assert_eq!(
+        serde_json::from_value::<SessionOptions>(encoded).expect("deserializes"),
+        options
+    );
+}
+
+#[test]
+fn a_minimal_metadata_and_screen_fill_their_defaults() {
+    let options: SessionOptions = serde_json::from_value(json!({
+        "user_agent_metadata": {"platform": "Windows"},
+        "screen": {"width": 1366, "height": 768},
+    }))
+    .expect("deserializes");
+
+    let metadata = options.user_agent_metadata.expect("metadata");
+    assert_eq!(metadata.platform, "Windows");
+    assert_eq!(metadata.platform_version, "");
+    assert!(!metadata.mobile);
+    assert_eq!(options.screen.expect("screen").device_scale_factor, 1.0);
 }
 
 #[test]
