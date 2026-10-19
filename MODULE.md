@@ -85,8 +85,8 @@ for captures. The module checks before it acts, so a missing permission is a
 like an application with no buttons. Call `Permissions` to read the current
 state; it prompts only when explicitly asked to.
 
-macOS and Windows have full accessibility backends. Linux loads and answers but
-implements no desktop surfaces yet: observation there fails with
+macOS has a full accessibility backend. Windows and Linux load and answer but
+implement no desktop surfaces yet: observation there fails with
 `PLATFORM_NOT_SUPPORTED`. Browser tasks need Chrome or Chromium on the machine,
 or a running Chrome to attach to.
 
