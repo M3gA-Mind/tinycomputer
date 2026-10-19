@@ -85,7 +85,10 @@ of this module's own source, because reading them back out of the exported
 
 Integration tests use TinyBus's in-memory transport, and
 `crates/tinycomputer-examples/src/bin/verify_module.rs` loads a compiled `cdylib` through
-the real dynamic loader before a release archive is accepted.
+the real dynamic loader before a release archive is accepted. Its trace-sink
+fixture invokes the no-permission `Version` member, checks captured native trace
+records and confirms sink mode leaves the configured legacy trace path absent;
+it also verifies successful and failed confidential task-report writes.
 
 ## Native accessibility lifecycle
 

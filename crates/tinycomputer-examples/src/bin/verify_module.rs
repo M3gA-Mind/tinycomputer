@@ -70,11 +70,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }])
         .await?;
     let capture = TraceSinkCapture::default();
+    let trace_path = std::env::temp_dir().join(format!(
+        "tinycomputer-module-trace-{}-{}.jsonl",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    ));
+    let _trace_path = RemoveTraceFileOnDrop(trace_path.clone());
     callback
         .serve_at(trace_sink::OBJECT_PATH.parse()?, capture.clone())
         .await?;
     let config = serde_json::json!({
         "trace_sink": {"destination": callback.unique_name()},
+        "trace_path": trace_path.to_string_lossy(),
+        "trace_strict": true,
     });
     let info = module_host
         .load_file_with_host_callbacks(&module, config, &callback)
@@ -114,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .into());
     }
+    verify_trace_sink(&capture, &trace_path)?;
 
     verify_report_sink(&proxy, &capture).await?;
 
@@ -153,6 +164,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         METHODS.len()
     );
     broker_task.abort();
+    Ok(())
+}
+
+/// Removes a trace path if a regression sends sink-mode events to disk.
+struct RemoveTraceFileOnDrop(PathBuf);
+
+impl Drop for RemoveTraceFileOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Proves the loaded module emits a native desktop trace through its callback.
+fn verify_trace_sink(
+    capture: &TraceSinkCapture,
+    legacy_path: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if legacy_path.exists() {
+        return Err(io::Error::other("trace sink mode wrote the legacy trace file").into());
+    }
+    let events = capture.events.lock().unwrap();
+    let names = events
+        .iter()
+        .filter_map(|event| event.get("event").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>();
+    for required in ["trace.meta", "command.start", "command.end"] {
+        if !names.contains(&required) {
+            return Err(io::Error::other(format!(
+                "loaded module trace callback did not receive `{required}`"
+            ))
+            .into());
+        }
+    }
     Ok(())
 }
 
