@@ -24,6 +24,7 @@ mod consequence_gate;
 mod dispatch;
 mod runner;
 mod site_memory;
+mod trace_sink;
 
 use serde_json::Value;
 use tinybus::{Connection, Result as TinyBusResult};
@@ -38,8 +39,7 @@ pub(crate) use dispatch::DesktopService;
 /// silently ignoring the session it was told to join would allocate refs
 /// nothing else can spend.
 async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
-    let service = DesktopService::from_config(&config)
-        .map_err(|error| tinybus::Error::failed(error.to_string()))?;
+    let service = DesktopService::from_config_with_connection(&config, connection.clone()).await?;
     // The host's per-site memory; a host that does not serve it only costs
     // tasks what earlier ones learned.
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
@@ -94,6 +94,7 @@ tinybus_module::module_export_optional_static! {
     optional = [
         "ai.tinyhumans.tinycomputer.SiteMemoryHost",
         "ai.tinyhumans.tinycomputer.ConsequenceHost",
+        "ai.tinyhumans.tinycomputer.TraceSinkHost",
     ],
     lazy = false,
 }

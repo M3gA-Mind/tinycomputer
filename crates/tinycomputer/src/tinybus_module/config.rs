@@ -134,6 +134,21 @@ impl BrowserDefaults {
     }
 }
 
+/// Whether the host explicitly selected the trace/report callback.
+pub(crate) fn trace_sink_requested(config: &serde_json::Value) -> Result<bool> {
+    match config
+        .as_object()
+        .and_then(|object| object.get("trace_sink"))
+    {
+        None => Ok(false),
+        Some(serde_json::Value::Bool(enabled)) => Ok(*enabled),
+        Some(_) => Err(crate::Error::ConfigFieldType {
+            field: "trace_sink",
+            expected: "a boolean",
+        }),
+    }
+}
+
 /// The `cursor` configuration: the agent's one on-screen cursor, shared by
 /// the desktop and every task's browser. Either a pace name, or an object
 /// with an optional `pace` and an optional `overlay` path to the

@@ -267,3 +267,13 @@ fn the_cursor_is_configured_or_refused() {
     }
     assert!(DesktopService::from_config(&json!({"cursor": "off"})).is_ok());
 }
+
+#[test]
+fn trace_sink_is_an_explicit_boolean_opt_in() {
+    use crate::tinybus_module::config::trace_sink_requested;
+
+    assert!(!trace_sink_requested(&json!({})).unwrap());
+    assert!(trace_sink_requested(&json!({"trace_sink": true})).unwrap());
+    assert!(!trace_sink_requested(&json!({"trace_sink": false})).unwrap());
+    assert!(trace_sink_requested(&json!({"trace_sink": "yes"})).is_err());
+}

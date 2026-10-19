@@ -131,6 +131,7 @@ pub mod notifications;
 pub mod observation;
 pub mod site_memory;
 pub mod system;
+pub mod trace_sink;
 pub mod version;
 pub mod vocabulary;
 pub mod waiting;

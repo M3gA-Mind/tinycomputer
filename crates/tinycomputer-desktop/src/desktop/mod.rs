@@ -80,13 +80,31 @@ use permission::Need;
 /// assert!(reply.ok);
 /// assert!(reply.data.is_some());
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Desktop {
     session_id: Option<String>,
     trace_path: Option<PathBuf>,
     trace_strict: bool,
     headed: bool,
     cursor: Option<Arc<ScreenCursor>>,
+    trace_sink: Option<Arc<dyn agent_desktop_core::TraceSink>>,
+}
+
+impl std::fmt::Debug for Desktop {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Desktop")
+            .field("session_id", &self.session_id)
+            .field("trace_path", &self.trace_path)
+            .field("trace_strict", &self.trace_strict)
+            .field("headed", &self.headed)
+            .field("cursor", &self.cursor)
+            .field(
+                "trace_sink",
+                &self.trace_sink.as_ref().map(|_| "configured"),
+            )
+            .finish()
+    }
 }
 
 impl Desktop {
@@ -142,6 +160,19 @@ impl Desktop {
     pub fn with_trace(mut self, path: impl Into<PathBuf>, strict: bool) -> Self {
         self.trace_path = Some(path.into());
         self.trace_strict = strict;
+        self
+    }
+
+    /// Returns this `Desktop` sending desktop trace events to `sink`.
+    ///
+    /// The selected sink takes precedence over `trace_path` and session trace
+    /// files. Its synchronous methods are called in event order; strict mode
+    /// returns sink failures to the command, and best-effort mode warns and
+    /// continues, matching the local trace writer. The sink's authority stays
+    /// outside event data.
+    #[must_use]
+    pub fn with_trace_sink(mut self, sink: Arc<dyn agent_desktop_core::TraceSink>) -> Self {
+        self.trace_sink = Some(sink);
         self
     }
 
@@ -236,6 +267,7 @@ impl Desktop {
             trace_strict: flag(object.get("trace_strict"), "trace_strict")?,
             headed: flag(object.get("headed"), "headed")?,
             cursor: None,
+            trace_sink: None,
         })
     }
 
@@ -262,7 +294,7 @@ impl Desktop {
     /// ```
     #[must_use]
     pub fn is_tracing(&self) -> bool {
-        self.trace_path.is_some()
+        self.trace_path.is_some() || self.trace_sink.is_some()
     }
 
     /// Where commands write their trace, if anywhere.
@@ -295,12 +327,20 @@ impl Desktop {
 
     /// Builds the engine context every command runs under.
     fn context(&self) -> std::result::Result<CommandContext, AppError> {
-        CommandContext::new(
-            self.session_id.clone(),
-            self.trace_path.clone(),
-            self.trace_strict,
-        )
-        .map(|context| context.with_headed(self.headed))
+        let context = match &self.trace_sink {
+            Some(sink) => CommandContext::new_with_trace_sink(
+                self.session_id.clone(),
+                sink.clone(),
+                self.trace_strict,
+                true,
+            ),
+            None => CommandContext::new(
+                self.session_id.clone(),
+                self.trace_path.clone(),
+                self.trace_strict,
+            ),
+        };
+        context.map(|context| context.with_headed(self.headed))
     }
 
     /// Runs `command` under a fresh adapter and context, and wraps whatever it
@@ -396,3 +436,7 @@ fn platform_adapter() -> impl PlatformAdapter {
 
 #[cfg(test)]
 mod desktop_tests;
+
+#[cfg(test)]
+#[path = "trace_sink_tests.rs"]
+mod trace_sink_tests;

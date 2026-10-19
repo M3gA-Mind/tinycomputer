@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 19));
+    assert_eq!(CONTRACT_VERSION, (2, 20));
 }
 
 #[test]
@@ -35,6 +35,8 @@ fn a_newer_minor_on_the_module_side_binds() {
     // 2.19 adds the ConsequenceHost host-callback interface (Review): a 2.19
     // host serves it, which a 2.18 module does not call, so its approvals
     // would never reach the host's policy.
+    // 2.20 adds TraceSinkHost so desktop events and task reports can be
+    // committed by the host without using a module-local trace file.
     assert!(!is_compatible((2, 18)));
     assert!(!is_compatible((2, 17)));
     assert!(!is_compatible((2, 16)));

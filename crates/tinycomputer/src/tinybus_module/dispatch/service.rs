@@ -17,6 +17,7 @@ use crate::tinybus_module::config::{BrowserDefaults, cursor_config};
 use crate::tinybus_module::consequence_gate::{ConsequenceLink, ConsequencePort};
 use crate::tinybus_module::runner::WorkspaceRunner;
 use crate::tinybus_module::site_memory::{SiteLink, SiteMemoryPort, refused_flow};
+use crate::tinybus_module::trace_sink::TraceLink;
 use crate::{Desktop, Result};
 
 impl DesktopService {
@@ -29,6 +30,26 @@ impl DesktopService {
         Self::with_browser(config, Arc::new(Browser::new(Arc::new(AgentBrowser))))
     }
 
+    /// Builds the service with the connection used for optional host callbacks.
+    pub(crate) async fn from_config_with_connection(
+        config: &serde_json::Value,
+        connection: tinybus::Connection,
+    ) -> TinyBusResult<Self> {
+        let trace_link = if super::config::trace_sink_requested(config)
+            .map_err(|error| TinyBusError::failed(error.to_string()))?
+        {
+            Some(TraceLink::new(connection.clone())?)
+        } else {
+            None
+        };
+        Self::with_browser_and_trace_sink(
+            config,
+            Arc::new(Browser::new(Arc::new(AgentBrowser))),
+            trace_link,
+        )
+        .map_err(|error| TinyBusError::failed(error.to_string()))
+    }
+
     /// Builds the service from the module configuration blob, opening browser
     /// sessions on `browser`.
     ///
@@ -36,8 +57,19 @@ impl DesktopService {
     ///
     /// Propagates whatever [`Desktop::from_config`] rejects.
     pub(crate) fn with_browser(config: &serde_json::Value, browser: Arc<Browser>) -> Result<Self> {
+        Self::with_browser_and_trace_sink(config, browser, None)
+    }
+
+    fn with_browser_and_trace_sink(
+        config: &serde_json::Value,
+        browser: Arc<Browser>,
+        trace_link: Option<Arc<TraceLink>>,
+    ) -> Result<Self> {
         let cursor = Arc::new(cursor_config(config)?);
-        let desktop = Desktop::from_config(config)?.with_cursor(cursor.clone());
+        let mut desktop = Desktop::from_config(config)?.with_cursor(cursor.clone());
+        if let Some(link) = &trace_link {
+            desktop = desktop.with_trace_sink(link.clone());
+        }
         let jev = config
             .as_object()
             .and_then(|object| object.get("jev"))
@@ -94,6 +126,7 @@ impl DesktopService {
             accessibility: Arc::new(super::accessibility::Access::default()),
             site_link: None,
             consequence_link: None,
+            trace_link,
         })
     }
 
