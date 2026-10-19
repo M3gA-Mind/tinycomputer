@@ -14,7 +14,10 @@
 
 mod types;
 
-pub use types::{SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, Viewport};
+pub use types::{
+    Screen, SessionId, SessionInfo, SessionOptions, SessionRef, SessionRequest, UserAgentBrand,
+    UserAgentMetadata, Viewport,
+};
 
 #[cfg(test)]
 mod session_tests;

@@ -16,7 +16,7 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 19)));
+    assert!(is_compatible((2, 20)));
     assert!(is_compatible((2, 97)));
     // 2.12 adds replayable GlobeRead and joined terminal GlobeShutdown.
     // A 2.11 module does not implement those members.

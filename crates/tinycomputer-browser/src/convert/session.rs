@@ -6,7 +6,7 @@
 //! (`crate::origins`).
 
 use serde_json::{Value, json};
-use tinycomputer_bus::browser::SessionOptions;
+use tinycomputer_bus::browser::{SessionOptions, UserAgentBrand, UserAgentMetadata};
 
 /// The explicit `launch` every session starts with.
 ///
@@ -26,23 +26,83 @@ pub(crate) fn launch(options: &SessionOptions) -> Value {
         ("userAgent", options.user_agent.as_ref()),
         ("profile", options.user_data_dir.as_ref()),
         ("downloadPath", options.download_dir.as_ref()),
+        ("timezone", options.timezone.as_ref()),
+        ("locale", options.locale.as_ref()),
+        ("acceptLanguage", options.accept_language.as_ref()),
     ];
     for (key, value) in fields {
         if let Some(value) = value {
             command[key] = json!(value);
         }
     }
+    if let Some(metadata) = &options.user_agent_metadata {
+        command["userAgentMetadata"] = user_agent_metadata(metadata);
+    }
+    if let Some(screen) = &options.screen {
+        command["screen"] = json!({
+            "width": screen.width,
+            "height": screen.height,
+            "deviceScaleFactor": screen.device_scale_factor,
+        });
+    }
+    if !options.init_scripts.is_empty() {
+        command["initScriptSources"] = json!(options.init_scripts);
+    }
+    if options.stealth {
+        command["stealth"] = json!(true);
+    }
     command
 }
 
+/// The client hints in the engine's field names; fields left unset are left
+/// out, as the engine reads an absent list differently from an empty one.
+fn user_agent_metadata(metadata: &UserAgentMetadata) -> Value {
+    let brands = |list: &[UserAgentBrand]| -> Value {
+        list.iter()
+            .map(|entry| json!({"brand": entry.brand, "version": entry.version}))
+            .collect()
+    };
+    let mut value = json!({
+        "platform": metadata.platform,
+        "platformVersion": metadata.platform_version,
+        "architecture": metadata.architecture,
+        "model": metadata.model,
+        "mobile": metadata.mobile,
+    });
+    if let Some(list) = &metadata.brands {
+        value["brands"] = brands(list);
+    }
+    if let Some(list) = &metadata.full_version_list {
+        value["fullVersionList"] = brands(list);
+    }
+    if let Some(version) = &metadata.full_version {
+        value["fullVersion"] = json!(version);
+    }
+    if let Some(bitness) = &metadata.bitness {
+        value["bitness"] = json!(bitness);
+    }
+    if let Some(wow64) = metadata.wow64 {
+        value["wow64"] = json!(wow64);
+    }
+    value
+}
+
 /// The viewport a session applies straight after launching.
+///
+/// It replaces the launch's pixel ratio, so a session with a screen takes the
+/// screen's: what `devicePixelRatio` reports is part of that screen.
 #[must_use]
 pub(crate) fn viewport(options: &SessionOptions) -> Value {
+    let scale = options
+        .screen
+        .map_or(options.viewport.device_scale_factor, |screen| {
+            screen.device_scale_factor
+        });
     json!({
         "action": "viewport",
         "width": options.viewport.width,
         "height": options.viewport.height,
-        "deviceScaleFactor": options.viewport.device_scale_factor,
+        "deviceScaleFactor": scale,
         "mobile": options.viewport.mobile,
     })
 }

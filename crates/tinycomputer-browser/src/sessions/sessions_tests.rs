@@ -19,6 +19,7 @@ mod deep_keys_tests;
 mod deep_page;
 mod deep_tests;
 mod focus_tests;
+mod identity_tests;
 mod lifecycle_tests;
 mod origins_tests;
 mod page_tests;
