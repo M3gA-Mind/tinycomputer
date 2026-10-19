@@ -51,7 +51,7 @@ fn overlapping_callbacks_are_refused_until_the_outer_delivery_finishes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn expired_queued_event_is_rejected_without_a_late_host_write() -> TinyBusResult<()> {
+async fn an_already_expired_queued_event_is_rejected_without_a_host_write() -> TinyBusResult<()> {
     let bus = tinybus::transport::memory::MemoryBus::new();
     tinybus::broker::Broker::new().spawn(bus.clone());
     let host_connection = Connection::connect(bus.connect().await?).await?;
@@ -80,4 +80,109 @@ async fn expired_queued_event_is_rejected_without_a_late_host_write() -> TinyBus
     assert!(acknowledgment.is_err());
     assert!(host.0.lock().unwrap().is_empty());
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expired_queued_event_is_rejected_without_a_late_host_write() -> TinyBusResult<()> {
+    let bus = tinybus::transport::memory::MemoryBus::new();
+    tinybus::broker::Broker::new().spawn(bus.clone());
+    let host_connection = Connection::connect(bus.connect().await?).await?;
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let host = BlockingRecordingHost {
+        events: Arc::default(),
+        started: Arc::new(std::sync::Mutex::new(Some(started_tx))),
+        release: Arc::new(std::sync::Mutex::new(Some(release_rx))),
+    };
+    host_connection
+        .serve_at(trace_sink::OBJECT_PATH.try_into()?, host.clone())
+        .await?;
+    host_connection.request_name(trace_sink::INTERFACE).await?;
+    let module = Connection::connect(bus.connect().await?).await?;
+    let link = TraceLink::new(module, tinybus::BusName::new(trace_sink::INTERFACE)?)?;
+    let (first_reply, first_result) = mpsc::sync_channel(1);
+    link.worker
+        .try_send(Command::Append {
+            record: serde_json::json!({"event": "blocker"}),
+            deadline: Instant::now() + Duration::from_secs(10),
+            byte_budget: 4096,
+            reply: first_reply,
+        })
+        .expect("worker accepts the command that blocks its callback");
+    tokio::time::timeout(Duration::from_secs(5), started_rx)
+        .await
+        .expect("first callback starts")
+        .expect("host signals that it is blocking the worker");
+
+    let (queued_reply, queued_result) = mpsc::sync_channel(1);
+    let queued_deadline = Instant::now() + Duration::from_millis(50);
+    link.worker
+        .try_send(Command::Append {
+            record: serde_json::json!({"event": "expired"}),
+            deadline: queued_deadline,
+            byte_budget: 4096,
+            reply: queued_reply,
+        })
+        .expect("worker queue accepts the second command while processing the first");
+    tokio::time::sleep_until(
+        tokio::time::Instant::from_std(queued_deadline) + Duration::from_millis(1),
+    )
+    .await;
+    release_tx
+        .send(())
+        .expect("test releases the first host callback");
+
+    let first_ack =
+        tokio::task::spawn_blocking(move || first_result.recv_timeout(Duration::from_secs(5)))
+            .await
+            .expect("first acknowledgment waiter completes")
+            .expect("worker acknowledges the first command");
+    let queued_ack =
+        tokio::task::spawn_blocking(move || queued_result.recv_timeout(Duration::from_secs(5)))
+            .await
+            .expect("queued acknowledgment waiter completes")
+            .expect("worker rejects the expired queued command");
+
+    assert!(first_ack.is_ok());
+    assert!(queued_ack.is_err());
+    assert_eq!(
+        host.events.lock().unwrap().as_slice(),
+        &[serde_json::json!({"event": "blocker"})],
+        "the expired queued event must not be written late"
+    );
+    Ok(())
+}
+
+#[derive(Clone)]
+struct BlockingRecordingHost {
+    events: Arc<Mutex<Vec<serde_json::Value>>>,
+    started: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    release: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>>,
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinycomputer.TraceSinkHost")]
+impl BlockingRecordingHost {
+    async fn append(&self, event: TraceEvent) -> TinyBusResult<SinkAck> {
+        if event.record["event"] == "blocker" {
+            if let Some(started) = self.started.lock().unwrap().take() {
+                let _ = started.send(());
+            }
+            let release = self.release.lock().unwrap().take();
+            if let Some(release) = release {
+                release
+                    .await
+                    .map_err(|_| TinyBusError::failed("test callback was not released"))?;
+            }
+        }
+        self.events.lock().unwrap().push(event.record);
+        Ok(SinkAck {})
+    }
+
+    async fn store_artifact(&self, _: TraceArtifact) -> TinyBusResult<TraceArtifactRef> {
+        Err(TinyBusError::failed("unused by queued deadline test"))
+    }
+
+    async fn write_report(&self, _: TaskReportRecord) -> TinyBusResult<SinkAck> {
+        Err(TinyBusError::failed("unused by queued deadline test"))
+    }
 }
