@@ -269,11 +269,32 @@ fn the_cursor_is_configured_or_refused() {
 }
 
 #[test]
-fn trace_sink_is_an_explicit_boolean_opt_in() {
-    use crate::tinybus_module::config::trace_sink_requested;
+fn trace_sink_requires_the_host_prepared_unique_destination() {
+    use crate::tinybus_module::config::trace_sink_destination;
 
-    assert!(!trace_sink_requested(&json!({})).unwrap());
-    assert!(trace_sink_requested(&json!({"trace_sink": true})).unwrap());
-    assert!(!trace_sink_requested(&json!({"trace_sink": false})).unwrap());
-    assert!(trace_sink_requested(&json!({"trace_sink": "yes"})).is_err());
+    assert!(trace_sink_destination(&json!({})).unwrap().is_none());
+    assert!(
+        trace_sink_destination(&json!({"trace_sink": false}))
+            .unwrap()
+            .is_none()
+    );
+    assert!(trace_sink_destination(&json!({"trace_sink": true})).is_err());
+    assert!(trace_sink_destination(&json!({"trace_sink": {}})).is_err());
+    assert!(
+        trace_sink_destination(&json!({
+            "trace_sink": {"destination": ":1.42", "scope": "caller-selected"}
+        }))
+        .is_err()
+    );
+    assert!(
+        trace_sink_destination(&json!({"trace_sink": {"destination": "org.example.Host"}}))
+            .is_err()
+    );
+    assert_eq!(
+        trace_sink_destination(&json!({"trace_sink": {"destination": ":1.42"}}))
+            .unwrap()
+            .unwrap()
+            .as_str(),
+        ":1.42"
+    );
 }

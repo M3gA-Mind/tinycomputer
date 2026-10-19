@@ -35,10 +35,10 @@ impl DesktopService {
         config: &serde_json::Value,
         connection: tinybus::Connection,
     ) -> TinyBusResult<Self> {
-        let trace_link = if super::config::trace_sink_requested(config)
+        let trace_link = if let Some(destination) = super::config::trace_sink_destination(config)
             .map_err(|error| TinyBusError::failed(error.to_string()))?
         {
-            Some(TraceLink::new(connection.clone())?)
+            Some(TraceLink::new(connection.clone(), destination)?)
         } else {
             None
         };

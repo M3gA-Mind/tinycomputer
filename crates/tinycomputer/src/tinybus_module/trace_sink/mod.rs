@@ -4,11 +4,14 @@
 //! task is on a Tokio executor thread. This port moves every trace callback to
 //! one dedicated worker before making a bounded synchronous wait, so the bus
 //! acknowledgement never runs on the caller's executor thread. One worker
-//! preserves event order for this module instance.
+//! preserves accepted event order for this module instance. A shared in-flight
+//! guard refuses overlapping callbacks as bounded backpressure; it does not
+//! identify whether a call is causally re-entrant.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -24,15 +27,29 @@ use tinycomputer_desktop::{
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 enum Command {
-    Append(TraceEvent, SyncSender<Result<(), ()>>),
-    StoreArtifact(TraceArtifact, SyncSender<Result<String, ()>>),
+    Append {
+        record: serde_json::Value,
+        deadline: Instant,
+        byte_budget: u64,
+        reply: SyncSender<Result<(), ()>>,
+    },
+    StoreArtifact {
+        kind: TraceArtifactKind,
+        name: String,
+        bytes: Vec<u8>,
+        deadline: Instant,
+        limits: tinycomputer_bus::trace_sink::TraceArtifactLimits,
+        reply: SyncSender<Result<String, ()>>,
+    },
 }
 
 /// The synchronous sink adapter, backed by a worker that owns the bus calls.
 #[derive(Clone)]
 pub(crate) struct TraceLink {
     connection: Connection,
+    destination: tinybus::BusName,
     worker: SyncSender<Command>,
+    callback_active: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for TraceLink {
@@ -42,8 +59,14 @@ impl std::fmt::Debug for TraceLink {
 }
 
 impl TraceLink {
-    pub(crate) fn new(connection: Connection) -> TinyBusResult<Arc<Self>> {
+    pub(crate) fn new(
+        connection: Connection,
+        destination: tinybus::BusName,
+    ) -> TinyBusResult<Arc<Self>> {
         let worker_connection = connection.clone();
+        let worker_destination = destination.clone();
+        let callback_active = Arc::new(AtomicBool::new(false));
+        let worker_callback_active = callback_active.clone();
         let runtime = tokio::runtime::Handle::current();
         if runtime.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
             return Err(TinyBusError::failed(
@@ -53,15 +76,27 @@ impl TraceLink {
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::Builder::new()
             .name("tinycomputer-trace-sink".into())
-            .spawn(move || worker(runtime, worker_connection, receiver))
+            .spawn(move || {
+                worker(
+                    runtime,
+                    worker_connection,
+                    worker_destination,
+                    worker_callback_active,
+                    receiver,
+                )
+            })
             .map_err(|error| TinyBusError::failed(format!("trace sink worker failed: {error}")))?;
         Ok(Arc::new(Self {
             connection,
+            destination,
             worker: sender,
+            callback_active,
         }))
     }
 
     pub(crate) async fn write_report(&self, record: TaskReportRecord) -> TinyBusResult<()> {
+        let _guard = CallbackGuard::try_acquire(&self.callback_active)
+            .ok_or_else(|| TinyBusError::failed("trace sink callback is busy"))?;
         call::<SinkAck, _>(
             &self.proxy(CALL_TIMEOUT)?,
             trace_sink::methods::WRITE_REPORT,
@@ -74,7 +109,7 @@ impl TraceLink {
     fn proxy(&self, timeout: Duration) -> TinyBusResult<Proxy> {
         self.connection
             .proxy(
-                trace_sink::INTERFACE,
+                self.destination.as_str(),
                 trace_sink::OBJECT_PATH,
                 trace_sink::INTERFACE,
             )
@@ -82,31 +117,79 @@ impl TraceLink {
     }
 }
 
-fn worker(runtime: tokio::runtime::Handle, connection: Connection, receiver: Receiver<Command>) {
+fn worker(
+    runtime: tokio::runtime::Handle,
+    connection: Connection,
+    destination: tinybus::BusName,
+    callback_active: Arc<AtomicBool>,
+    receiver: Receiver<Command>,
+) {
     while let Ok(command) = receiver.recv() {
         match command {
-            Command::Append(record, reply) => {
-                let timeout = timeout(record.deadline_ms);
+            Command::Append {
+                record,
+                deadline,
+                byte_budget,
+                reply,
+            } => {
+                let Some(_guard) = CallbackGuard::try_acquire(&callback_active) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(timeout) = remaining_timeout(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(deadline_ms) = remaining_millis(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
                 let result = runtime.block_on(async {
                     let proxy = connection
                         .proxy(
-                            trace_sink::INTERFACE,
+                            destination.as_str(),
                             trace_sink::OBJECT_PATH,
                             trace_sink::INTERFACE,
                         )?
                         .with_timeout(timeout);
-                    call::<SinkAck, _>(&proxy, trace_sink::methods::APPEND, (record,))
-                        .await
-                        .map(|_| ())
+                    call::<SinkAck, _>(
+                        &proxy,
+                        trace_sink::methods::APPEND,
+                        (TraceEvent {
+                            record,
+                            deadline_ms,
+                            byte_budget,
+                        },),
+                    )
+                    .await
+                    .map(|_| ())
                 });
                 let _ = reply.send(result.map_err(|_| ()));
             }
-            Command::StoreArtifact(artifact, reply) => {
-                let timeout = timeout(artifact.deadline_ms);
+            Command::StoreArtifact {
+                kind,
+                name,
+                bytes,
+                deadline,
+                limits,
+                reply,
+            } => {
+                let Some(_guard) = CallbackGuard::try_acquire(&callback_active) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(timeout) = remaining_timeout(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(deadline_ms) = remaining_millis(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
                 let result = runtime.block_on(async {
                     let proxy = connection
                         .proxy(
-                            trace_sink::INTERFACE,
+                            destination.as_str(),
                             trace_sink::OBJECT_PATH,
                             trace_sink::INTERFACE,
                         )?
@@ -114,7 +197,13 @@ fn worker(runtime: tokio::runtime::Handle, connection: Connection, receiver: Rec
                     call::<TraceArtifactRef, _>(
                         &proxy,
                         trace_sink::methods::STORE_ARTIFACT,
-                        (artifact,),
+                        (TraceArtifact {
+                            kind,
+                            name,
+                            bytes,
+                            deadline_ms,
+                            limits,
+                        },),
                     )
                     .await
                     .map(|reply| reply.reference)
@@ -125,16 +214,6 @@ fn worker(runtime: tokio::runtime::Handle, connection: Connection, receiver: Rec
     }
 }
 
-#[cfg(test)]
-async fn call<T, A>(proxy: &Proxy, member: &str, args: A) -> TinyBusResult<T>
-where
-    T: DeserializeOwned,
-    A: Serialize,
-{
-    proxy.call(member, args).await
-}
-
-#[cfg(not(test))]
 async fn call<T, A>(proxy: &Proxy, member: &str, args: A) -> TinyBusResult<T>
 where
     T: DeserializeOwned,
@@ -143,12 +222,40 @@ where
     proxy.call_confidential(member, args).await
 }
 
-fn timeout(deadline_ms: u64) -> Duration {
-    Duration::from_millis(deadline_ms.max(1)).min(CALL_TIMEOUT)
+fn remaining_timeout(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.checked_duration_since(Instant::now())?;
+    let timeout = remaining.min(CALL_TIMEOUT);
+    (timeout.as_millis() > 0).then_some(timeout)
 }
 
-fn remaining_ms(deadline: TraceSinkDeadline) -> u64 {
-    u64::try_from(deadline.remaining().as_millis()).unwrap_or(u64::MAX)
+fn remaining_millis(deadline: Instant) -> Option<u64> {
+    let remaining = deadline.checked_duration_since(Instant::now())?;
+    let millis = u64::try_from(remaining.as_millis()).unwrap_or(u64::MAX);
+    (millis > 0).then_some(millis)
+}
+
+struct CallbackGuard<'a>(&'a AtomicBool);
+
+impl<'a> CallbackGuard<'a> {
+    fn try_acquire(active: &'a AtomicBool) -> Option<Self> {
+        active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self(active))
+    }
+}
+
+impl Drop for CallbackGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+fn operation_deadline(deadline: TraceSinkDeadline) -> Option<Instant> {
+    let remaining = deadline.remaining();
+    (!remaining.is_zero())
+        .then(|| Instant::now().checked_add(remaining))
+        .flatten()
 }
 
 fn receive<T>(receiver: &mpsc::Receiver<T>, timeout: Duration) -> Result<T, RecvTimeoutError> {
@@ -170,17 +277,23 @@ impl EngineTraceSink for TraceLink {
         deadline: TraceSinkDeadline,
         byte_budget: u64,
     ) -> std::result::Result<(), TraceSinkError> {
-        let deadline_ms = remaining_ms(deadline);
+        if self.callback_active.load(Ordering::Acquire) {
+            return Err(TraceSinkError::Internal(
+                "trace sink callback is busy".into(),
+            ));
+        }
+        let deadline = operation_deadline(deadline)
+            .ok_or_else(|| TraceSinkError::Internal("trace sink deadline expired".into()))?;
+        let timeout = remaining_timeout(deadline)
+            .ok_or_else(|| TraceSinkError::Internal("trace sink deadline expired".into()))?;
         let (reply, result) = mpsc::sync_channel(1);
         self.worker
-            .try_send(Command::Append(
-                TraceEvent {
-                    record: record.clone(),
-                    deadline_ms,
-                    byte_budget,
-                },
+            .try_send(Command::Append {
+                record: record.clone(),
+                deadline,
+                byte_budget,
                 reply,
-            ))
+            })
             .map_err(|error| match error {
                 TrySendError::Full(_) => {
                     TraceSinkError::Internal("trace sink worker is busy".into())
@@ -189,7 +302,7 @@ impl EngineTraceSink for TraceLink {
                     TraceSinkError::Internal("trace sink worker stopped".into())
                 }
             })?;
-        receive(&result, timeout(deadline_ms))
+        receive(&result, timeout)
             .map_err(|_| TraceSinkError::Internal("trace sink acknowledgment timed out".into()))?
             .map_err(|_| TraceSinkError::Internal("trace sink rejected event".into()))
     }
@@ -199,27 +312,33 @@ impl EngineTraceSink for TraceLink {
         artifact: TraceSinkArtifact<'_>,
         limits: TraceSinkArtifactLimits,
     ) -> std::result::Result<String, TraceSinkError> {
-        let deadline_ms = remaining_ms(artifact.deadline);
+        if self.callback_active.load(Ordering::Acquire) {
+            return Err(TraceSinkError::Internal(
+                "trace sink callback is busy".into(),
+            ));
+        }
+        let deadline = operation_deadline(artifact.deadline)
+            .ok_or_else(|| TraceSinkError::Internal("trace artifact deadline expired".into()))?;
+        let timeout = remaining_timeout(deadline)
+            .ok_or_else(|| TraceSinkError::Internal("trace artifact deadline expired".into()))?;
         let (reply, result) = mpsc::sync_channel(1);
         let kind = match artifact.kind {
             EngineArtifactKind::Screenshot => TraceArtifactKind::Screenshot,
             EngineArtifactKind::RefMap => TraceArtifactKind::RefMap,
         };
         self.worker
-            .try_send(Command::StoreArtifact(
-                TraceArtifact {
-                    kind,
-                    name: artifact.name.to_owned(),
-                    bytes: artifact.bytes.to_vec(),
-                    deadline_ms,
-                    limits: tinycomputer_bus::trace_sink::TraceArtifactLimits {
-                        screenshot_bytes: limits.screenshot_bytes,
-                        screenshot_count: limits.screenshot_count,
-                        refmap_bytes: limits.refmap_bytes,
-                    },
+            .try_send(Command::StoreArtifact {
+                kind,
+                name: artifact.name.to_owned(),
+                bytes: artifact.bytes.to_vec(),
+                deadline,
+                limits: tinycomputer_bus::trace_sink::TraceArtifactLimits {
+                    screenshot_bytes: limits.screenshot_bytes,
+                    screenshot_count: limits.screenshot_count,
+                    refmap_bytes: limits.refmap_bytes,
                 },
                 reply,
-            ))
+            })
             .map_err(|error| match error {
                 TrySendError::Full(_) => {
                     TraceSinkError::Internal("trace sink worker is busy".into())
@@ -228,7 +347,7 @@ impl EngineTraceSink for TraceLink {
                     TraceSinkError::Internal("trace sink worker stopped".into())
                 }
             })?;
-        receive(&result, timeout(deadline_ms))
+        receive(&result, timeout)
             .map_err(|_| {
                 TraceSinkError::Internal("trace artifact acknowledgment timed out".into())
             })?

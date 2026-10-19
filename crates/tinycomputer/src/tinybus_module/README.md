@@ -54,11 +54,13 @@ against a scripted engine, so no browser is launched.
 
 The module takes its configuration from the loader as a JSON object, parsed into
 `Desktop` by `Desktop::from_config`: `session_id` and `trace_path` as strings,
-`trace_strict`, `trace_sink`, and `headed` as booleans. Setting `trace_sink` to
-`true` opts into the host's confidential `TraceSinkHost` interface for ordered
-desktop trace events, trace artifacts, and requested task reports; selected
-sink mode never writes local trace files. Leaving it absent or `false` retains
-the existing `trace_path` and session behavior. `browser` sets how every browser
+`trace_strict` and `headed` as booleans. Setting `trace_sink` to an object with
+the unique `destination` supplied by `ModuleHost::prepare_host_callbacks` opts
+into the host's confidential `TraceSinkHost` interface for ordered desktop
+trace events, trace artifacts, and requested task reports; selected sink mode
+never writes local trace files. Leaving it absent or `false` retains the
+existing `trace_path` and session behavior. `true` without a callback
+destination is rejected. `browser` sets how every browser
 launches — `executable`, `user_agent`, `args`, a task's page
 `perception`, how a page `settle`s after an action, and whether to
 `prelaunch` a planned browser task's browser (a planned task also warms

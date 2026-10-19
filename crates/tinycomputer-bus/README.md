@@ -167,8 +167,9 @@ See the [Globe contract](src/accessibility/README.md).
 
 Reliable Globe callers require a released 2.12-compatible artifact with a verified digest.
 
-Contract 2.20 adds the optional confidential `TraceSinkHost` callback. When a
-host sets `trace_sink: true`, TinyComputer sends sanitized desktop trace events,
+Contract 2.20 adds the optional confidential `TraceSinkHost` callback. A host
+prepares one exact callback binding per loaded module and supplies its unique
+destination as `trace_sink.destination`. TinyComputer sends sanitized desktop trace events,
 trace artifacts, and requested task reports to `Append`, `StoreArtifact`, and
 `WriteReport`. Event delivery is ordered and acknowledged; strict trace mode
 propagates sink failures, best-effort mode keeps the existing warning behavior,
@@ -178,7 +179,9 @@ engine limits and return an opaque host reference; the host enforces byte and
 count limits atomically and must reject storage it cannot provide. The
 confidential module caller is the sole scope authority: hosts derive the user
 and storage scope from that trusted identity and ignore payload fields when
-choosing a scope. Sink callbacks must not call back into TinyComputer. Event
+choosing a scope. Sink callbacks must not call back into TinyComputer. The
+module refuses overlapping sink callbacks as bounded backpressure; it cannot
+distinguish causal re-entry from unrelated concurrent work. Event
 and artifact acknowledgements are bounded by the engine's operation deadline;
 report calls have a ten-second transport timeout. A host that does not opt in
 keeps the existing desktop file/session trace behavior.

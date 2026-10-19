@@ -135,16 +135,49 @@ impl BrowserDefaults {
 }
 
 /// Whether the host explicitly selected the trace/report callback.
-pub(crate) fn trace_sink_requested(config: &serde_json::Value) -> Result<bool> {
+pub(crate) fn trace_sink_destination(
+    config: &serde_json::Value,
+) -> Result<Option<tinybus::BusName>> {
     match config
         .as_object()
         .and_then(|object| object.get("trace_sink"))
     {
-        None => Ok(false),
-        Some(serde_json::Value::Bool(enabled)) => Ok(*enabled),
+        None | Some(serde_json::Value::Bool(false)) => Ok(None),
+        Some(serde_json::Value::Bool(true)) => Err(crate::Error::ConfigFieldType {
+            field: "trace_sink",
+            expected: "an object with the trusted host callback `destination`",
+        }),
+        Some(serde_json::Value::Object(options)) => {
+            if options.len() != 1 {
+                return Err(crate::Error::ConfigFieldType {
+                    field: "trace_sink",
+                    expected: "an object containing only the trusted host callback `destination`",
+                });
+            }
+            let destination = options
+                .get("destination")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(crate::Error::ConfigFieldType {
+                    field: "trace_sink.destination",
+                    expected: "the unique name of the host callback prepared for this module",
+                })?;
+            tinybus::BusName::new(destination.to_owned())
+                .map_err(|_| crate::Error::ConfigFieldType {
+                    field: "trace_sink.destination",
+                    expected: "the unique name of the host callback prepared for this module",
+                })
+                .and_then(|name| {
+                    name.is_unique()
+                        .then_some(Some(name))
+                        .ok_or(crate::Error::ConfigFieldType {
+                            field: "trace_sink.destination",
+                            expected: "the unique name of the host callback prepared for this module",
+                        })
+                })
+        }
         Some(_) => Err(crate::Error::ConfigFieldType {
             field: "trace_sink",
-            expected: "a boolean",
+            expected: "false or an object with the trusted host callback `destination`",
         }),
     }
 }
