@@ -70,7 +70,7 @@ pub struct Facts {
 }
 
 /// A reference to a secret whose value stays with its host.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct SecretFactHandle {
     /// Opaque host identifier.
     pub handle: String,
@@ -80,10 +80,21 @@ pub struct SecretFactHandle {
     pub kind: String,
 }
 
+impl std::fmt::Debug for SecretFactHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretFactHandle")
+            .field("handle", &"[opaque]")
+            .field("mask", &self.mask)
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
 impl std::fmt::Debug for Facts {
     /// Names only: a fact's value never reaches a log.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_set().entries(self.values.keys()).finish()
+        formatter.debug_set().entries(self.names()).finish()
     }
 }
 
@@ -118,6 +129,12 @@ impl Facts {
 
     /// Facts from values and host-side secret handles. A name cannot be
     /// supplied in both maps, and every name in `secret` must exist in one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::DuplicateFact`] when one name has both a value and a
+    /// handle, [`Error::EmptyFactHandle`] for an empty handle, or
+    /// [`Error::UnknownSecret`] when a requested secret name is missing.
     pub fn with_handles<N: Into<String>, V: Into<String>, S: Into<String>>(
         pairs: impl IntoIterator<Item = (N, V)>,
         handles: impl IntoIterator<Item = (N, SecretFactHandle)>,
@@ -126,6 +143,9 @@ impl Facts {
         let mut facts = Self::new(pairs);
         for (name, handle) in handles {
             let name = name.into();
+            if handle.handle.trim().is_empty() {
+                return Err(Error::EmptyFactHandle { name });
+            }
             if facts.values.contains_key(&name) {
                 return Err(Error::DuplicateFact { name });
             }
@@ -168,8 +188,15 @@ impl Facts {
     #[must_use]
     pub fn merged(&self, other: &Self) -> Self {
         let mut merged = self.clone();
-        merged.values.extend(other.values.clone());
-        merged.handles.extend(other.handles.clone());
+        for (name, value) in &other.values {
+            if !merged.handles.contains_key(name) {
+                merged.values.insert(name.clone(), value.clone());
+            }
+        }
+        for (name, handle) in &other.handles {
+            merged.values.remove(name);
+            merged.handles.insert(name.clone(), handle.clone());
+        }
         merged.secret.extend(other.secret.iter().cloned());
         merged
     }

@@ -173,14 +173,15 @@ impl Surface for BrowserSurface {
         }
     }
 
-    fn authorize_secret_type(&self, target: &Candidate) -> Result<(), String> {
+    fn authorize_secret_type(&self, target: &Candidate) -> Result<String, String> {
         let id = self.ensure_session().map_err(|error| error.to_string())?;
-        self.block(self.browser.authorize_secret_type(&id, &target.ref_id))
-            .map_err(|error| error.to_string())
-    }
-
-    fn current_url(&self) -> Option<String> {
-        self.page_url()
+        self.block(self.browser.authorize_secret_type(
+            &id,
+            &target.role,
+            target.name.as_deref(),
+            &target.ref_id,
+        ))
+        .map_err(|error| error.to_string())
     }
 
     fn read_value(&self, target: &Candidate) -> Option<String> {

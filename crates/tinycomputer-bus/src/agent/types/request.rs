@@ -93,7 +93,7 @@ pub struct StartTaskRequest {
 
 /// Host-side reference to a secret fact. Only its opaque handle and safe
 /// display metadata cross the engine boundary.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretHandle {
     /// Opaque identifier resolved by the host when the field is typed.
@@ -102,6 +102,17 @@ pub struct SecretHandle {
     pub mask: String,
     /// Host-defined category, such as `payment_card`.
     pub kind: String,
+}
+
+impl std::fmt::Debug for SecretHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretHandle")
+            .field("handle", &"[opaque]")
+            .field("mask", &self.mask)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 /// What a finished task returns, beyond its raw records.

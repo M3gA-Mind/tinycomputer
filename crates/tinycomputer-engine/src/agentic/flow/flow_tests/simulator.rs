@@ -14,6 +14,8 @@ pub(super) enum Quirk {
     Frozen,
     /// Observation fails.
     FailObserve,
+    /// The surface cannot report a trustworthy current URL.
+    NoURL,
     /// Launching fails.
     FailLaunch,
     /// The surface has no addresses, as a desktop application has none.
@@ -630,6 +632,12 @@ impl AgentBackend for App {
             sim.pages.truncate(at + 1);
         }
         DesktopResponse::ok("navigate", json!({"url": url, "title": "Flights"}))
+    }
+
+    fn authorize_secret_type(&self, _target: &Candidate) -> Result<String, String> {
+        (!self.sim().has(Quirk::NoURL))
+            .then(|| "https://shop.test/pay".to_owned())
+            .ok_or_else(|| "the current page URL is unknown".to_owned())
     }
 }
 

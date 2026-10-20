@@ -168,6 +168,7 @@ pub(crate) async fn run_flow_with_host<B: AgentBackend + Sync>(
         .vars
         .keys()
         .chain(request.collected.keys())
+        .chain(request.fact_handles.keys())
         .cloned()
         .collect::<BTreeSet<_>>();
     let validation = validate::check(&request.flow, &known, &request.facts);
