@@ -264,7 +264,9 @@ async fn payment_checkpoints_are_not_exported_as_resumable_tasks() {
             ..
         }
     ));
-    assert!(tasks.export_paused_task(&view.id).is_err());
+    let refused = tasks.export_paused_task(&view.id).unwrap_err();
+    assert!(matches!(&refused, crate::PausedTaskError::NotResumable));
+    assert!(refused.to_string().contains("resumable pause"));
     assert_eq!(
         code(&tasks.continue_task(ContinueTaskRequest {
             id: view.id,
@@ -401,16 +403,19 @@ async fn import_rejects_unknown_versions_and_inconsistent_pending_state() {
     let mut unknown: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
     unknown["version"] = json!(2);
     let (fresh, _) = controller(Vec::new());
-    assert!(
-        fresh
-            .import_paused_task(&serde_json::to_vec(&unknown).unwrap())
-            .is_err()
-    );
-    assert!(
-        fresh
-            .import_paused_task(br#"{"version":1,"task":{}}"#)
-            .is_err()
-    );
+    let unsupported = fresh
+        .import_paused_task(&serde_json::to_vec(&unknown).unwrap())
+        .unwrap_err();
+    assert!(matches!(
+        &unsupported,
+        crate::PausedTaskError::UnsupportedVersion(2)
+    ));
+    assert!(unsupported.to_string().contains("version 2"));
+    let malformed = fresh
+        .import_paused_task(br#"{"version":1,"task":{}}"#)
+        .unwrap_err();
+    assert!(std::error::Error::source(&malformed).is_some());
+    assert!(malformed.to_string().contains("paused-task JSON"));
     assert!(fresh.list().data.unwrap().is_empty());
 }
 
@@ -495,6 +500,20 @@ async fn an_alias_id_cannot_replace_a_registered_task_or_advance_the_allocator()
     assert_eq!(next.id, TaskId::new("t-2"));
 }
 
+#[test]
+fn task_id_allocator_refuses_to_wrap() {
+    let (tasks, _) = controller(Vec::new());
+    tasks
+        .counter
+        .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
+    let reply = tasks.start(&StartTaskRequest {
+        flow: Some(flow(json!({"app": "Mail", "steps": ["finish"]}))),
+        ..StartTaskRequest::default()
+    });
+    assert_eq!(code(&reply), "TOO_MANY_TASKS");
+    assert!(tasks.list().data.unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn persistence_refuses_secret_leaks_and_host_bound_browser_endpoints() {
     let (tasks, _) = controller(Vec::new());
@@ -510,10 +529,12 @@ async fn persistence_refuses_secret_leaks_and_host_bound_browser_endpoints() {
         })
         .data
         .unwrap();
+    let endpoint = tasks.export_paused_task(&view.id).unwrap_err();
     assert!(matches!(
-        tasks.export_paused_task(&view.id),
-        Err(crate::PausedTaskError::HostBoundEndpoint)
+        &endpoint,
+        crate::PausedTaskError::HostBoundEndpoint
     ));
+    assert!(endpoint.to_string().contains("browser_endpoint"));
 
     let (tasks, runner) = controller(Vec::new());
     let view = tasks
