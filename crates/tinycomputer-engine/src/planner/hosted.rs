@@ -15,6 +15,7 @@ use tinyinference_llm::model::{
     ReasoningConfig, ReasoningEffort, ResponseFormat, collect_model_stream,
 };
 use tinyinference_llm::providers::openai::OpenAiModel;
+use tinyinference_llm::usage::Usage;
 use tinyinference_llm::{
     ChatModel, Error, Message, ModelRequest, ProviderKind, ProviderSpec, classify_provider_error,
     classify_provider_failure,
@@ -25,10 +26,12 @@ use super::config::{
     RESCUE_MODEL,
 };
 use super::{
-    Completion, LanguageModel, ModelReply, Planner, ReportedCompletion, ReportedUsage, Role, Turn,
+    Completion, LanguageModel, ModelFailure, ModelReply, Planner, ReportedCompletion,
+    ReportedUsage, Role, Turn,
 };
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
+use crate::{ModelRole, UsageRecorder};
 
 /// A [`Planner`] configured by `config`, on its route: `OpenRouter` unless
 /// `provider` says `tiny_humans`.
@@ -202,10 +205,35 @@ struct Hosted {
 impl LanguageModel for Hosted {
     fn complete(&self, turns: &[Turn]) -> Completion {
         let completion = self.complete_reported(turns);
-        Box::pin(async move { completion.await.map(|reply| reply.text) })
+        Box::pin(async move {
+            completion
+                .await
+                .map(|reply| reply.text)
+                .map_err(|error| error.message)
+        })
     }
 
     fn complete_reported(&self, turns: &[Turn]) -> ReportedCompletion {
+        self.complete_reported_for_task(turns, None, ModelRole::Planner)
+    }
+
+    fn complete_for_task(
+        &self,
+        turns: &[Turn],
+        usage: Option<Arc<UsageRecorder>>,
+        role: ModelRole,
+    ) -> ReportedCompletion {
+        self.complete_reported_for_task(turns, usage, role)
+    }
+}
+
+impl Hosted {
+    fn complete_reported_for_task(
+        &self,
+        turns: &[Turn],
+        usage: Option<Arc<UsageRecorder>>,
+        role: ModelRole,
+    ) -> ReportedCompletion {
         let model = self.model.clone();
         let messages = turns
             .iter()
@@ -229,31 +257,66 @@ impl LanguageModel for Hosted {
             // for 60 seconds, and a reasoning model's whole reply can take
             // longer. A route that ignores streaming still answers in one
             // piece.
-            with_retries(|| {
-                let model = model.clone();
-                let request = request.clone();
-                async move {
-                    let stream = model.stream(&(), request).await?;
-                    let response = collect_model_stream(stream).await?;
-                    let usage =
-                        response
-                            .usage
-                            .map_or_else(ReportedUsage::default, |usage| ReportedUsage {
-                                input_tokens: Some(usage.input_tokens),
-                                cached_input_tokens: Some(usage.cache_read_tokens),
-                                output_tokens: Some(usage.output_tokens),
-                                cost_usd_nanos: usage.charged_amount_nanos,
-                            });
+            let usage_recorder = usage;
+            let recorder = usage_recorder.clone();
+            let (result, attempts) = with_retries_observed(
+                || {
+                    let model = model.clone();
+                    let request = request.clone();
+                    async move {
+                        let stream = model.stream(&(), request).await?;
+                        let response = collect_model_stream(stream).await?;
+                        let usage = reported_usage(response.usage.as_ref());
+                        Ok((Message::Assistant(response.message).text(), usage))
+                    }
+                },
+                || {
+                    if let Some(recorder) = &recorder {
+                        recorder.record_started(role);
+                    }
+                },
+            )
+            .await;
+            match result {
+                Ok((text, usage)) => {
+                    if let Some(recorder) = &usage_recorder {
+                        recorder.record_measurements(
+                            role,
+                            usage.input_tokens,
+                            usage.cached_input_tokens,
+                            usage.output_tokens,
+                            usage.cost_usd_nanos,
+                        );
+                    }
                     Ok(ModelReply {
-                        text: Message::Assistant(response.message).text(),
+                        text,
                         usage,
+                        attempts,
                     })
                 }
-            })
-            .await
-            .map_err(|error| error.to_string())
+                Err(error) => Err(ModelFailure {
+                    message: error.to_string(),
+                    attempts,
+                }),
+            }
         })
     }
+}
+
+pub(super) fn reported_usage(usage: Option<&Usage>) -> ReportedUsage {
+    let Some(usage) = usage else {
+        return ReportedUsage::default();
+    };
+    ReportedUsage {
+        input_tokens: reported_count(usage.input_tokens),
+        cached_input_tokens: reported_count(usage.cache_read_tokens),
+        output_tokens: reported_count(usage.output_tokens),
+        cost_usd_nanos: usage.charged_amount_nanos,
+    }
+}
+
+fn reported_count(value: u64) -> Option<u64> {
+    (value > 0).then_some(value)
 }
 
 /// How many times one model call is tried when it fails in passing — a
@@ -264,19 +327,33 @@ const MODEL_TRIES: u32 = 4;
 
 /// Runs `call` until it answers, fails in a way another try cannot mend, or
 /// has failed [`MODEL_TRIES`] times.
+#[cfg(test)]
 pub(super) async fn with_retries<T, C, F>(mut call: C) -> Result<T, Error>
 where
     C: FnMut() -> F,
     F: Future<Output = Result<T, Error>>,
 {
-    let mut tries = 1;
+    with_retries_observed(&mut call, || {}).await.0
+}
+
+pub(super) async fn with_retries_observed<T, C, F, O>(
+    mut call: C,
+    mut on_attempt: O,
+) -> (Result<T, Error>, u32)
+where
+    C: FnMut() -> F,
+    F: Future<Output = Result<T, Error>>,
+    O: FnMut(),
+{
+    let mut tries = 0_u32;
     loop {
+        tries = tries.saturating_add(1);
+        on_attempt();
         match call().await {
             Err(error) if tries < MODEL_TRIES && passing(&error) => {
                 tokio::time::sleep(Duration::from_secs(1 << (tries - 1))).await;
-                tries += 1;
             }
-            outcome => return outcome,
+            outcome => return (outcome, tries),
         }
     }
 }

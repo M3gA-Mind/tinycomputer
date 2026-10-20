@@ -189,6 +189,19 @@ impl FlowRunner for BrowserRunner {
         Box::pin(async move { runtime.warm(votes).await })
     }
 
+    fn warm_with_usage(
+        &self,
+        task: &TaskId,
+        votes: u32,
+        usage: Arc<crate::UsageRecorder>,
+    ) -> PrepareFuture {
+        let runtime = self
+            .runtime
+            .journaled_as(&format!("task-{task}"))
+            .with_usage_recorder(usage);
+        Box::pin(async move { runtime.warm(votes).await })
+    }
+
     fn journal(&self, task: Option<&TaskId>, event: &str, fields: &dyn Fn() -> serde_json::Value) {
         if !self.runtime.journaling() {
             return;

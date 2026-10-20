@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 /// Model calls and the usage their providers reported for one task role.
 ///
 /// Token and cost values stay absent when no provider supplied them. Costs are
-/// integer micro-units in the provider's reported currency; this crate does
-/// not infer prices from token counts.
+/// integer nanodollars, and are included only when a provider reports them;
+/// this crate does not infer prices from token counts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelUsage {
     /// Model requests made, including calls whose usage was not reported.

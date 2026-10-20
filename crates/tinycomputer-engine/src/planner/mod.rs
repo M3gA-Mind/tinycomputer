@@ -84,6 +84,17 @@ pub struct ModelReply {
     pub text: String,
     /// Usage reported for this request, absent when the provider omitted it.
     pub usage: ReportedUsage,
+    /// Provider requests used to obtain this reply, including retries.
+    pub attempts: u32,
+}
+
+/// A language-model failure with the number of provider requests attempted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelFailure {
+    /// Human-readable failure details.
+    pub message: String,
+    /// Provider requests made before the failure was returned.
+    pub attempts: u32,
 }
 
 impl ModelUse {
@@ -118,7 +129,8 @@ impl Turn {
 pub type Completion = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 
 /// Future returned by [`LanguageModel::complete_reported`].
-pub type ReportedCompletion = Pin<Box<dyn Future<Output = Result<ModelReply, String>> + Send>>;
+pub type ReportedCompletion =
+    Pin<Box<dyn Future<Output = Result<ModelReply, ModelFailure>> + Send>>;
 
 /// A chat model that answers a conversation with text.
 pub trait LanguageModel: Send + Sync + 'static {
@@ -132,10 +144,59 @@ pub trait LanguageModel: Send + Sync + 'static {
     fn complete_reported(&self, turns: &[Turn]) -> ReportedCompletion {
         let completion = self.complete(turns);
         Box::pin(async move {
-            completion.await.map(|text| ModelReply {
-                text,
-                usage: ReportedUsage::default(),
-            })
+            completion.await.map_or_else(
+                |message| {
+                    Err(ModelFailure {
+                        message,
+                        attempts: 1,
+                    })
+                },
+                |text| {
+                    Ok(ModelReply {
+                        text,
+                        usage: ReportedUsage::default(),
+                        attempts: 1,
+                    })
+                },
+            )
+        })
+    }
+
+    /// Completes a task-role call while recording attempts and provider data.
+    fn complete_for_task(
+        &self,
+        turns: &[Turn],
+        usage: Option<Arc<UsageRecorder>>,
+        role: ModelRole,
+    ) -> ReportedCompletion {
+        let completion = self.complete_reported(turns);
+        Box::pin(async move {
+            if let Some(usage) = &usage {
+                usage.record_started(role);
+            }
+            let result = completion.await;
+            if let Some(usage) = &usage {
+                match &result {
+                    Ok(reply) => {
+                        usage.record_additional_calls(
+                            role,
+                            u64::from(reply.attempts.saturating_sub(1)),
+                        );
+                        usage.record_measurements(
+                            role,
+                            reply.usage.input_tokens,
+                            reply.usage.cached_input_tokens,
+                            reply.usage.output_tokens,
+                            reply.usage.cost_usd_nanos,
+                        );
+                    }
+                    Err(failure) => usage.record_additional_calls(
+                        role,
+                        u64::from(failure.attempts.saturating_sub(1)),
+                    ),
+                }
+            }
+            result
         })
     }
 }
@@ -289,23 +350,13 @@ impl Planner {
         let mut last = String::new();
         for _ in 0..=REPAIRS {
             used.calls += 1;
-            if let Some(usage) = &self.usage {
-                usage.record_started(ModelRole::Planner);
-            }
-            let reply = match self.model.complete_reported(&turns).await {
-                Ok(reply) => {
-                    if let Some(usage) = &self.usage {
-                        usage.record_measurements(
-                            ModelRole::Planner,
-                            reply.usage.input_tokens,
-                            reply.usage.cached_input_tokens,
-                            reply.usage.output_tokens,
-                            reply.usage.cost_usd_nanos,
-                        );
-                    }
-                    reply.text
-                }
-                Err(error) => return (Err(error), used),
+            let reply = match self
+                .model
+                .complete_for_task(&turns, self.usage.clone(), ModelRole::Planner)
+                .await
+            {
+                Ok(reply) => reply.text,
+                Err(error) => return (Err(error.message), used),
             };
             turns.push(Turn::new(Role::Assistant, reply.clone()));
             let problem = match parse(&reply) {

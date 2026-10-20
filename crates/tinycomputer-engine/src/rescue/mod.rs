@@ -212,23 +212,13 @@ impl Rescuer {
         let mut last = String::new();
         for _ in 0..=REPAIRS {
             used.calls += 1;
-            if let Some(usage) = &self.usage {
-                usage.record_started(ModelRole::Rescue);
-            }
-            let reply = match self.model.complete_reported(&turns).await {
-                Ok(reply) => {
-                    if let Some(usage) = &self.usage {
-                        usage.record_measurements(
-                            ModelRole::Rescue,
-                            reply.usage.input_tokens,
-                            reply.usage.cached_input_tokens,
-                            reply.usage.output_tokens,
-                            reply.usage.cost_usd_nanos,
-                        );
-                    }
-                    reply.text
-                }
-                Err(error) => return (Err(error), used),
+            let reply = match self
+                .model
+                .complete_for_task(&turns, self.usage.clone(), ModelRole::Rescue)
+                .await
+            {
+                Ok(reply) => reply.text,
+                Err(error) => return (Err(error.message), used),
             };
             turns.push(Turn::new(Role::Assistant, reply.clone()));
             let problem = match judge(&reply, briefing) {
