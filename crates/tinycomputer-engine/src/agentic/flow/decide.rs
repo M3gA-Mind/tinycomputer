@@ -130,11 +130,13 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
                 })
             });
             if self.tracing {
+                let mut answers = serde_json::to_value(&answers).unwrap_or_default();
+                super::secret::redact_value(&mut answers, &|text| self.redact_text(text));
                 self.trace.push(JevExchange {
                     step: self.step.clone(),
                     state: request.state.clone(),
                     questions: serde_json::to_value(&request.questions).unwrap_or_default(),
-                    answers: serde_json::to_value(&answers).unwrap_or_default(),
+                    answers,
                 });
             }
             if let Some((kind, _)) = ask::chosen(&answers, PAGE_KIND) {

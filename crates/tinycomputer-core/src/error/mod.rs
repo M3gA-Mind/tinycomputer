@@ -19,6 +19,12 @@ pub enum Error {
         /// The conflicting fact name.
         name: String,
     },
+    /// A host-side handle is empty and cannot resolve a secret.
+    #[error("`{name}` has an empty host secret handle")]
+    EmptyFactHandle {
+        /// The fact name.
+        name: String,
+    },
 }
 
 /// The crate's standard result type.

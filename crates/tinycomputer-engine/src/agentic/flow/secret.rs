@@ -18,10 +18,9 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
         screen.app = self.redact_text(&screen.app);
         screen.window = screen.window.as_deref().map(|text| self.redact_text(text));
         screen.surface = self.redact_text(&screen.surface);
-        screen
-            .context
-            .iter_mut()
-            .for_each(|text| *text = self.redact_text(text));
+        for text in &mut screen.context {
+            *text = self.redact_text(text);
+        }
         for candidate in &mut screen.candidates {
             self.redact_candidate(candidate);
         }
@@ -50,14 +49,12 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
             )));
         };
         let backend = self.backend.clone();
-        let current_url = tokio::task::spawn_blocking(move || backend.current_url())
-            .await
-            .map_err(|_| Halt::Failed("the current page URL could not be read".to_owned()))?
-            .ok_or_else(|| {
-                Halt::Failed(
-                    "secret typing is refused because the current page URL is unknown".to_owned(),
-                )
-            })?;
+        let target = field.clone();
+        let current_url =
+            tokio::task::spawn_blocking(move || backend.authorize_secret_type(&target))
+                .await
+                .map_err(|_| Halt::Failed("the page policy check failed".to_owned()))?
+                .map_err(|reason| Halt::Failed(self.redact_text(&reason)))?;
         let request = SecretTypeRequest {
             handle: handle.handle.clone(),
             mask: handle.mask.clone(),
@@ -67,13 +64,8 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
             field_ref: field.ref_id.clone(),
             current_url,
             task_id: task_id.clone(),
+            actions_remaining: self.max_actions.saturating_sub(self.actions),
         };
-        let backend = self.backend.clone();
-        let target = field.clone();
-        tokio::task::spawn_blocking(move || backend.authorize_secret_type(&target))
-            .await
-            .map_err(|_| Halt::Failed("the page policy check failed".to_owned()))?
-            .map_err(|reason| Halt::Failed(self.redact_text(&reason)))?;
         self.actions = self.actions.saturating_add(1);
         self.typed_last = Some(field.clone());
         let host = host.clone();
@@ -104,18 +96,15 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
             redact_value(&mut value, &|text| self.redact_text(text));
             value
         });
-        candidate
-            .states
-            .iter_mut()
-            .for_each(|text| *text = self.redact_text(text));
-        candidate
-            .available_actions
-            .iter_mut()
-            .for_each(|text| *text = self.redact_text(text));
-        candidate
-            .path
-            .iter_mut()
-            .for_each(|text| *text = self.redact_text(text));
+        for text in &mut candidate.states {
+            *text = self.redact_text(text);
+        }
+        for text in &mut candidate.available_actions {
+            *text = self.redact_text(text);
+        }
+        for text in &mut candidate.path {
+            *text = self.redact_text(text);
+        }
         for child in &mut candidate.children {
             self.redact_candidate(child);
         }
@@ -126,11 +115,15 @@ pub(super) fn redact_value(value: &mut serde_json::Value, redact: &impl Fn(&str)
     match value {
         serde_json::Value::String(text) => *text = redact(text),
         serde_json::Value::Array(items) => {
-            items.iter_mut().for_each(|item| redact_value(item, redact))
+            for item in items {
+                redact_value(item, redact);
+            }
         }
-        serde_json::Value::Object(fields) => fields
-            .values_mut()
-            .for_each(|item| redact_value(item, redact)),
+        serde_json::Value::Object(fields) => {
+            for item in fields.values_mut() {
+                redact_value(item, redact);
+            }
+        }
         _ => {}
     }
 }
