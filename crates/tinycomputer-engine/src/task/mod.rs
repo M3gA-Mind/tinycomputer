@@ -48,6 +48,7 @@ mod human;
 mod interpret;
 mod names;
 mod page;
+mod persistence;
 mod publish;
 mod recovery;
 mod resume;
@@ -121,6 +122,7 @@ pub use browser::BrowserRunner;
 pub use controller::Tasks;
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
+pub use persistence::PausedTaskError;
 pub use secret_host::{SecretHost, SecretTypeRequest};
 
 /// The future a [`FlowRunner`] returns: the flow runtime's reply envelope.

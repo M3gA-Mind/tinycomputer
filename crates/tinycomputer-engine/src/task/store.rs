@@ -1,10 +1,11 @@
 //! Where tasks live: each task's cell, its working state, and registering,
 //! spawning, and finding one.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use tinycomputer_bus::agent::{
     AgentResponse, Rescue, StartTaskRequest, TaskBudget, TaskConstraints, TaskId, TaskOutput,
     TaskStatus, TaskUsage, TaskView,
@@ -52,6 +53,8 @@ pub(super) struct State {
     /// flow was given.
     pub(super) goal: String,
     pub(super) facts: Facts,
+    /// Secret fact names whose inline values were deliberately not saved.
+    pub(super) omitted_secrets: std::collections::BTreeSet<String>,
     pub(super) constraints: TaskConstraints,
     pub(super) budget: TaskBudget,
     pub(super) memory: Vec<GroundingHint>,
@@ -80,10 +83,13 @@ pub(super) struct State {
     /// When the task began waiting for an answer it is still waiting for,
     /// to journal how long the person took.
     pub(super) waiting_since: Option<std::time::Instant>,
+    /// A pause to return to after a caller re-enters an omitted secret fact
+    /// while restoring a task.
+    pub(super) return_after_input: Option<TaskStatus>,
 }
 
 /// A task's cumulative spend against its [`TaskBudget`], across every run.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub(super) struct Spent {
     pub(super) actions: u32,
     pub(super) model_calls: u32,
@@ -106,7 +112,13 @@ impl Tasks {
         facts: Facts,
         request: &StartTaskRequest,
     ) -> Option<Arc<Cell>> {
-        let number = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let number = self
+            .counter
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .ok()?
+            .checked_add(1)?;
         let id = TaskId::new(format!("t-{number}"));
         let usage = Arc::new(UsageRecorder::default());
         let view = TaskView {
@@ -125,6 +137,7 @@ impl Tasks {
                 flow: flow.clone(),
                 goal: request.task.clone().unwrap_or_default(),
                 facts,
+                omitted_secrets: BTreeSet::new(),
                 constraints: request.constraints.clone(),
                 budget: request.budget,
                 memory: request.memory.clone(),
@@ -141,6 +154,7 @@ impl Tasks {
                 output: request.output.clone(),
                 artifacts: Vec::new(),
                 waiting_since: None,
+                return_after_input: None,
             }),
             worker: Mutex::new(None),
             rescuer: self.rescuer.clone(),

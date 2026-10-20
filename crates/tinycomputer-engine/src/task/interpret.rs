@@ -1,6 +1,7 @@
 //! What a finished flow run means for the task: carry on, or pause or stop
 //! with a status the caller can act on.
 
+use serde::{Deserialize, Serialize};
 use tinycomputer_bus::agent::{PaymentMode, TaskStatus};
 use tinycomputer_bus::{
     DesktopResponse, Flow, FlowAction, FlowRunResult, FlowStep, FlowStopReason, StepOutcome,
@@ -22,7 +23,7 @@ pub(super) enum Next {
 }
 
 /// What runs when a paused task is continued.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(super) enum Resume {
     /// Perform the approved irreversible action, then the steps after it.
     Approval {
