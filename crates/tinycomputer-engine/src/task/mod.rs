@@ -214,6 +214,17 @@ pub trait FlowRunner: Send + Sync + 'static {
         Box::pin(async {})
     }
 
+    /// Warms Jev while the task is planned, recording those calls in the
+    /// same task tally. Runners that warm the model override this method.
+    fn warm_with_usage(
+        &self,
+        task: &TaskId,
+        votes: u32,
+        _usage: std::sync::Arc<crate::UsageRecorder>,
+    ) -> PrepareFuture {
+        self.warm(task, votes)
+    }
+
     /// Writes an `event` of the time a task spends outside its flows
     /// (`plan`, `rescue`, `resume`) to the debug journal: the task's own,
     /// or for `PlanTask`, which plans before any task exists (`task` is

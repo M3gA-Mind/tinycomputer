@@ -263,7 +263,7 @@ impl Tasks {
             }
         })
         .await;
-        AgentResponse::ok(changes.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     /// Answers what a paused task asked for, and resumes it.

@@ -238,6 +238,21 @@ impl FlowRunner for WorkspaceRunner {
         Box::pin(async move { runtime.warm(votes).await })
     }
 
+    fn warm_with_usage(
+        &self,
+        task: &TaskId,
+        votes: u32,
+        usage: Arc<UsageRecorder>,
+    ) -> PrepareFuture {
+        let Some(runtime) = self.jev.as_ref() else {
+            return Box::pin(async {});
+        };
+        let runtime = runtime
+            .journaled_as(&format!("task-{task}"))
+            .with_usage_recorder(usage);
+        Box::pin(async move { runtime.warm(votes).await })
+    }
+
     fn journal(&self, task: Option<&TaskId>, event: &str, fields: &dyn Fn() -> serde_json::Value) {
         let Some(runtime) = self.jev.as_ref().filter(|runtime| runtime.journaling()) else {
             return;
