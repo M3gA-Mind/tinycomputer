@@ -236,17 +236,19 @@ impl<B: AgentBackend + Sync> FlowRun<'_, B> {
 
     /// Masks every secret out of a request, wherever it appears.
     fn mask(&self, request: &mut EvaluationRequest) {
-        if self.secrets.secret_names().is_empty() {
+        if self.secrets.secret_names().is_empty() && self.secret_host.is_none() {
             return;
         }
         mask_value(&mut request.state, &self.secrets);
         for question in request.questions.values_mut() {
             let mut value = serde_json::to_value(&*question).unwrap_or_default();
             mask_value(&mut value, &self.secrets);
+            super::secret::redact_value(&mut value, &|text| self.redact_text(text));
             if let Ok(masked) = serde_json::from_value(value) {
                 *question = masked;
             }
         }
+        super::secret::redact_value(&mut request.state, &|text| self.redact_text(text));
     }
 }
 

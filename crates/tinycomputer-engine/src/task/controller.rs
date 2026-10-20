@@ -11,7 +11,7 @@ use tinycomputer_bus::agent::{
     PaymentMode, PlanTaskRequest, StartTaskRequest, TaskId, TaskPlan, TaskReport,
     TaskReportRequest, TaskStatus, TaskView,
 };
-use tinycomputer_core::Facts;
+use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::errors::{no_planner, no_such_task, poisoned, too_many};
 use super::names::{fact_names, is_undefined, known_names};
@@ -148,7 +148,20 @@ impl Tasks {
     /// When called outside a Tokio runtime: the task runs on a spawned worker.
     #[must_use]
     pub fn start(&self, request: &StartTaskRequest) -> AgentResponse<TaskView> {
-        let facts = match Facts::with_secrets(request.facts.clone(), request.secret_facts.clone()) {
+        let facts = match Facts::with_handles(
+            request.facts.clone(),
+            request.fact_handles.iter().map(|(name, handle)| {
+                (
+                    name.clone(),
+                    SecretFactHandle {
+                        handle: handle.handle.clone(),
+                        mask: handle.mask.clone(),
+                        kind: handle.kind.clone(),
+                    },
+                )
+            }),
+            request.secret_facts.clone(),
+        ) {
             Ok(facts) => facts,
             Err(error) => {
                 return AgentResponse::err(AgentError::new(

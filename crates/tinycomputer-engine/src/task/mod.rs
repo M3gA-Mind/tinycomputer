@@ -51,6 +51,7 @@ mod page;
 mod publish;
 mod recovery;
 mod resume;
+mod secret_host;
 mod store;
 mod timing;
 
@@ -65,6 +66,7 @@ pub use browser::BrowserRunner;
 pub use controller::Tasks;
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
+pub use secret_host::{SecretHost, SecretTypeRequest};
 
 /// The future a [`FlowRunner`] returns: the flow runtime's reply envelope.
 pub type FlowFuture = Pin<Box<dyn Future<Output = DesktopResponse> + Send>>;

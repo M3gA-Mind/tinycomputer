@@ -13,6 +13,12 @@ pub enum Error {
         /// The name marked secret.
         name: String,
     },
+    /// A fact name was supplied both with a value and as a host handle.
+    #[error("`{name}` has both a value and a host secret handle")]
+    DuplicateFact {
+        /// The conflicting fact name.
+        name: String,
+    },
 }
 
 /// The crate's standard result type.

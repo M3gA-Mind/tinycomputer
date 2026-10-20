@@ -59,6 +59,11 @@ pub struct StartTaskRequest {
     /// and any value that is a card number — are templates: Jev and the
     /// planner only ever see `${name}`, and the value is typed locally.
     pub facts: BTreeMap<String, String>,
+    /// Opaque handles for secret facts whose values remain in the host.
+    /// The map key is the fact name used by the flow; the handle itself must
+    /// never be expanded into a model-facing string.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fact_handles: BTreeMap<String, SecretHandle>,
     /// Names among `facts` to keep secret on top of the ones recognised as
     /// sensitive. A name here that is not in `facts` is refused, so a typo
     /// cannot leave a value shared.
@@ -84,6 +89,19 @@ pub struct StartTaskRequest {
     /// the task neither reads nor writes site memory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site: Option<String>,
+}
+
+/// Host-side reference to a secret fact. Only its opaque handle and safe
+/// display metadata cross the engine boundary.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretHandle {
+    /// Opaque identifier resolved by the host when the field is typed.
+    pub handle: String,
+    /// Safe mask shown in reports and model context.
+    pub mask: String,
+    /// Host-defined category, such as `payment_card`.
+    pub kind: String,
 }
 
 /// What a finished task returns, beyond its raw records.

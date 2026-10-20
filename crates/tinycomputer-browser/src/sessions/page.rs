@@ -217,6 +217,28 @@ impl Browser {
         session.outcome(value, matched).await
     }
 
+    /// Checks the configured action gate for a host-owned secret fill without
+    /// sending any text to the page.
+    pub async fn authorize_secret_type(&self, id: &SessionId, reference: &str) -> Result<()> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check_if_readable(false).await?;
+        let action = Action::Fill {
+            target: Target::Ref {
+                value: reference.to_owned(),
+            },
+            value: "[host secret]".to_owned(),
+        };
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::typed(
+            &action,
+            current_url,
+            None,
+            &session.action_context,
+            &session.refs,
+        ))
+    }
+
     /// Extracts the active page as text, markdown, or HTML.
     ///
     /// # Errors
