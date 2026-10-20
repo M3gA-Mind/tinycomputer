@@ -184,6 +184,14 @@ async fn describe_schemas_name_every_request_field() {
 
     let start = StartTaskRequest {
         output: Some(tinycomputer_bus::agent::TaskOutput::default()),
+        fact_handles: std::collections::BTreeMap::from([(
+            "card number".to_owned(),
+            tinycomputer_bus::agent::SecretHandle {
+                handle: "opaque-card-reference".to_owned(),
+                mask: "•••• 1111".to_owned(),
+                kind: "payment_card".to_owned(),
+            },
+        )]),
         ..StartTaskRequest::default()
     };
     let start = serde_json::to_value(start).unwrap();
