@@ -28,6 +28,7 @@ use tinycomputer_bus::agent::{LanguageModelConfiguration, Rescue};
 use tinycomputer_bus::{FLOW_GUIDE, Flow, FlowStep, StepReport};
 
 use crate::planner::{LanguageModel, ModelUse, REPAIRS, Role, Turn};
+use crate::{ModelRole, UsageRecorder};
 use judge::judge;
 pub(crate) use judge::resumed;
 use render::render;
@@ -146,6 +147,7 @@ pub enum Guidance {
 pub struct Rescuer {
     model: Arc<dyn LanguageModel>,
     configuration: Option<LanguageModelConfiguration>,
+    usage: Option<Arc<UsageRecorder>>,
 }
 
 impl std::fmt::Debug for Rescuer {
@@ -161,6 +163,7 @@ impl Rescuer {
         Self {
             model,
             configuration: None,
+            usage: None,
         }
     }
 
@@ -169,6 +172,13 @@ impl Rescuer {
     #[must_use]
     pub fn with_configuration(mut self, configuration: LanguageModelConfiguration) -> Self {
         self.configuration = Some(configuration);
+        self
+    }
+
+    /// This rescuer recording calls into a task-scoped collector.
+    #[must_use]
+    pub fn with_usage_recorder(mut self, usage: Arc<UsageRecorder>) -> Self {
+        self.usage = Some(usage);
         self
     }
 
@@ -202,8 +212,22 @@ impl Rescuer {
         let mut last = String::new();
         for _ in 0..=REPAIRS {
             used.calls += 1;
-            let reply = match self.model.complete(&turns).await {
-                Ok(reply) => reply,
+            if let Some(usage) = &self.usage {
+                usage.record_started(ModelRole::Rescue);
+            }
+            let reply = match self.model.complete_reported(&turns).await {
+                Ok(reply) => {
+                    if let Some(usage) = &self.usage {
+                        usage.record_measurements(
+                            ModelRole::Rescue,
+                            reply.usage.input_tokens,
+                            reply.usage.cached_input_tokens,
+                            reply.usage.output_tokens,
+                            reply.usage.cost_usd_nanos,
+                        );
+                    }
+                    reply.text
+                }
                 Err(error) => return (Err(error), used),
             };
             turns.push(Turn::new(Role::Assistant, reply.clone()));

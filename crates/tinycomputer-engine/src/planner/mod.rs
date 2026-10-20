@@ -23,6 +23,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::{ModelRole, UsageRecorder};
 use serde_json::Value;
 use tinycomputer_bus::agent::{InputField, LanguageModelConfiguration, SurfaceKind, TaskPlan};
 use tinycomputer_bus::{FLOW_GUIDE, Flow};
@@ -30,11 +31,11 @@ use tinycomputer_core::is_sensitive_name;
 
 #[cfg(feature = "planner")]
 pub use config::{
-    ModelRoute, OPEN_ROUTER_BASE_URL, OUTPUT_MODEL, PLANNER_MODEL, PlannerConfig, RESCUE_MODEL,
-    TINYHUMANS_BASE_URL,
+    HostModelConfig, HostModels, ModelRoute, OPEN_ROUTER_BASE_URL, OUTPUT_MODEL, PLANNER_MODEL,
+    PlannerConfig, RESCUE_MODEL, TINYHUMANS_BASE_URL,
 };
 #[cfg(feature = "planner")]
-pub use hosted::{open_router, open_router_rescuer, open_router_shaper};
+pub use hosted::{open_router, open_router_rescuer, open_router_shaper, openai_compatible_models};
 
 /// Validation repairs a plan gets.
 pub const REPAIRS: usize = 2;
@@ -61,6 +62,28 @@ pub struct ModelUse {
     pub calls: u32,
     /// Bytes of text in the first call's turns.
     pub sent_bytes: usize,
+}
+
+/// Provider-reported measurements for one completed language-model call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReportedUsage {
+    /// Input tokens, when the provider reported them.
+    pub input_tokens: Option<u64>,
+    /// Cached input tokens, when the provider reported them.
+    pub cached_input_tokens: Option<u64>,
+    /// Output tokens, when the provider reported them.
+    pub output_tokens: Option<u64>,
+    /// USD charge in nanodollars, when the provider reported it.
+    pub cost_usd_nanos: Option<i64>,
+}
+
+/// A language-model reply and the measurements its provider supplied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelReply {
+    /// The assistant's text.
+    pub text: String,
+    /// Usage reported for this request, absent when the provider omitted it.
+    pub usage: ReportedUsage,
 }
 
 impl ModelUse {
@@ -94,11 +117,27 @@ impl Turn {
 /// The future a [`LanguageModel`] returns: its reply text, or why it failed.
 pub type Completion = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 
+/// Future returned by [`LanguageModel::complete_reported`].
+pub type ReportedCompletion = Pin<Box<dyn Future<Output = Result<ModelReply, String>> + Send>>;
+
 /// A chat model that answers a conversation with text.
 pub trait LanguageModel: Send + Sync + 'static {
     /// The model's reply to `turns`, which it is asked to give as one JSON
     /// object.
     fn complete(&self, turns: &[Turn]) -> Completion;
+
+    /// A reply with provider-reported usage. Existing scripted models may
+    /// implement only [`LanguageModel::complete`]; their measurements remain
+    /// unknown.
+    fn complete_reported(&self, turns: &[Turn]) -> ReportedCompletion {
+        let completion = self.complete(turns);
+        Box::pin(async move {
+            completion.await.map(|text| ModelReply {
+                text,
+                usage: ReportedUsage::default(),
+            })
+        })
+    }
 }
 
 const PROTOCOL: &str = "You plan tasks for a module that drives web pages and desktop \
@@ -130,6 +169,7 @@ sending, deleting, publishing, or submitting with a stop_before step.";
 pub struct Planner {
     model: Arc<dyn LanguageModel>,
     configuration: Option<LanguageModelConfiguration>,
+    usage: Option<Arc<UsageRecorder>>,
 }
 
 impl std::fmt::Debug for Planner {
@@ -145,6 +185,7 @@ impl Planner {
         Self {
             model,
             configuration: None,
+            usage: None,
         }
     }
 
@@ -153,6 +194,13 @@ impl Planner {
     #[must_use]
     pub fn with_configuration(mut self, configuration: LanguageModelConfiguration) -> Self {
         self.configuration = Some(configuration);
+        self
+    }
+
+    /// This planner recording calls into a task-scoped collector.
+    #[must_use]
+    pub fn with_usage_recorder(mut self, usage: Arc<UsageRecorder>) -> Self {
+        self.usage = Some(usage);
         self
     }
 
@@ -241,8 +289,22 @@ impl Planner {
         let mut last = String::new();
         for _ in 0..=REPAIRS {
             used.calls += 1;
-            let reply = match self.model.complete(&turns).await {
-                Ok(reply) => reply,
+            if let Some(usage) = &self.usage {
+                usage.record_started(ModelRole::Planner);
+            }
+            let reply = match self.model.complete_reported(&turns).await {
+                Ok(reply) => {
+                    if let Some(usage) = &self.usage {
+                        usage.record_measurements(
+                            ModelRole::Planner,
+                            reply.usage.input_tokens,
+                            reply.usage.cached_input_tokens,
+                            reply.usage.output_tokens,
+                            reply.usage.cost_usd_nanos,
+                        );
+                    }
+                    reply.text
+                }
                 Err(error) => return (Err(error), used),
             };
             turns.push(Turn::new(Role::Assistant, reply.clone()));

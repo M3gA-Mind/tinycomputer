@@ -223,6 +223,7 @@ fn replies_carry_data_or_an_actionable_error() {
         step: None,
         progress: 0.25,
         next: vec!["AwaitTask".to_owned()],
+        usage: Default::default(),
     };
     let ok = serde_json::to_value(AgentResponse::ok(view)).unwrap();
     assert_eq!(ok["ok"], true);

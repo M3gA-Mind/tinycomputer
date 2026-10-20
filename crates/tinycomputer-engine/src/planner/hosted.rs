@@ -10,7 +10,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tinycomputer_bus::agent::LanguageModelProvider;
+use tinycomputer_bus::agent::{LanguageModelConfiguration, LanguageModelProvider};
 use tinyinference_llm::model::{
     ReasoningConfig, ReasoningEffort, ResponseFormat, collect_model_stream,
 };
@@ -20,8 +20,13 @@ use tinyinference_llm::{
     classify_provider_failure,
 };
 
-use super::config::{ModelRoute, OUTPUT_MODEL, PLANNER_MODEL, PlannerConfig, RESCUE_MODEL};
-use super::{Completion, LanguageModel, Planner, Role, Turn};
+use super::config::{
+    HostModelConfig, HostModels, ModelRoute, OUTPUT_MODEL, PLANNER_MODEL, PlannerConfig,
+    RESCUE_MODEL,
+};
+use super::{
+    Completion, LanguageModel, ModelReply, Planner, ReportedCompletion, ReportedUsage, Role, Turn,
+};
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
 
@@ -88,6 +93,75 @@ pub fn open_router_shaper(config: &PlannerConfig) -> Result<Shaper, String> {
     .with_configuration(config.route.describe(&model)))
 }
 
+/// Builds planner, rescue, and output adapters from host-owned compatible
+/// endpoints. Missing rescue or output routes reuse the planner model.
+///
+/// This constructor accepts any base URL because a Rust embedding host owns
+/// the route. `TinyBus` configuration continues to use the fixed provider
+/// allow-list.
+///
+/// # Errors
+///
+/// Returns why a supplied host route cannot build a model client.
+pub fn openai_compatible_models(models: &HostModels) -> Result<(Planner, Rescuer, Shaper), String> {
+    let planner = host_role(&models.planner, Some(0.2), None, 4_000)?;
+    let rescue = host_role(
+        models.rescue.as_ref().unwrap_or(&models.planner),
+        None,
+        Some(ReasoningEffort::Low),
+        8_000,
+    )?;
+    let output = host_role(
+        models.output.as_ref().unwrap_or(&models.planner),
+        None,
+        Some(ReasoningEffort::Low),
+        16_000,
+    )?;
+    Ok((
+        Planner::new(planner.0).with_configuration(planner.1),
+        Rescuer::new(rescue.0).with_configuration(rescue.1),
+        Shaper::new(output.0).with_configuration(output.1),
+    ))
+}
+
+fn host_role(
+    config: &HostModelConfig,
+    temperature: Option<f64>,
+    reasoning: Option<ReasoningEffort>,
+    max_tokens: u32,
+) -> Result<(Arc<dyn LanguageModel>, LanguageModelConfiguration), String> {
+    if config.api_key.trim().is_empty() {
+        return Err("host model configuration needs an api_key".to_owned());
+    }
+    if config.base_url.trim().is_empty() {
+        return Err("host model configuration needs a base_url".to_owned());
+    }
+    if config.model.trim().is_empty() {
+        return Err("host model configuration needs a model".to_owned());
+    }
+    let base_url = config.base_url.trim_end_matches('/').to_owned();
+    let spec = ProviderSpec::for_kind(ProviderKind::Compatible)
+        .with_model(config.model.clone())
+        .with_base_url(base_url.clone());
+    let model = OpenAiModel::from_spec(spec, config.api_key.clone())
+        .map_err(|error| error.to_string())?
+        .with_json_object_format(true);
+    let configuration = LanguageModelConfiguration {
+        provider: LanguageModelProvider::OpenAiCompatible,
+        model: config.model.clone(),
+        endpoint_url: Some(base_url),
+    };
+    Ok((
+        Arc::new(Hosted {
+            model: Arc::new(model),
+            temperature,
+            reasoning,
+            max_tokens,
+        }),
+        configuration,
+    ))
+}
+
 /// `configured`, unless absent or blank, else `default`.
 fn model_name(configured: Option<&String>, default: &str) -> String {
     configured
@@ -102,6 +176,9 @@ pub(super) fn chat_model(route: &ModelRoute, model: &str) -> Result<Arc<OpenAiMo
     let kind = match resolved.provider {
         LanguageModelProvider::OpenRouter => ProviderKind::OpenRouter,
         LanguageModelProvider::TinyHumans => ProviderKind::TinyHumans,
+        LanguageModelProvider::OpenAiCompatible => {
+            return Err("open_ai_compatible routes require the host constructor".to_owned());
+        }
     };
     let spec = ProviderSpec::for_kind(kind)
         .with_model(model)
@@ -124,6 +201,11 @@ struct Hosted {
 
 impl LanguageModel for Hosted {
     fn complete(&self, turns: &[Turn]) -> Completion {
+        let completion = self.complete_reported(turns);
+        Box::pin(async move { completion.await.map(|reply| reply.text) })
+    }
+
+    fn complete_reported(&self, turns: &[Turn]) -> ReportedCompletion {
         let model = self.model.clone();
         let messages = turns
             .iter()
@@ -153,7 +235,19 @@ impl LanguageModel for Hosted {
                 async move {
                     let stream = model.stream(&(), request).await?;
                     let response = collect_model_stream(stream).await?;
-                    Ok(Message::Assistant(response.message).text())
+                    let usage =
+                        response
+                            .usage
+                            .map_or_else(ReportedUsage::default, |usage| ReportedUsage {
+                                input_tokens: Some(usage.input_tokens),
+                                cached_input_tokens: Some(usage.cache_read_tokens),
+                                output_tokens: Some(usage.output_tokens),
+                                cost_usd_nanos: usage.charged_amount_nanos,
+                            });
+                    Ok(ModelReply {
+                        text: Message::Assistant(response.message).text(),
+                        usage,
+                    })
                 }
             })
             .await

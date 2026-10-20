@@ -68,6 +68,7 @@ impl std::fmt::Debug for JevRuntime {
             .field("pending", &"[redacted]")
             .field("journal", &self.journal)
             .field("copies", &self.copies)
+            .field("usage", &self.usage.as_ref().map(|_| "[tracked]"))
             .finish()
     }
 }
@@ -89,7 +90,7 @@ impl JevRuntime {
     /// Build a Jev runtime for an embedding host, allowing the host to route
     /// its configured provider to a private endpoint.
     ///
-    /// The TinyBus module uses [`JevRuntime::configure`], which retains the
+    /// The `TinyBus` module uses [`JevRuntime::configure`], which retains the
     /// module's provider allow-list. This constructor is for Rust hosts that
     /// own and trust their configuration.
     ///
@@ -303,16 +304,25 @@ impl JevRuntime {
             usage.record_started(ModelRole::Jev);
         }
         let outcome = self.client.evaluate(request).await;
-        if let Some(usage) = &self.usage {
-            if let Ok(result) = &outcome {
+        match (&self.usage, &outcome) {
+            (Some(usage), Ok(result)) => {
+                usage.record_additional_calls(
+                    ModelRole::Jev,
+                    u64::from(result.attempts.saturating_sub(1)),
+                );
                 usage.record_measurements(
                     ModelRole::Jev,
                     result.response.usage.input_tokens,
-                    None,
+                    result.response.usage.cached_input_tokens,
                     result.response.usage.output_tokens,
-                    None,
+                    result.response.usage.cost_usd_nanos,
                 );
             }
+            (Some(usage), Err(failure)) => usage.record_additional_calls(
+                ModelRole::Jev,
+                u64::from(failure.attempts.saturating_sub(1)),
+            ),
+            _ => {}
         }
         self.journal.exchange(step, request, outcome.as_ref());
         outcome
@@ -440,3 +450,7 @@ pub(super) fn client_config(request: &JevConfig) -> ClientConfig {
 pub(super) fn config_error(error: &JevError) -> Box<DesktopError> {
     Box::new(DesktopError::new("JEV_INVALID_CONFIG", error.to_string()))
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

@@ -14,7 +14,7 @@ fn snapshots_only_reported_measurements_and_counts_unknown_calls() {
     assert_eq!(usage.jev.input_tokens, Some(8));
     assert_eq!(usage.jev.cached_input_tokens, None);
     assert_eq!(usage.jev.output_tokens, Some(3));
-    assert_eq!(usage.jev.cost_usd_micros, None);
+    assert_eq!(usage.jev.cost_usd_nanos, None);
     assert_eq!(usage.planner.calls, 1);
     assert_eq!(usage.planner.input_tokens, None);
 }

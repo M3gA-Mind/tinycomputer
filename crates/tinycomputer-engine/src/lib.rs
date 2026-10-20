@@ -38,15 +38,23 @@ mod task;
 mod usage;
 mod workspace;
 
+#[cfg(test)]
+pub(crate) static MODEL_NETWORK_TEST_MUTEX: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
 pub use agentic::{
     JOURNAL_DEFAULT_DIR, JOURNAL_ENV, JOURNAL_FILE, JevRuntime, flow_guide, resolve_intent,
     run_flow, run_goal, validate_flow,
 };
-pub use planner::{Completion, LanguageModel, ModelUse, Planner, REPAIRS, Role, Turn};
+pub use planner::{
+    Completion, LanguageModel, ModelReply, ModelUse, Planner, REPAIRS, ReportedCompletion,
+    ReportedUsage, Role, Turn,
+};
 #[cfg(feature = "planner")]
 pub use planner::{
-    ModelRoute, OPEN_ROUTER_BASE_URL, OUTPUT_MODEL, PLANNER_MODEL, PlannerConfig, RESCUE_MODEL,
-    TINYHUMANS_BASE_URL, open_router, open_router_rescuer, open_router_shaper,
+    HostModelConfig, HostModels, ModelRoute, OPEN_ROUTER_BASE_URL, OUTPUT_MODEL, PLANNER_MODEL,
+    PlannerConfig, RESCUE_MODEL, TINYHUMANS_BASE_URL, open_router, open_router_rescuer,
+    open_router_shaper, openai_compatible_models,
 };
 pub use rescue::{Briefing, Guidance, MAX_RESCUE_STEPS, MAX_RESCUES, Rescuer, SCREEN_CHARS};
 pub use shape::{Harvest, RECORDS_CHARS, Shaper};

@@ -21,9 +21,9 @@ pub struct ModelUsage {
     /// Provider-reported output tokens, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<u64>,
-    /// Provider-reported USD charge in integer micro-dollars, when available.
+    /// Provider-reported USD charge in integer nanodollars, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost_usd_micros: Option<i64>,
+    pub cost_usd_nanos: Option<i64>,
 }
 
 /// Per-role model usage accumulated over a task's lifetime.
@@ -62,7 +62,7 @@ impl ModelUsage {
             && self.input_tokens.is_none()
             && self.cached_input_tokens.is_none()
             && self.output_tokens.is_none()
-            && self.cost_usd_micros.is_none()
+            && self.cost_usd_nanos.is_none()
     }
 
     /// Adds one request and any measurements its provider returned.
@@ -71,18 +71,15 @@ impl ModelUsage {
         input_tokens: Option<u64>,
         cached_input_tokens: Option<u64>,
         output_tokens: Option<u64>,
-        cost_usd_micros: Option<i64>,
+        cost_usd_nanos: Option<i64>,
     ) {
         self.calls = self.calls.saturating_add(1);
         add_unsigned(&mut self.input_tokens, input_tokens);
         add_unsigned(&mut self.cached_input_tokens, cached_input_tokens);
         add_unsigned(&mut self.output_tokens, output_tokens);
-        if let Some(cost) = cost_usd_micros {
-            self.cost_usd_micros = Some(
-                self.cost_usd_micros
-                    .unwrap_or_default()
-                    .saturating_add(cost),
-            );
+        if let Some(cost) = cost_usd_nanos {
+            self.cost_usd_nanos =
+                Some(self.cost_usd_nanos.unwrap_or_default().saturating_add(cost));
         }
     }
 }

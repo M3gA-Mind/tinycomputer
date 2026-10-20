@@ -47,6 +47,8 @@ pub(super) async fn plan_then_drive(
         },
     );
     let id = cell.view.borrow().id.clone();
+    let usage = task_usage(&cell);
+    let planner = planner.with_usage_recorder(Arc::clone(&usage));
     // Jev's connections open while the plan is drafted, so the first
     // decision need not open them; nothing waits for this. A budget that
     // caps the task's Jev calls is not spent on calls it does not count.
@@ -271,6 +273,8 @@ pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
     };
     let result = match (harvest, cell.shaper.clone()) {
         (Some(harvest), Some(shaper)) => {
+            let usage = task_usage(cell);
+            let shaper = shaper.with_usage_recorder(usage);
             publish(
                 cell,
                 TaskStatus::Running,
@@ -315,6 +319,13 @@ pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
         &answer,
     );
     runner.release(&cell.view.borrow().id);
+}
+
+fn task_usage(cell: &Cell) -> Arc<crate::UsageRecorder> {
+    cell.state
+        .lock()
+        .map(|state| Arc::clone(&state.usage))
+        .unwrap_or_default()
 }
 
 /// Every variable a step of `steps` writes: a `read`'s, `extract`'s, or

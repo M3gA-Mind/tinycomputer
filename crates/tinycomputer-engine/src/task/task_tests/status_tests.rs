@@ -90,6 +90,32 @@ async fn a_running_task_can_be_awaited_briefly_and_cancelled() {
 }
 
 #[tokio::test]
+async fn cancelling_a_task_preserves_its_provider_usage_in_view_and_report() {
+    let (tasks, _) = controller(Vec::new());
+    let view = start(&tasks, json!({"app": "Mail", "steps": ["a"]}), &[]);
+    let cell = tasks.find(&view.id).unwrap();
+    cell.state.lock().unwrap().usage.record_call(
+        crate::ModelRole::Jev,
+        Some(40),
+        Some(12),
+        Some(7),
+        Some(300),
+    );
+
+    let cancelled = tasks.cancel(&view.id).data.unwrap();
+    assert!(matches!(cancelled.status, TaskStatus::Cancelled));
+    assert_eq!(cancelled.usage.jev.calls, 1);
+    assert_eq!(cancelled.usage.jev.input_tokens, Some(40));
+    assert_eq!(cancelled.usage.jev.cached_input_tokens, Some(12));
+    assert_eq!(cancelled.usage.jev.output_tokens, Some(7));
+    assert_eq!(cancelled.usage.jev.cost_usd_nanos, Some(300));
+
+    let report = tasks.report(&view.id).data.unwrap();
+    assert_eq!(report.usage, cancelled.usage);
+    assert_eq!(report.view.usage, cancelled.usage);
+}
+
+#[tokio::test]
 async fn unknown_tasks_are_named_as_such() {
     let (tasks, _) = controller(Vec::new());
     for id in ["t-99", "nonsense"] {

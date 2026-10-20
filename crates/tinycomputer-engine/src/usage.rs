@@ -35,7 +35,7 @@ impl UsageRecorder {
         input_tokens: Option<u64>,
         cached_input_tokens: Option<u64>,
         output_tokens: Option<u64>,
-        cost_usd_micros: Option<i64>,
+        cost_usd_nanos: Option<i64>,
     ) {
         self.record_started(role);
         self.record_measurements(
@@ -43,7 +43,7 @@ impl UsageRecorder {
             input_tokens,
             cached_input_tokens,
             output_tokens,
-            cost_usd_micros,
+            cost_usd_nanos,
         );
     }
 
@@ -57,6 +57,16 @@ impl UsageRecorder {
         role.calls = role.calls.saturating_add(1);
     }
 
+    /// Adds provider attempts beyond the first attempt already counted.
+    pub fn record_additional_calls(&self, role: ModelRole, calls: u64) {
+        let mut usage = self
+            .usage
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let role = role_usage(&mut usage, role);
+        role.calls = role.calls.saturating_add(calls);
+    }
+
     /// Adds provider measurements for a request already counted with
     /// [`UsageRecorder::record_started`].
     pub fn record_measurements(
@@ -65,7 +75,7 @@ impl UsageRecorder {
         input_tokens: Option<u64>,
         cached_input_tokens: Option<u64>,
         output_tokens: Option<u64>,
-        cost_usd_micros: Option<i64>,
+        cost_usd_nanos: Option<i64>,
     ) {
         let mut usage = self
             .usage
@@ -75,12 +85,9 @@ impl UsageRecorder {
         add_unsigned(&mut role.input_tokens, input_tokens);
         add_unsigned(&mut role.cached_input_tokens, cached_input_tokens);
         add_unsigned(&mut role.output_tokens, output_tokens);
-        if let Some(cost) = cost_usd_micros {
-            role.cost_usd_micros = Some(
-                role.cost_usd_micros
-                    .unwrap_or_default()
-                    .saturating_add(cost),
-            );
+        if let Some(cost) = cost_usd_nanos {
+            role.cost_usd_nanos =
+                Some(role.cost_usd_nanos.unwrap_or_default().saturating_add(cost));
         }
     }
 

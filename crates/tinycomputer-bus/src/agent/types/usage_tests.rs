@@ -14,7 +14,7 @@ fn keeps_unreported_usage_unknown_and_accumulates_reported_values() {
     assert_eq!(usage.input_tokens, Some(18));
     assert_eq!(usage.cached_input_tokens, Some(6));
     assert_eq!(usage.output_tokens, Some(8));
-    assert_eq!(usage.cost_usd_micros, Some(19));
+    assert_eq!(usage.cost_usd_nanos, Some(19));
 }
 
 #[test]

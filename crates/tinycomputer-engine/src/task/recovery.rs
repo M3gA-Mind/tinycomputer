@@ -100,6 +100,12 @@ pub(super) async fn rescue(
     let Some(rescuer) = cell.rescuer.clone() else {
         return Rescued::Skipped;
     };
+    let usage = cell
+        .state
+        .lock()
+        .map(|state| std::sync::Arc::clone(&state.usage))
+        .unwrap_or_default();
+    let rescuer = rescuer.with_usage_recorder(usage);
     let (facts, goal, earlier, limit, time_left, brief_rules, reads) = {
         let Ok(state) = cell.state.lock() else {
             return Rescued::Skipped;
