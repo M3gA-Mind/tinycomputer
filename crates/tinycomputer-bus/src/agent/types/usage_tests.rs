@@ -18,23 +18,23 @@ fn keeps_unreported_usage_unknown_and_accumulates_reported_values() {
 }
 
 #[test]
-fn omits_unreported_measurements_from_the_wire() {
+fn omits_unreported_measurements_from_the_wire() -> Result<(), serde_json::Error> {
+    let wire = serde_json::to_value(TaskUsage {
+        jev: ModelUsage {
+            calls: 1,
+            ..ModelUsage::default()
+        },
+        ..TaskUsage::default()
+    })?;
+    assert_eq!(wire, json!({"jev": {"calls": 1}}));
+
+    let usage = serde_json::from_value::<ModelUsage>(json!({"calls": 1}))?;
     assert_eq!(
-        serde_json::to_value(TaskUsage {
-            jev: ModelUsage {
-                calls: 1,
-                ..ModelUsage::default()
-            },
-            ..TaskUsage::default()
-        })
-        .unwrap(),
-        json!({"jev": {"calls": 1}})
-    );
-    assert_eq!(
-        serde_json::from_value::<ModelUsage>(json!({"calls": 1})).unwrap(),
+        usage,
         ModelUsage {
             calls: 1,
             ..ModelUsage::default()
         }
     );
+    Ok(())
 }
