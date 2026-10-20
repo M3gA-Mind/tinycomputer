@@ -99,6 +99,7 @@ struct Session {
     dir: PathBuf,
     action_context: ActionContext,
     refs: Vec<ElementRef>,
+    closed: bool,
 }
 
 impl std::fmt::Debug for Session {
@@ -113,6 +114,11 @@ impl std::fmt::Debug for Session {
 
 impl Session {
     async fn run(&mut self, command: Value) -> Result<Value> {
+        if self.closed {
+            return Err(Error::NoSuchSession {
+                id: self.info.id.to_string(),
+            });
+        }
         reply::data(&self.engine.execute(command).await)
     }
 
@@ -334,6 +340,7 @@ impl Browser {
             dir: self.scratch.join(id.as_str()),
             action_context,
             refs: Vec::new(),
+            closed: false,
         };
         // A browser this module launches says what to set when it cannot
         // start; one attached to keeps the engine's own words.
@@ -387,15 +394,24 @@ impl Browser {
     ///
     /// # Errors
     ///
-    /// Only when the session table itself is unusable.
+    /// When the session table cannot be read or the browser does not confirm
+    /// that it closed. A failed close stays in the table so a later caller
+    /// can retry and no profile owner can mistake the attempt for completion.
     pub async fn close_session(&self, id: &SessionId) -> Result<()> {
-        let Some(session) = self.lock_sessions()?.remove(id) else {
+        let session = self.lock_sessions()?.get(id).cloned();
+        let Some(session) = session else {
             return Ok(());
         };
         let mut session = session.lock().await;
+        if session.closed {
+            return Ok(());
+        }
         // A browser that is already gone has nothing left to close.
-        let _closed = session.run(json!({"action": "close"})).await;
+        session.run(json!({"action": "close"})).await?;
         let _removed = std::fs::remove_dir_all(&session.dir);
+        session.closed = true;
+        drop(session);
+        self.lock_sessions()?.remove(id);
         Ok(())
     }
 

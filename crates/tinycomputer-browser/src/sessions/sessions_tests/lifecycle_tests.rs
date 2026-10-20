@@ -1,6 +1,6 @@
 //! Tests for opening, capping, and naming sessions, and their scratch space.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use tinycomputer_bus::browser::{NavigateRequest, SessionId, SessionOptions};
 
@@ -30,6 +30,58 @@ async fn opening_launches_explicitly_then_sets_the_viewport() {
         .close_session(&id)
         .await
         .expect("closing twice succeeds");
+}
+
+#[tokio::test]
+async fn a_second_close_waits_for_the_browser_to_finish_closing() {
+    let fake = Fake::new().delaying_close(Duration::from_millis(100));
+    let (browser, id) = open(&fake, "concurrent-close").await;
+    let browser = Arc::new(browser);
+    let first_browser = browser.clone();
+    let first_id = id.clone();
+    let first = tokio::spawn(async move { first_browser.close_session(&first_id).await });
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while fake.actions().last().map(String::as_str) != Some("close") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("first close reached the engine");
+
+    let second_browser = browser.clone();
+    let (closed, wait) = tokio::sync::oneshot::channel();
+    let second = tokio::spawn(async move {
+        let result = second_browser.close_session(&id).await;
+        let _ = closed.send(());
+        result
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), wait)
+            .await
+            .is_err(),
+        "a concurrent close must wait for the in-flight close"
+    );
+
+    first.await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(1), second)
+        .await
+        .expect("second close follows the first")
+        .unwrap()
+        .unwrap();
+    assert!(browser.list_sessions().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_close_keeps_the_session_unconfirmed() {
+    let fake = Fake::new()
+        .delaying_close(Duration::from_millis(20))
+        .failing_close();
+    let (browser, id) = open(&fake, "failed-close").await;
+    let error = browser.close_session(&id).await.unwrap_err();
+
+    assert!(error.to_string().contains("browser close failed"));
+    assert_eq!(browser.list_sessions().await.unwrap().len(), 1);
 }
 
 #[tokio::test]
