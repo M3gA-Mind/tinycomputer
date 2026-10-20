@@ -91,6 +91,30 @@ fn secrets_and_the_payment_mode_pin_their_wire_form() {
 }
 
 #[test]
+fn host_secret_handles_pin_their_wire_form_and_hide_from_debug() {
+    let request: StartTaskRequest = serde_json::from_value(json!({
+        "flow": {"app": "browser", "steps": [{"enter": {"card number": "${card number}"}}]},
+        "fact_handles": {
+            "card number": {
+                "handle": "opaque-card-reference",
+                "mask": "•••• 1111",
+                "kind": "payment_card"
+            }
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        request.fact_handles["card number"].handle,
+        "opaque-card-reference"
+    );
+    assert_eq!(
+        serde_json::to_value(&request).unwrap()["fact_handles"]["card number"],
+        json!({"handle": "opaque-card-reference", "mask": "•••• 1111", "kind": "payment_card"})
+    );
+    assert!(!format!("{request:?}").contains("opaque-card-reference"));
+}
+
+#[test]
 fn statuses_are_tagged_by_state() {
     let fields = TaskStatus::NeedsInput {
         fields: vec![InputField {

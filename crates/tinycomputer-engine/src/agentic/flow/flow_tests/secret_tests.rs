@@ -19,10 +19,9 @@ impl SecretHost for TestSecretHost {
         if self.refuse {
             return Err("host refused the card field".to_owned());
         }
-        self.app
-            .sim()
-            .fields
-            .insert("To".to_owned(), CARD.to_owned());
+        let mut sim = self.app.sim();
+        sim.fields.insert("To".to_owned(), CARD.to_owned());
+        sim.quirks.insert(Quirk::HostSecretEcho);
         Ok(())
     }
 
@@ -205,9 +204,25 @@ async fn secret_type_fails_closed_when_the_live_url_is_unavailable() {
 
 #[test]
 fn structured_outbound_values_are_redacted_recursively() {
-    let mut value = json!({"page": [CARD, {"field": CARD}], "count": 1});
-    super::super::secret::redact_value(&mut value, &|text| text.replace(CARD, "[masked]"));
+    let mut value = json!({
+        "page": [CARD, {"field": CARD}],
+        "4111111111111111": "number key",
+        "4111 1111 1111 1111": "card key",
+        "numeric_echo": 4_111_111_111_111_111_u64,
+        "count": 1,
+    });
+    super::super::secret::redact_value(&mut value, &|text| {
+        text.replace(CARD, "[masked]")
+            .replace("4111111111111111", "[masked]")
+    });
     assert_eq!(value["page"][0], "[masked]");
     assert_eq!(value["page"][1]["field"], "[masked]");
     assert_eq!(value["count"], 1);
+    assert_eq!(value["numeric_echo"], "[masked]");
+    let collisions = ["[masked]", "[masked]#2"].map(|key| value[key].as_str().unwrap());
+    assert_eq!(
+        std::collections::BTreeSet::from(collisions),
+        std::collections::BTreeSet::from(["number key", "card key"])
+    );
+    assert!(!value.to_string().contains("4111111111111111"));
 }
