@@ -230,6 +230,12 @@ impl FlowRunner for BrowserRunner {
             surface.close();
         }
     }
+
+    fn redact(&self, task: &TaskId, text: &str) -> String {
+        self.secret_host
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |host| host.redact(&task.0, text))
+    }
 }
 
 impl BrowserRunner {
