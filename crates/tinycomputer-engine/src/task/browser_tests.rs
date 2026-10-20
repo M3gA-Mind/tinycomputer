@@ -137,6 +137,7 @@ async fn a_browser_action_refusal_keeps_its_reason_in_rescue_and_task_report()
 struct BrowserScript {
     commands: Arc<std::sync::Mutex<Vec<Value>>>,
     current_url: Arc<std::sync::Mutex<String>>,
+    echo_secret: bool,
 }
 
 impl BrowserScript {
@@ -173,10 +174,17 @@ impl Engine for BrowserScriptEngine {
                     .unwrap_or_default()
             }),
             "title" => json!({"title": "Local fixture"}),
-            "snapshot" => json!({
-                "snapshot": "- heading \"Browser runner fixture\" [ref=h1]",
-                "refs": {"h1": {"role": "heading", "name": "Browser runner fixture"}}
-            }),
+            "snapshot" => {
+                let snapshot = if self.0.echo_secret {
+                    "- heading \"Browser runner fixture\" [ref=h1]\n- textbox \"Card number\" [ref=card]: 4111 1111 1111 1111"
+                } else {
+                    "- heading \"Browser runner fixture\" [ref=h1]"
+                };
+                json!({
+                    "snapshot": snapshot,
+                    "refs": {"h1": {"role": "heading", "name": "Browser runner fixture"}}
+                })
+            }
             "evaluate" => json!({"result": 42}),
             "screenshot" => {
                 let Some(path) = command["path"].as_str() else {
@@ -355,8 +363,11 @@ async fn a_runner_with_a_secret_host_does_not_capture_unredacted_pixels()
     }
 
     let script = BrowserScript::default();
-    let runner = BrowserRunner::new(Arc::new(Browser::new(Arc::new(script.clone()))), runtime()?)
-        .with_secret_host(Arc::new(Host));
+    let runner = BrowserRunner::new(
+        Arc::new(isolated_browser(script.clone(), "secret-capture")),
+        runtime()?,
+    )
+    .with_secret_host(Arc::new(Host));
     let task = tinycomputer_bus::agent::TaskId::new("t-secret-capture");
     runner.prepare(&task, &TaskConstraints::default()).await;
     runner.open_page(&task, "https://shop.test/checkout").await;
@@ -384,6 +395,38 @@ async fn a_runner_with_a_secret_host_does_not_capture_unredacted_pixels()
             .iter()
             .any(|command| command["action"] == "screenshot")
     );
+    runner.release(&task);
+    Ok(())
+}
+
+#[tokio::test]
+async fn rescue_visible_text_is_redacted_by_the_host() -> Result<(), Box<dyn std::error::Error>> {
+    struct Host;
+    impl SecretHost for Host {
+        fn type_secret(&self, _request: &SecretTypeRequest) -> Result<(), String> {
+            Err("not used by this test".to_owned())
+        }
+
+        fn redact(&self, _task_id: &str, text: &str) -> String {
+            text.replace("4111 1111 1111 1111", "•••• 1111")
+        }
+    }
+
+    let script = BrowserScript {
+        echo_secret: true,
+        ..BrowserScript::default()
+    };
+    let runner = BrowserRunner::new(
+        Arc::new(isolated_browser(script, "secret-rescue")),
+        runtime()?,
+    )
+    .with_secret_host(Arc::new(Host));
+    let task = tinycomputer_bus::agent::TaskId::new("t-secret-rescue");
+    runner.prepare(&task, &TaskConstraints::default()).await;
+    let visible = runner.visible_text(&task).await.join("\n");
+
+    assert!(!visible.contains("4111 1111 1111 1111"));
+    assert!(visible.contains("•••• 1111"));
     runner.release(&task);
     Ok(())
 }
@@ -429,6 +472,16 @@ async fn settle(
 fn runtime() -> Result<JevRuntime, std::io::Error> {
     JevRuntime::sage("local-test-key", false)
         .map_err(|error| std::io::Error::other(error.message.clone()))
+}
+
+fn isolated_browser(script: BrowserScript, name: &str) -> Browser {
+    Browser::with_scratch(
+        Arc::new(script),
+        std::env::temp_dir().join(format!(
+            "tinycomputer-task-browser-{name}-{}",
+            std::process::id()
+        )),
+    )
 }
 
 fn png_header(width: u32, height: u32) -> Vec<u8> {

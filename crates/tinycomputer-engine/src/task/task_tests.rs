@@ -62,6 +62,8 @@ struct Script {
     /// Tasks whose Jev connections were warmed while they were planned,
     /// with the votes asked for. The warm-up never ends.
     warmed: Mutex<Vec<(TaskId, u32)>>,
+    /// Optional value a test's `FlowRunner` redacts from task-level outputs.
+    host_secret: Mutex<Option<String>>,
     /// The pages loaded while tasks were planned, with their task.
     opened: Mutex<Vec<(TaskId, String)>>,
 }
@@ -127,6 +129,17 @@ impl FlowRunner for Script {
             .lock()
             .unwrap()
             .push((task.cloned(), event.to_owned(), fields()));
+    }
+
+    fn redact(&self, _task: &TaskId, text: &str) -> String {
+        self.host_secret
+            .lock()
+            .ok()
+            .and_then(|secret| secret.clone())
+            .map_or_else(
+                || text.to_owned(),
+                |secret| text.replace(&secret, "•••• 1111"),
+            )
     }
 }
 
