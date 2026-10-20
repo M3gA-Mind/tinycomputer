@@ -27,7 +27,7 @@ payload vocabulary has to be published as an ordinary library. This is it.
 | `notifications` | notification-centre payloads                                        |
 | `waiting`       | the `Wait` payload                                                  |
 | `system`        | the `Permissions` payload                                           |
-| `agent`         | the task members' requests, views, reports, and `Capabilities`      |
+| `agent`         | the task members' requests (including opaque host-held secret handles), views, reports, and `Capabilities` |
 | `flow`          | the flow grammar `RunFlow` and `StartTask` carry                    |
 | `browser`       | the `Browser…` members' payloads, names, and error codes            |
 | `version`       | `CONTRACT_VERSION` and the bind rule a host applies to it           |

@@ -51,6 +51,24 @@ pub(super) fn run_request(
             flow: run.flow.clone(),
             vars,
             facts,
+            fact_handles: state
+                .facts
+                .secret_names()
+                .into_iter()
+                .filter_map(|name| {
+                    state.facts.handle(name).map(|handle| {
+                        (
+                            name.to_owned(),
+                            tinycomputer_bus::agent::SecretHandle {
+                                handle: handle.handle.clone(),
+                                mask: handle.mask.clone(),
+                                kind: handle.kind.clone(),
+                            },
+                        )
+                    })
+                })
+                .collect(),
+            task_id: Some(cell.view.borrow().id.0.clone()),
             allow_destructive: run.allow_destructive,
             // Jev must read what the fields hold to check what was typed.
             // Secret values are masked in everything the runtime sends Jev.

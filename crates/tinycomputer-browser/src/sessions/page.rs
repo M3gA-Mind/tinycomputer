@@ -217,6 +217,46 @@ impl Browser {
         session.outcome(value, matched).await
     }
 
+    /// Checks the configured action gate for a host-owned secret fill without
+    /// sending any text to the page.
+    ///
+    /// # Errors
+    ///
+    /// Returns the browser/session error or the action gate's refusal. The
+    /// current URL must be readable before a host secret can be typed.
+    pub async fn authorize_secret_type(
+        &self,
+        id: &SessionId,
+        role: &str,
+        name: Option<&str>,
+        reference: &str,
+    ) -> Result<String> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check_if_readable(false).await?;
+        let current_url = session
+            .action_url()
+            .await
+            .ok_or_else(|| Error::invalid_input("the current page URL is unknown"))?;
+        let reference = reference.strip_prefix('@').unwrap_or(reference);
+        self.check_action(&ActionRequest {
+            payload: serde_json::json!({
+                "action": "fill",
+                "selector": format!("@{reference}"),
+                "value": "[host secret]",
+            }),
+            target: Some(crate::action_gate::ActionTarget {
+                role: Some(role.to_owned()),
+                name: name.map(str::to_owned),
+                reference: Some(reference.to_owned()),
+            }),
+            current_url: Some(current_url.clone()),
+            destination_url: None,
+            context: session.action_context.clone(),
+        })?;
+        Ok(current_url)
+    }
+
     /// Extracts the active page as text, markdown, or HTML.
     ///
     /// # Errors

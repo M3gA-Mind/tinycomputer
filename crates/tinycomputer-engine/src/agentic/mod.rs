@@ -41,6 +41,7 @@ mod verify;
 #[cfg(all(test, feature = "desktop"))]
 mod agentic_tests;
 
+pub(crate) use flow::run_flow_with_host;
 pub(crate) use flow::{check_flow, missing_inputs};
 pub use flow::{flow_guide, run_flow, validate_flow};
 #[cfg(feature = "desktop")]

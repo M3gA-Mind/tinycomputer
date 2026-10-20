@@ -10,6 +10,7 @@ use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
 use tinycomputer_core::surface::{Depth, Surface};
 
 use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
+use crate::SecretHost;
 use crate::{JevRuntime, UsageRecorder};
 
 /// Runs task flows directly on one in-process browser surface per task.
@@ -17,12 +18,15 @@ use crate::{JevRuntime, UsageRecorder};
 /// The host owns the browser launcher and the configured Jev runtime. This
 /// runner adds no bus or desktop adapter. Each task keeps its browser session
 /// across pauses and continuations, and [`FlowRunner::release`] closes it when
-/// the task ends.
+/// the task ends. When a `SecretHost` is configured, tasks have no screenshot
+/// artifacts, since host-held values rendered by a page cannot be scrubbed
+/// from pixels.
 pub struct BrowserRunner {
     browser: Arc<Browser>,
     runtime: JevRuntime,
     options: SessionOptions,
     surfaces: Mutex<HashMap<TaskId, BrowserSurface>>,
+    secret_host: Option<Arc<dyn SecretHost>>,
 }
 
 impl std::fmt::Debug for BrowserRunner {
@@ -45,7 +49,16 @@ impl BrowserRunner {
             runtime,
             options: SessionOptions::default(),
             surfaces: Mutex::new(HashMap::new()),
+            secret_host: None,
         }
+    }
+
+    /// Uses `host` to resolve opaque secret handles and type them at the
+    /// moment a task fills a field.
+    #[must_use]
+    pub fn with_secret_host(mut self, host: Arc<dyn SecretHost>) -> Self {
+        self.secret_host = Some(host);
+        self
     }
 
     /// Uses `options` as the host defaults for sessions this runner opens.
@@ -116,8 +129,10 @@ impl FlowRunner for BrowserRunner {
 
     fn visible_text(&self, task: &TaskId) -> TextFuture {
         let surface = self.surface(task, &TaskConstraints::default());
+        let host = self.secret_host.clone();
+        let task_id = task.0.clone();
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || {
+            let text: Vec<String> = tokio::task::spawn_blocking(move || {
                 surface
                     .observe("browser", None, Depth::Full)
                     .map(|screen| {
@@ -140,11 +155,21 @@ impl FlowRunner for BrowserRunner {
                     .unwrap_or_default()
             })
             .await
-            .unwrap_or_default()
+            .unwrap_or_default();
+            match host {
+                Some(host) => text
+                    .into_iter()
+                    .map(|line| host.redact(&task_id, &line))
+                    .collect(),
+                None => text,
+            }
         })
     }
 
     fn capture(&self, task: &TaskId) -> CaptureFuture {
+        if self.secret_host.is_some() {
+            return Box::pin(async { None });
+        }
         let surface = self
             .surfaces
             .lock()
@@ -223,6 +248,12 @@ impl FlowRunner for BrowserRunner {
             surface.close();
         }
     }
+
+    fn redact(&self, task: &TaskId, text: &str) -> String {
+        self.secret_host
+            .as_ref()
+            .map_or_else(|| text.to_owned(), |host| host.redact(&task.0, text))
+    }
 }
 
 impl BrowserRunner {
@@ -235,7 +266,14 @@ impl BrowserRunner {
     ) -> FlowFuture {
         let runtime = runtime.journaled_as(&format!("task-{task}"));
         let surface = self.surface(task, constraints);
-        Box::pin(tinycomputer_engine_flow(surface, runtime, request))
+        let mut request = request;
+        request.task_id = Some(task.0.clone());
+        Box::pin(tinycomputer_engine_flow(
+            surface,
+            runtime,
+            request,
+            self.secret_host.clone(),
+        ))
     }
 }
 
@@ -243,8 +281,9 @@ async fn tinycomputer_engine_flow(
     surface: BrowserSurface,
     runtime: JevRuntime,
     request: RunFlowRequest,
+    secret_host: Option<Arc<dyn SecretHost>>,
 ) -> DesktopResponse {
-    crate::run_flow(surface, runtime, request).await
+    crate::run_flow_with_host(surface, &runtime, request, secret_host).await
 }
 
 #[cfg(test)]
