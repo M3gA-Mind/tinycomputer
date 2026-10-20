@@ -36,7 +36,10 @@ pub struct ActionRequest {
     /// The resolved semantic target, if the request names one.
     pub target: Option<ActionTarget>,
     /// The page's actual current URL immediately before the request.
-    pub current_url: String,
+    /// The actual address the browser reported immediately before the request,
+    /// or `None` when the page is between documents and has no readable URL.
+    /// A host that makes page-specific decisions should refuse an unknown URL.
+    pub current_url: Option<String>,
     /// The requested destination for a navigation, when applicable.
     pub destination_url: Option<String>,
     /// Host-supplied task context.
@@ -46,7 +49,7 @@ pub struct ActionRequest {
 impl ActionRequest {
     pub(crate) fn typed(
         action: &Action,
-        current_url: String,
+        current_url: Option<String>,
         destination_url: Option<String>,
         context: &ActionContext,
         refs: &[ElementRef],
@@ -64,7 +67,7 @@ impl ActionRequest {
 
     pub(crate) fn raw(
         payload: Value,
-        current_url: String,
+        current_url: Option<String>,
         destination_url: Option<String>,
         context: &ActionContext,
         refs: &[ElementRef],
@@ -72,7 +75,8 @@ impl ActionRequest {
         let target = payload
             .get("selector")
             .and_then(Value::as_str)
-            .and_then(|selector| resolve_target(selector, refs));
+            .and_then(|selector| selector.strip_prefix('@'))
+            .and_then(|reference| resolve_reference(reference, refs));
         Self {
             payload,
             target,
@@ -155,7 +159,8 @@ fn action_target(action: &Action, refs: &[ElementRef]) -> Option<ActionTarget> {
 
 fn target_from_target(target: &Target, refs: &[ElementRef]) -> Option<ActionTarget> {
     match target {
-        Target::Ref { value } | Target::Selector { value } => resolve_target(value, refs),
+        Target::Ref { value } => resolve_reference(value, refs),
+        Target::Selector { .. } => None,
         Target::Locator { value } if value.by == tinycomputer_bus::browser::LocateBy::Role => {
             Some(ActionTarget {
                 role: Some(value.value.clone()),
@@ -171,7 +176,7 @@ fn target_from_target(target: &Target, refs: &[ElementRef]) -> Option<ActionTarg
     }
 }
 
-fn resolve_target(value: &str, refs: &[ElementRef]) -> Option<ActionTarget> {
+fn resolve_reference(value: &str, refs: &[ElementRef]) -> Option<ActionTarget> {
     let reference = value.strip_prefix('@').unwrap_or(value);
     refs.iter()
         .find(|item| item.id == reference)
@@ -180,4 +185,64 @@ fn resolve_target(value: &str, refs: &[ElementRef]) -> Option<ActionTarget> {
             name: Some(item.name.clone()),
             reference: Some(item.id.clone()),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tinycomputer_bus::browser::{Action, ElementRef, Target};
+
+    use super::{ActionContext, ActionRequest, action_target, resolve_reference};
+
+    fn refs() -> Vec<ElementRef> {
+        vec![ElementRef {
+            id: "e1".to_owned(),
+            role: "button".to_owned(),
+            name: "Place order".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn only_explicit_snapshot_refs_resolve_to_snapshot_metadata() {
+        let refs = refs();
+        assert!(resolve_reference("@e1", &refs).is_some());
+        assert!(resolve_reference("e1", &refs).is_some());
+        assert!(
+            action_target(
+                &Action::Click {
+                    target: Target::selector("e1"),
+                    new_tab: false,
+                },
+                &refs,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn raw_css_selectors_do_not_alias_snapshot_refs() {
+        let refs = refs();
+        let css = ActionRequest::raw(
+            json!({"action": "click", "selector": "e1"}),
+            Some("https://shop.test/".to_owned()),
+            None,
+            &ActionContext::default(),
+            &refs,
+        );
+        let reference = ActionRequest::raw(
+            json!({"action": "click", "selector": "@e1"}),
+            Some("https://shop.test/".to_owned()),
+            None,
+            &ActionContext::default(),
+            &refs,
+        );
+        assert!(css.target.is_none());
+        assert_eq!(
+            reference
+                .target
+                .as_ref()
+                .and_then(|target| target.name.as_deref()),
+            Some("Place order")
+        );
+    }
 }
