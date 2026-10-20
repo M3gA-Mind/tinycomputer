@@ -14,7 +14,7 @@ use super::Tasks;
 use super::errors::poisoned;
 use super::interpret::Resume;
 use super::names::{fact_names, is_undefined, known_names};
-use super::publish::{needs_input, publish};
+use super::publish::{needs_input, publish, stopped_summary};
 use super::store::{Cell, Run};
 
 impl Tasks {
@@ -58,6 +58,12 @@ impl Tasks {
                 "fix the flow; Describe returns the guide",
                 true,
             ));
+        }
+        if let Some(status) = state.return_after_input.take() {
+            let summary = stopped_summary(&status);
+            drop(state);
+            publish(cell, status, &summary);
+            return AgentResponse::ok(cell.current_view());
         }
         let run = Run {
             flow: state.flow.clone(),

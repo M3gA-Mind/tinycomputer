@@ -14,6 +14,7 @@ mod errors_tests;
 mod human_tests;
 mod output_tests;
 mod page_tests;
+mod persistence_tests;
 mod plan_tests;
 mod rescue_tests;
 mod runner_tests;
@@ -44,6 +45,8 @@ use super::{FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind};
 struct Script {
     replies: Mutex<VecDeque<DesktopResponse>>,
     requests: Mutex<Vec<RunFlowRequest>>,
+    constraints: Mutex<Vec<TaskConstraints>>,
+    host_secrets: Mutex<Vec<String>>,
     /// What the task's surface shows when asked.
     screen: Mutex<Vec<String>>,
     /// Tasks let go of, in order.
@@ -70,10 +73,11 @@ impl FlowRunner for Script {
     fn run(
         &self,
         _task: &TaskId,
-        _constraints: &TaskConstraints,
+        constraints: &TaskConstraints,
         request: RunFlowRequest,
     ) -> FlowFuture {
         self.requests.lock().unwrap().push(request);
+        self.constraints.lock().unwrap().push(constraints.clone());
         let reply = self.replies.lock().unwrap().pop_front();
         Box::pin(async move {
             match reply {
@@ -127,6 +131,16 @@ impl FlowRunner for Script {
             .lock()
             .unwrap()
             .push((task.cloned(), event.to_owned(), fields()));
+    }
+
+    fn redact(&self, _task: &TaskId, text: &str) -> String {
+        self.host_secrets
+            .lock()
+            .unwrap()
+            .iter()
+            .fold(text.to_owned(), |text, secret| {
+                text.replace(secret, "[redacted]")
+            })
     }
 }
 

@@ -30,6 +30,7 @@ async fn a_runner_that_only_runs_flows_reads_nothing_and_holds_nothing() {
     RunsOnly.prepare(&task, &TaskConstraints::default()).await;
     RunsOnly.open_page(&task, "https://mail.test").await;
     RunsOnly.warm(&task, 7).await;
+    assert_eq!(RunsOnly.redact(&task, "ordinary text"), "ordinary text");
     RunsOnly.journal(Some(&task), "plan", &|| serde_json::json!({"wall_ms": 1}));
     RunsOnly.journal(None, "plan", &|| serde_json::json!({}));
     assert_eq!(
