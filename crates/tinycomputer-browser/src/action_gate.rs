@@ -25,7 +25,19 @@ pub struct ActionTarget {
     pub reference: Option<String>,
 }
 
-/// Information a trusted host may inspect before the browser acts.
+/// Page content an engine caller is about to receive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObservationKind {
+    /// The page's accessibility tree and controls.
+    Snapshot,
+    /// The page's extracted text, Markdown, or HTML.
+    ReadPage,
+    /// A screenshot of the page.
+    Screenshot,
+}
+
+/// Information a trusted host may inspect before the browser acts or returns
+/// page content.
 ///
 /// `payload` contains the requested action and its value, including typed
 /// text. It is intentionally omitted from `Debug`; implementations must treat
@@ -42,6 +54,8 @@ pub struct ActionRequest {
     pub current_url: Option<String>,
     /// The requested destination for a navigation, when applicable.
     pub destination_url: Option<String>,
+    /// Whether this request observes page content rather than acting on it.
+    pub observation: Option<ObservationKind>,
     /// Host-supplied task context.
     pub context: ActionContext,
 }
@@ -61,6 +75,7 @@ impl ActionRequest {
             target,
             current_url,
             destination_url,
+            observation: None,
             context: context.clone(),
         }
     }
@@ -82,6 +97,22 @@ impl ActionRequest {
             target,
             current_url,
             destination_url,
+            observation: None,
+            context: context.clone(),
+        }
+    }
+
+    pub(crate) fn observation(
+        kind: ObservationKind,
+        current_url: Option<String>,
+        context: &ActionContext,
+    ) -> Self {
+        Self {
+            payload: serde_json::json!({ "action": "observe" }),
+            target: None,
+            current_url,
+            destination_url: None,
+            observation: Some(kind),
             context: context.clone(),
         }
     }
@@ -98,6 +129,7 @@ impl std::fmt::Debug for ActionRequest {
             .field("target", &self.target)
             .field("current_url", &self.current_url)
             .field("destination_url", &self.destination_url)
+            .field("observation", &self.observation)
             .field("context", &self.context)
             .finish_non_exhaustive()
     }
@@ -116,7 +148,8 @@ pub enum ActionVerdict {
     },
 }
 
-/// A synchronous host policy consulted before every typed or raw action.
+/// A synchronous host policy consulted before every typed or raw action and
+/// before a snapshot, page read, or screenshot can expose content.
 pub trait ActionGate: Send + Sync {
     /// Decide whether this request may reach the page.
     fn check(&self, request: &ActionRequest) -> ActionVerdict;

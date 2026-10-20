@@ -8,7 +8,7 @@ use tinycomputer_bus::browser::{
 };
 
 use super::{Browser, Session};
-use crate::action_gate::ActionRequest;
+use crate::action_gate::{ActionRequest, ObservationKind};
 use crate::convert;
 use crate::deep;
 use crate::error::{Error, Result};
@@ -112,10 +112,24 @@ impl Browser {
         let session = self.session(id)?;
         let mut session = session.lock().await;
         session.check_if_readable(false).await?;
+        // The URL lookup above is an internal engine command and is not sent
+        // through the gate. Read the live address once more immediately before
+        // content is observed, without recursively gating that URL lookup.
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Snapshot,
+            current_url,
+            &session.action_context,
+        ))?;
         let data = session.run(convert::snapshot(&request)).await?;
         let controls = session.find_deep(request.selector.as_deref()).await;
         let page = session.page().await?;
         let page = session.admit(page).await?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Snapshot,
+            Some(page.url.clone()),
+            &session.action_context,
+        ))?;
         session.sequence += 1;
         let mut snapshot = reply::snapshot(
             &data,
@@ -252,6 +266,7 @@ impl Browser {
             }),
             current_url: Some(current_url.clone()),
             destination_url: None,
+            observation: None,
             context: session.action_context.clone(),
         })?;
         Ok(current_url)
@@ -266,6 +281,12 @@ impl Browser {
         let session = self.session(id)?;
         let mut session = session.lock().await;
         session.check_if_readable(false).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::ReadPage,
+            current_url,
+            &session.action_context,
+        ))?;
         let data = session.run(convert::read(&request)).await?;
         let content = ["content", "text", "html"]
             .into_iter()
@@ -276,6 +297,11 @@ impl Browser {
         let content = content.chars().take(request.max_chars).collect();
         let page = session.page().await?;
         let page = session.admit(page).await?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::ReadPage,
+            Some(page.url.clone()),
+            &session.action_context,
+        ))?;
         Ok(PageText {
             url: page.url,
             title: page.title,
@@ -413,6 +439,12 @@ impl Browser {
         let path = session.scratch_file("shot", self.next(), extension)?;
         let command = convert::screenshot(&request, &path)?;
         session.check_if_readable(false).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Screenshot,
+            current_url,
+            &session.action_context,
+        ))?;
         let data = session.run(command).await?;
         let written = data
             .get("path")
@@ -423,6 +455,12 @@ impl Browser {
         let _removed = std::fs::remove_file(&written);
         // A picture of a page that turned out refused is never handed over.
         session.check_if_readable(true).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Screenshot,
+            current_url,
+            &session.action_context,
+        ))?;
         within_cap(bytes.len().div_ceil(3) * 4)?;
         let (width, height) = reply::image_size(&bytes);
         self.lock_outputs()?
