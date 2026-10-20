@@ -41,7 +41,7 @@ mod workspace;
 
 pub(crate) use agentic::run_flow_with_host;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "planner"))]
 pub(crate) static MODEL_NETWORK_TEST_MUTEX: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
 
