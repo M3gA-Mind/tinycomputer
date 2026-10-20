@@ -27,8 +27,10 @@ mod watch;
 
 #[cfg(test)]
 pub(crate) use cover::{COVER_JS, SPOT_GRID};
+#[cfg(all(test, feature = "agent-browser"))]
+pub(crate) use uncover::CENTRE_JS;
 #[cfg(test)]
-pub(crate) use uncover::{CENTRE_JS, INTO_VIEW_JS};
+pub(crate) use uncover::INTO_VIEW_JS;
 
 pub use sight::Denoised;
 
@@ -44,6 +46,7 @@ use tinycomputer_core::Platform;
 use tinycomputer_core::surface::Screen;
 use tinycomputer_cursor::ScreenCursor;
 
+use crate::action_gate::ActionContext;
 use crate::error::{Error, Result};
 use crate::sessions::Browser;
 use envelope::reply;
@@ -127,6 +130,7 @@ const EARLY_LOAD_MS: u64 = 10_000;
 pub struct BrowserSurface {
     browser: Arc<Browser>,
     options: SessionOptions,
+    action_context: ActionContext,
     session: Arc<Mutex<Option<SessionId>>>,
     handle: tokio::runtime::Handle,
     platform: Platform,
@@ -170,6 +174,7 @@ impl BrowserSurface {
         Self {
             browser,
             options,
+            action_context: ActionContext::default(),
             session: Arc::new(Mutex::new(None)),
             handle,
             platform: Platform::current(),
@@ -187,6 +192,13 @@ impl BrowserSurface {
     #[must_use]
     pub fn with_settle(mut self, settle: Settle) -> Self {
         self.settle = settle;
+        self
+    }
+
+    /// Supplies the task facts included in each host action-gate request.
+    #[must_use]
+    pub fn with_action_context(mut self, context: ActionContext) -> Self {
+        self.action_context = context;
         self
     }
 
@@ -306,7 +318,10 @@ impl BrowserSurface {
         if early && self.closed.load(Ordering::Acquire) {
             return Err(Error::failed("the browser surface was let go"));
         }
-        let info = self.block(self.browser.open_session(self.options.clone()))?;
+        let info = self.block(
+            self.browser
+                .open_session_with_context(self.options.clone(), self.action_context.clone()),
+        )?;
         *slot = Some(info.id.clone());
         Ok(info.id)
     }
