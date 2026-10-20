@@ -171,6 +171,12 @@ pub trait FlowRunner: Send + Sync + 'static {
         _fields: &dyn Fn() -> serde_json::Value,
     ) {
     }
+
+    /// Replaces host-held secret values in text before a task snapshot is
+    /// emitted. Runners without host-side secrets may keep the default.
+    fn redact(&self, _task: &TaskId, text: &str) -> String {
+        text.to_owned()
+    }
 }
 
 /// How many tasks the controller holds; finished ones are dropped first.
