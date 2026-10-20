@@ -6,6 +6,7 @@ mod reply;
 mod report;
 mod request;
 mod status;
+mod usage;
 
 pub use describe::{Capabilities, Example, MemberDoc, SurfaceAvailability};
 pub use models::{LanguageModelConfiguration, LanguageModelProvider};
@@ -17,3 +18,4 @@ pub use request::{
     TaskReportRequest,
 };
 pub use status::{InputField, InputKind, StepView, TaskStatus, TaskView};
+pub use usage::{ModelUsage, TaskUsage};

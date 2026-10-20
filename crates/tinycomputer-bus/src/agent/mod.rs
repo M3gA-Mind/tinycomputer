@@ -53,9 +53,9 @@ mod types;
 pub use types::{
     AgentError, AgentResponse, AwaitTaskRequest, Capabilities, ContinueTaskRequest, Example,
     InputField, InputKind, LanguageModelConfiguration, LanguageModelProvider, MemberDoc,
-    PaymentMode, PlanTaskRequest, Rescue, RescueOutcome, StartTaskRequest, StepView,
+    ModelUsage, PaymentMode, PlanTaskRequest, Rescue, RescueOutcome, StartTaskRequest, StepView,
     SurfaceAvailability, SurfaceKind, TaskBudget, TaskConstraints, TaskId, TaskOutput, TaskPlan,
-    TaskRef, TaskReport, TaskReportRequest, TaskStatus, TaskView,
+    TaskRef, TaskReport, TaskReportRequest, TaskStatus, TaskUsage, TaskView,
 };
 
 #[cfg(test)]

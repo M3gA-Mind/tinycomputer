@@ -72,6 +72,7 @@ fn paced_as(
         pending: Arc::default(),
         journal: crate::agentic::journal::Journal::default(),
         copies: Arc::default(),
+        usage: None,
     };
     (runtime, paced)
 }

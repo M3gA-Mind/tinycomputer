@@ -36,6 +36,7 @@ mod planner;
 mod rescue;
 mod shape;
 mod task;
+mod usage;
 mod workspace;
 
 pub use agentic::{
@@ -56,4 +57,7 @@ pub use task::{
     Tasks, TextFuture, capabilities,
 };
 pub use tinycomputer_bus::DesktopResponse;
+#[cfg(feature = "desktop")]
+use tinycomputer_desktop::Desktop;
+pub use usage::{ModelRole, UsageRecorder};
 pub use workspace::{BROWSER, Workspace};
