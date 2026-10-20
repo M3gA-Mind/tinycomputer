@@ -25,10 +25,10 @@
 //!
 //! A [`Workspace`] joins desktop and browser when the default `desktop`
 //! feature is enabled. A [`BrowserRunner`] runs the public [`Tasks`] manager
-//! directly on browser sessions without TinyBus or a desktop adapter.
+//! directly on browser sessions without `TinyBus` or a desktop adapter.
 //!
 //! The crate holds no bus: `tinycomputer` may serve these functions over
-//! TinyBus, while embedding hosts can call the runner and task manager in
+//! `TinyBus`, while embedding hosts can call the runner and task manager in
 //! process.
 
 mod agentic;

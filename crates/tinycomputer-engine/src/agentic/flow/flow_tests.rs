@@ -92,6 +92,7 @@ fn runtime(client: impl Evaluator + 'static) -> JevRuntime {
             endpoint_url: None,
             fast: false,
         },
+        #[cfg(feature = "desktop")]
         pending: Arc::default(),
         journal: crate::agentic::journal::Journal::default(),
         copies: Arc::default(),
@@ -125,6 +126,7 @@ async fn run_with(
             endpoint_url: None,
             fast: false,
         },
+        #[cfg(feature = "desktop")]
         pending: Arc::default(),
         journal: crate::agentic::journal::Journal::default(),
         copies: Arc::default(),

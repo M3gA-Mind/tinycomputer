@@ -1,11 +1,12 @@
 //! The Jev runtime: its configured client, the journal it writes, and the
 //! one door every Jev evaluation goes through.
 
+#[cfg(feature = "desktop")]
+use std::{collections::HashMap, sync::Mutex};
 use std::{
-    collections::HashMap,
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex, atomic::AtomicUsize},
+    sync::{Arc, atomic::AtomicUsize},
     time::Duration,
 };
 
@@ -17,6 +18,7 @@ use tinyinference_decisions::{
 
 use super::flow::MAX_VOTES;
 use super::journal::Journal;
+#[cfg(feature = "desktop")]
 use super::pending::PendingRun;
 use super::sage;
 use crate::{ModelRole, UsageRecorder};
@@ -50,6 +52,7 @@ pub(super) const FIRST_TURN: u32 = 2;
 pub struct JevRuntime {
     pub(super) client: Arc<dyn Evaluator>,
     pub(super) configuration: JevConfiguration,
+    #[cfg(feature = "desktop")]
     pub(super) pending: Arc<Mutex<HashMap<String, PendingRun>>>,
     pub(super) journal: Journal,
     /// Hedged copies of framings in flight, shared by every flow run on
@@ -61,13 +64,16 @@ pub struct JevRuntime {
 
 impl std::fmt::Debug for JevRuntime {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("JevRuntime")
+        let mut debug = formatter.debug_struct("JevRuntime");
+        debug
             .field("client", &"[configured]")
-            .field("configuration", &self.configuration)
-            .field("pending", &"[redacted]")
+            .field("configuration", &self.configuration);
+        #[cfg(feature = "desktop")]
+        debug.field("pending", &"[redacted]");
+        debug
             .field("journal", &self.journal)
             .field("copies", &self.copies)
+            .field("usage", &self.usage.as_ref().map(|_| "[tracked]"))
             .finish()
     }
 }
@@ -89,7 +95,7 @@ impl JevRuntime {
     /// Build a Jev runtime for an embedding host, allowing the host to route
     /// its configured provider to a private endpoint.
     ///
-    /// The TinyBus module uses [`JevRuntime::configure`], which retains the
+    /// The `TinyBus` module uses [`JevRuntime::configure`], which retains the
     /// module's provider allow-list. This constructor is for Rust hosts that
     /// own and trust their configuration.
     ///
@@ -134,6 +140,7 @@ impl JevRuntime {
                 endpoint_url: request.endpoint_url.clone(),
                 fast: false,
             },
+            #[cfg(feature = "desktop")]
             pending: Arc::new(Mutex::new(HashMap::new())),
             journal: Journal::from_env(),
             copies: Arc::default(),
@@ -178,6 +185,7 @@ impl JevRuntime {
                 endpoint_url: endpoint.map(str::to_owned),
                 fast,
             },
+            #[cfg(feature = "desktop")]
             pending: Arc::new(Mutex::new(HashMap::new())),
             journal: Journal::from_env(),
             copies: Arc::default(),
@@ -255,6 +263,7 @@ impl JevRuntime {
     }
 
     /// This runtime writing to `journal`.
+    #[cfg(feature = "desktop")]
     pub(super) fn within(self, journal: Journal) -> Self {
         Self { journal, ..self }
     }
@@ -303,16 +312,16 @@ impl JevRuntime {
             usage.record_started(ModelRole::Jev);
         }
         let outcome = self.client.evaluate(request).await;
-        if let Some(usage) = &self.usage {
-            if let Ok(result) = &outcome {
-                usage.record_measurements(
-                    ModelRole::Jev,
-                    result.response.usage.input_tokens,
-                    None,
-                    result.response.usage.output_tokens,
-                    None,
-                );
-            }
+        if let Some(usage) = &self.usage
+            && let Ok(result) = &outcome
+        {
+            usage.record_measurements(
+                ModelRole::Jev,
+                result.response.usage.input_tokens,
+                None,
+                result.response.usage.output_tokens,
+                None,
+            );
         }
         self.journal.exchange(step, request, outcome.as_ref());
         outcome
