@@ -93,6 +93,15 @@ Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
+
+Host-held secret facts (2.22): `StartTask` and `RunFlow` accept optional
+`fact_handles`, keyed by fact name. Each entry carries only the host's opaque
+handle, a safe mask, and a kind. These fields are confidential request data.
+They do not contain the secret value, and a module without a configured
+`SecretHost` refuses to type one. `RunFlow.task_id` gives the host the owning
+task context. Existing value facts and requests without handles keep their
+wire behavior.
+
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string

@@ -48,9 +48,11 @@ mod human;
 mod interpret;
 mod names;
 mod page;
+mod persistence;
 mod publish;
 mod recovery;
 mod resume;
+mod secret_host;
 mod store;
 mod timing;
 
@@ -65,6 +67,8 @@ pub use browser::BrowserRunner;
 pub use controller::Tasks;
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
+pub use persistence::PausedTaskError;
+pub use secret_host::{SecretHost, SecretTypeRequest};
 
 /// The future a [`FlowRunner`] returns: the flow runtime's reply envelope.
 pub type FlowFuture = Pin<Box<dyn Future<Output = DesktopResponse> + Send>>;
@@ -179,6 +183,12 @@ pub trait FlowRunner: Send + Sync + 'static {
         _event: &str,
         _fields: &dyn Fn() -> serde_json::Value,
     ) {
+    }
+
+    /// Replaces host-held secret values in text before a task snapshot is
+    /// emitted. Runners without host-side secrets may keep the default.
+    fn redact(&self, _task: &TaskId, text: &str) -> String {
+        text.to_owned()
     }
 }
 

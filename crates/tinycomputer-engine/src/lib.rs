@@ -39,6 +39,8 @@ mod task;
 mod usage;
 mod workspace;
 
+pub(crate) use agentic::run_flow_with_host;
+
 #[cfg(all(test, feature = "planner"))]
 pub(crate) static MODEL_NETWORK_TEST_MUTEX: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
@@ -61,8 +63,8 @@ pub use planner::{
 pub use rescue::{Briefing, Guidance, MAX_RESCUE_STEPS, MAX_RESCUES, Rescuer, SCREEN_CHARS};
 pub use shape::{Harvest, RECORDS_CHARS, Shaper};
 pub use task::{
-    BrowserRunner, CaptureFuture, FlowFuture, FlowRunner, MAX_AWAIT_MS, MAX_TASKS, PrepareFuture,
-    Tasks, TextFuture, capabilities,
+    BrowserRunner, CaptureFuture, FlowFuture, FlowRunner, MAX_AWAIT_MS, MAX_TASKS, PausedTaskError,
+    PrepareFuture, SecretHost, SecretTypeRequest, Tasks, TextFuture, capabilities,
 };
 pub use tinycomputer_bus::DesktopResponse;
 #[cfg(feature = "desktop")]

@@ -8,7 +8,8 @@ use tinycomputer_browser::{
     SessionOptions,
 };
 use tinycomputer_bus::agent::{
-    AwaitTaskRequest, PaymentMode, StartTaskRequest, SurfaceKind, TaskConstraints, TaskStatus,
+    AwaitTaskRequest, PaymentMode, SecretHandle, StartTaskRequest, SurfaceKind, TaskConstraints,
+    TaskStatus,
 };
 use tinycomputer_bus::{
     DesktopResponse, FlowRunResult, FlowStopReason, JevMetrics, RunFlowRequest, StepOutcome,
@@ -17,7 +18,10 @@ use tinycomputer_bus::{
 use tinycomputer_bus::{Flow, FlowAction, FlowStep};
 
 use super::{FlowFuture, FlowRunner};
-use crate::{BrowserRunner, Completion, JevRuntime, LanguageModel, Rescuer, Tasks, Turn};
+use crate::{
+    BrowserRunner, Completion, JevRuntime, LanguageModel, Rescuer, SecretHost, SecretTypeRequest,
+    Tasks, Turn,
+};
 
 struct ScriptedBrowserRunner {
     failure: Option<&'static str>,
@@ -333,6 +337,54 @@ async fn runner_hooks_share_the_task_surface_and_release_its_session()
         )
         .await;
     runner.release(&tinycomputer_bus::agent::TaskId::new("t-unknown"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_runner_with_a_secret_host_does_not_capture_unredacted_pixels()
+-> Result<(), Box<dyn std::error::Error>> {
+    struct Host;
+    impl SecretHost for Host {
+        fn type_secret(&self, _request: &SecretTypeRequest) -> Result<(), String> {
+            Err("not used by this test".to_owned())
+        }
+
+        fn redact(&self, _task_id: &str, text: &str) -> String {
+            text.to_owned()
+        }
+    }
+
+    let script = BrowserScript::default();
+    let runner = BrowserRunner::new(Arc::new(Browser::new(Arc::new(script.clone()))), runtime()?)
+        .with_secret_host(Arc::new(Host));
+    let task = tinycomputer_bus::agent::TaskId::new("t-secret-capture");
+    runner.prepare(&task, &TaskConstraints::default()).await;
+    runner.open_page(&task, "https://shop.test/checkout").await;
+    assert!(runner.capture(&task).await.is_none());
+
+    let request = RunFlowRequest {
+        fact_handles: std::collections::BTreeMap::from([(
+            "card number".to_owned(),
+            SecretHandle {
+                handle: "opaque-card".to_owned(),
+                mask: "•••• 1111".to_owned(),
+                kind: "payment_card".to_owned(),
+            },
+        )]),
+        ..RunFlowRequest::default()
+    };
+    let response = runner
+        .run(&task, &TaskConstraints::default(), request)
+        .await;
+    assert!(!response.ok, "an empty flow is rejected before running");
+    assert!(runner.capture(&task).await.is_none());
+    assert!(
+        !script
+            .commands()
+            .iter()
+            .any(|command| command["action"] == "screenshot")
+    );
+    runner.release(&task);
     Ok(())
 }
 

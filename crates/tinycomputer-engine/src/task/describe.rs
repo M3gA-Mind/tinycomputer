@@ -76,6 +76,19 @@ fn start_task_input() -> Value {
                 "additionalProperties": {"type": "string"},
                 "description": "values the flow may type, by name; secret ones never reach a model"
             },
+            "fact_handles": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["handle", "mask", "kind"],
+                    "properties": {
+                        "handle": {"type": "string"},
+                        "mask": {"type": "string"},
+                        "kind": {"type": "string"}
+                    }
+                },
+                "description": "host-owned secret facts by name; the host resolves each opaque handle only when the flow types it"
+            },
             "secret_facts": {
                 "type": "array",
                 "items": {"type": "string"},

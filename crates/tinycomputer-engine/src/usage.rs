@@ -28,6 +28,14 @@ pub struct UsageRecorder {
 }
 
 impl UsageRecorder {
+    /// Starts a recorder with usage accumulated before a task was persisted.
+    #[must_use]
+    pub fn from_snapshot(snapshot: TaskUsage) -> Self {
+        Self {
+            usage: Mutex::new(snapshot),
+        }
+    }
+
     /// Records one model call for `role`, retaining only reported values.
     pub fn record_call(
         &self,
