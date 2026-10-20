@@ -182,7 +182,8 @@ impl Error {
             Self::PageError { .. } => errors::PAGE_ERROR,
             Self::NoSuchOutput { .. } => errors::NO_SUCH_OUTPUT,
             Self::LimitExceeded { .. } => errors::LIMIT_EXCEEDED,
-            Self::ActionRefused { .. } | Self::ModuleFailed { .. } => errors::MODULE_FAILED,
+            Self::ActionRefused { .. } => errors::BLOCKED_BY_POLICY,
+            Self::ModuleFailed { .. } => errors::MODULE_FAILED,
         }
     }
 
