@@ -99,6 +99,7 @@ struct Session {
     dir: PathBuf,
     action_context: ActionContext,
     refs: Vec<ElementRef>,
+    closing: bool,
     closed: bool,
 }
 
@@ -114,12 +115,17 @@ impl std::fmt::Debug for Session {
 
 impl Session {
     async fn run(&mut self, command: Value) -> Result<Value> {
-        if self.closed {
+        if self.closing || self.closed {
             return Err(Error::NoSuchSession {
                 id: self.info.id.to_string(),
             });
         }
         reply::data(&self.engine.execute(command).await)
+    }
+
+    async fn close(&mut self) -> Result<()> {
+        self.closing = true;
+        reply::data(&self.engine.execute(json!({"action": "close"})).await).map(|_| ())
     }
 
     /// The current address for gate context, or `None` while the page is
@@ -340,6 +346,7 @@ impl Browser {
             dir: self.scratch.join(id.as_str()),
             action_context,
             refs: Vec::new(),
+            closing: false,
             closed: false,
         };
         // A browser this module launches says what to set when it cannot
@@ -406,8 +413,10 @@ impl Browser {
         if session.closed {
             return Ok(());
         }
-        // A browser that is already gone has nothing left to close.
-        session.run(json!({"action": "close"})).await?;
+        // A browser that is already gone has nothing left to close. A failure
+        // leaves `closing` set so normal operations stay refused while a later
+        // explicit close may retry.
+        session.close().await?;
         let _removed = std::fs::remove_dir_all(&session.dir);
         session.closed = true;
         drop(session);

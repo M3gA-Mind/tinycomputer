@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tinycomputer_bus::browser::{NavigateRequest, SessionId, SessionOptions};
+use tinycomputer_bus::browser::{NavigateRequest, SessionId, SessionOptions, SnapshotRequest};
 
 use super::{open, scratch};
 use crate::error::Error;
@@ -82,6 +82,35 @@ async fn a_failed_close_keeps_the_session_unconfirmed() {
 
     assert!(error.to_string().contains("browser close failed"));
     assert_eq!(browser.list_sessions().await.unwrap().len(), 1);
+    let close_count = fake
+        .actions()
+        .iter()
+        .filter(|action| *action == "close")
+        .count();
+    assert!(
+        matches!(
+            browser.snapshot(&id, SnapshotRequest::default()).await,
+            Err(crate::error::Error::NoSuchSession { .. })
+        ),
+        "normal page operations stay refused after an uncertain close"
+    );
+    assert_eq!(
+        fake.actions()
+            .iter()
+            .filter(|action| *action == "close")
+            .count(),
+        close_count,
+        "a snapshot after failure must not reach the browser"
+    );
+    assert!(browser.close_session(&id).await.is_err());
+    assert_eq!(
+        fake.actions()
+            .iter()
+            .filter(|action| *action == "close")
+            .count(),
+        close_count + 1,
+        "an explicit close call may retry the failed close"
+    );
 }
 
 #[tokio::test]
