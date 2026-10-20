@@ -1,11 +1,11 @@
 //! Running a task in the background: planning it when asked to, running its
 //! flows in order, interpreting where each stopped, and finishing it.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskStatus};
+use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskId, TaskStatus};
 
 use super::artifact::{capture, captured};
 use super::budget::{elapsed_budget_failed, run_request, stop_task};
@@ -14,8 +14,10 @@ use super::interpret::{Next, finished, run_outcome};
 use super::publish::{publish, records, stopped_summary};
 use super::recovery::{rescue_outcome, rescued};
 use super::store::{Cell, Run};
-use super::{DEFAULT_VOTES, FlowRunner, SHAPE_TIMEOUT_MS};
+use super::{DEFAULT_VOTES, FlowRunner, SHAPE_TIMEOUT_MS, redact_task_value};
 use crate::shape::Harvest;
+
+type TaskRecords = BTreeMap<String, Vec<BTreeMap<String, String>>>;
 
 /// Plans the task, then runs the plan — or asks for what it needs first.
 pub(super) async fn plan_then_drive(
@@ -242,34 +244,9 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
 pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
     // The last look at the surface, before shaping and before release.
     let _ = capture(cell, runner).await;
-    let (answer, records, harvest) = {
-        let Ok(state) = cell.state.lock() else {
-            return;
-        };
-        let reads = state
-            .reads
-            .iter()
-            .map(|(name, value)| format!("{name}: {value}"))
-            .collect::<Vec<_>>();
-        let answer = if reads.is_empty() {
-            format!("Finished all {} steps.", state.flow.steps.len())
-        } else {
-            format!(
-                "Finished all {} steps. {}",
-                state.flow.steps.len(),
-                reads.join("; ")
-            )
-        };
-        let harvest = state.output.clone().map(|output| Harvest {
-            goal: state.facts.redact(&state.goal),
-            output,
-            reads: state
-                .reads
-                .iter()
-                .map(|(name, value)| (name.clone(), state.facts.redact(value)))
-                .collect(),
-        });
-        (state.facts.redact(&answer), records(&state.reads), harvest)
+    let id = cell.view.borrow().id.clone();
+    let Some((answer, records, harvest)) = finish_content(cell, runner, &id) else {
+        return;
     };
     let result = match (harvest, cell.shaper.clone()) {
         (Some(harvest), Some(shaper)) => {
@@ -290,7 +267,8 @@ pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
                 Ok(result) => Some(result),
                 Err(why) => {
                     let steps = cell.state.lock().map_or(0, |state| state.flow.steps.len());
-                    let reason = format!("the answer could not be shaped: {why}");
+                    let reason =
+                        runner.redact(&id, &format!("the answer could not be shaped: {why}"));
                     publish(
                         cell,
                         TaskStatus::Failed {
@@ -314,11 +292,70 @@ pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
         TaskStatus::Done {
             answer: answer.clone(),
             records,
-            result,
+            result: result.map(|mut value| {
+                redact_task_value(runner, &id, &mut value);
+                value
+            }),
         },
         &answer,
     );
     runner.release(&cell.view.borrow().id);
+}
+
+fn finish_content(
+    cell: &Cell,
+    runner: &dyn FlowRunner,
+    id: &TaskId,
+) -> Option<(String, TaskRecords, Option<Harvest>)> {
+    let state = cell.state.lock().ok()?;
+    let reads = state
+        .reads
+        .iter()
+        .map(|(name, value)| {
+            let name = runner.redact(id, name);
+            let value = runner.redact(id, value);
+            format!("{name}: {value}")
+        })
+        .collect::<Vec<_>>();
+    let answer = if reads.is_empty() {
+        format!("Finished all {} steps.", state.flow.steps.len())
+    } else {
+        format!(
+            "Finished all {} steps. {}",
+            state.flow.steps.len(),
+            reads.join("; ")
+        )
+    };
+    let harvest = state.output.clone().map(|mut output| {
+        output.instructions = runner.redact(id, &output.instructions);
+        if let Some(schema) = &mut output.schema {
+            redact_task_value(runner, id, schema);
+        }
+        Harvest {
+            goal: runner.redact(id, &state.facts.redact(&state.goal)),
+            output,
+            reads: state
+                .reads
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        runner.redact(id, name),
+                        runner.redact(id, &state.facts.redact(value)),
+                    )
+                })
+                .collect(),
+        }
+    });
+    let reads = state
+        .reads
+        .iter()
+        .map(|(name, value)| (runner.redact(id, name), runner.redact(id, value)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    Some((
+        runner.redact(id, &state.facts.redact(&answer)),
+        records(&reads),
+        harvest,
+    ))
 }
 
 fn task_usage(cell: &Cell) -> Arc<crate::UsageRecorder> {

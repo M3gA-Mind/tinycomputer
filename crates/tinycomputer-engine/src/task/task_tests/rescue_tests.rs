@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
-use tinycomputer_bus::agent::{RescueOutcome, StartTaskRequest, TaskBudget, TaskStatus, TaskView};
+use tinycomputer_bus::agent::{
+    RescueOutcome, SecretHandle, StartTaskRequest, TaskBudget, TaskStatus, TaskView,
+};
 use tinycomputer_bus::{DesktopResponse, FlowStep, FlowStopReason, StepOutcome};
 
 use super::{Script, controller, failed_at_step_two, finished_run, flow, journaled, settle, step};
@@ -404,6 +406,48 @@ async fn a_secret_a_field_holds_never_reaches_the_rescuer() {
     assert!(asked.contains("Card number = \"${card}\""), "{asked}");
     assert!(asked.contains("Email = \"‹email›\""), "{asked}");
     assert!(!asked.contains("1111"));
+}
+
+#[tokio::test]
+async fn a_host_secret_is_redacted_from_the_rescue_prompt_and_report() {
+    const CARD: &str = "4111 1111 1111 1111";
+    let (tasks, script) = controller(vec![failed_at_step_two()]);
+    *script.screen.lock().unwrap() = vec![format!("Card number = \"{CARD}\"")];
+    *script.host_secret.lock().unwrap() = Some(CARD.to_owned());
+    let model = Arc::new(Model {
+        answers: Mutex::new(
+            vec![Ok(format!(
+                r#"{{"action":"give_up","reason":"host saw {CARD}"}}"#
+            ))]
+            .into(),
+        ),
+        seen: Mutex::default(),
+    });
+    let tasks = tasks.with_rescuer(Rescuer::new(model.clone()));
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(flights())),
+            fact_handles: BTreeMap::from([(
+                "card".to_owned(),
+                SecretHandle {
+                    handle: "opaque-card".to_owned(),
+                    mask: "•••• 1111".to_owned(),
+                    kind: "payment_card".to_owned(),
+                },
+            )]),
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    settle(&tasks, &view.id).await;
+
+    let prompt = format!("{:?}", model.seen.lock().unwrap());
+    assert!(!prompt.contains(CARD));
+    assert!(prompt.contains("•••• 1111"));
+    let report = tasks.report(&view.id).data.unwrap();
+    let report = serde_json::to_string(&report).unwrap();
+    assert!(!report.contains(CARD));
+    assert!(report.contains("•••• 1111"));
 }
 
 #[tokio::test]

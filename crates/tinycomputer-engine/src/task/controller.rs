@@ -17,7 +17,7 @@ use super::errors::{no_planner, no_such_task, poisoned, too_many};
 use super::names::{fact_names, is_undefined, known_names};
 use super::publish::{needs_input, publish, records, state_name};
 use super::store::{Cell, Run};
-use super::{FlowRunner, MAX_AWAIT_MS};
+use super::{FlowRunner, MAX_AWAIT_MS, redact_task_data};
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
 
@@ -343,7 +343,7 @@ impl Tasks {
         let Ok(state) = cell.state.lock() else {
             return poisoned();
         };
-        AgentResponse::ok(TaskReport {
+        let report = TaskReport {
             view,
             usage,
             flow: Some(state.flow.clone()),
@@ -353,7 +353,16 @@ impl Tasks {
             learned: state.learned.clone(),
             trace: state.exchanges.clone(),
             rescues: state.rescues.clone(),
-        })
+        };
+        match redact_task_data(self.runner.as_ref(), id, report) {
+            Some(report) => AgentResponse::ok(report),
+            None => AgentResponse::err(AgentError::new(
+                "REPORT_REDACTION_FAILED",
+                "the task report could not be safely redacted",
+                "retry TaskReport",
+                true,
+            )),
+        }
     }
 
     /// The report `request` asks for: [`Tasks::report`], without the Jev
