@@ -51,8 +51,8 @@ pub use agentic::{
 #[cfg(feature = "desktop")]
 pub use agentic::{resolve_intent, run_goal};
 pub use planner::{
-    Completion, LanguageModel, ModelReply, ModelUse, Planner, REPAIRS, ReportedCompletion,
-    ReportedUsage, Role, Turn,
+    Completion, LanguageModel, ModelFailure, ModelReply, ModelUse, Planner, REPAIRS,
+    ReportedCompletion, ReportedUsage, Role, Turn,
 };
 #[cfg(feature = "planner")]
 pub use planner::{

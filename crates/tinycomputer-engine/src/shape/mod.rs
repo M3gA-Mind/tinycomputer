@@ -112,19 +112,11 @@ impl Shaper {
         ];
         let mut last = String::new();
         for _ in 0..=REPAIRS {
-            if let Some(usage) = &self.usage {
-                usage.record_started(ModelRole::Output);
-            }
-            let reply = self.model.complete_reported(&turns).await?;
-            if let Some(usage) = &self.usage {
-                usage.record_measurements(
-                    ModelRole::Output,
-                    reply.usage.input_tokens,
-                    reply.usage.cached_input_tokens,
-                    reply.usage.output_tokens,
-                    reply.usage.cost_usd_nanos,
-                );
-            }
+            let reply = self
+                .model
+                .complete_for_task(&turns, self.usage.clone(), ModelRole::Output)
+                .await
+                .map_err(|error| error.message)?;
             turns.push(Turn::new(Role::Assistant, reply.text.clone()));
             let problem = match judge(&reply.text, harvest.output.schema.as_ref()) {
                 Ok(value) => return Ok(value),

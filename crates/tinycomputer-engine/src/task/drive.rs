@@ -53,7 +53,7 @@ pub(super) async fn plan_then_drive(
     // decision need not open them; nothing waits for this. A budget that
     // caps the task's Jev calls is not spent on calls it does not count.
     if !capped {
-        tokio::spawn(runner.warm(&id, votes));
+        tokio::spawn(runner.warm_with_usage(&id, votes, Arc::clone(&usage)));
     }
     let started = Instant::now();
     // Timed on its own: a browser slower to open than the plan is to draft

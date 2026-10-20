@@ -2,6 +2,40 @@
 
 use super::*;
 
+struct WarmUsageRunner(Arc<Script>);
+
+impl FlowRunner for WarmUsageRunner {
+    fn run(
+        &self,
+        task: &TaskId,
+        constraints: &TaskConstraints,
+        request: RunFlowRequest,
+    ) -> FlowFuture {
+        self.0.run(task, constraints, request)
+    }
+
+    fn run_with_usage(
+        &self,
+        task: &TaskId,
+        constraints: &TaskConstraints,
+        request: RunFlowRequest,
+        usage: Arc<crate::UsageRecorder>,
+    ) -> FlowFuture {
+        usage.record_call(crate::ModelRole::Jev, Some(5), Some(1), Some(2), Some(3));
+        self.0.run(task, constraints, request)
+    }
+
+    fn warm_with_usage(
+        &self,
+        task: &TaskId,
+        votes: u32,
+        usage: Arc<crate::UsageRecorder>,
+    ) -> super::super::PrepareFuture {
+        usage.record_call(crate::ModelRole::Jev, Some(40), Some(10), Some(2), Some(12));
+        self.0.warm(task, votes)
+    }
+}
+
 /// A model that always answers with the same text.
 struct Fixed(Result<String, String>);
 
@@ -66,6 +100,39 @@ async fn a_plain_language_task_is_planned_then_run() {
     assert_eq!(plans[0].1["calls"], 1);
     assert_eq!(plans[0].1["steps"], 1);
     assert!(plans[0].1["wall_ms"].is_u64());
+}
+
+#[tokio::test]
+async fn a_planned_task_reports_usage_from_warmup_and_run() {
+    let script = Arc::new(Script {
+        replies: VecDeque::from([finished_run(FlowStopReason::Completed, vec![], &[], None)])
+            .into(),
+        ..Script::default()
+    });
+    let model = Arc::new(Fixed(Ok(
+        r#"{"app":"Mail","steps":[{"enter":{"recipient":"${email}"}}]}"#.to_owned(),
+    )));
+    let tasks = Tasks::new(Arc::new(WarmUsageRunner(Arc::clone(&script))))
+        .with_planner(crate::Planner::new(model));
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("email Sam".to_owned()),
+            facts: BTreeMap::from([("email".to_owned(), "sam@example.com".to_owned())]),
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    let report = tasks.report(&started.id).data.unwrap();
+    assert_eq!(report.usage.jev.calls, 2);
+    assert_eq!(report.usage.jev.input_tokens, Some(45));
+    assert_eq!(report.usage.jev.cached_input_tokens, Some(11));
+    assert_eq!(report.usage.jev.output_tokens, Some(4));
+    assert_eq!(report.usage.jev.cost_usd_nanos, Some(15));
 }
 
 #[tokio::test]

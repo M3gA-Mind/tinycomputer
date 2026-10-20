@@ -77,13 +77,14 @@ async fn host_planner_rescue_output_and_jev_calls_stay_on_the_supplied_stub()
     let runtime = JevRuntime::configure_for_host(&jev)
         .map_err(|error| std::io::Error::other(error.message.clone()))?
         .with_usage_recorder(Arc::clone(&usage));
+    runtime.warm(1).await;
     runtime.evaluate(None, &jev_request()).await?;
 
     let seen = server
         .join()
         .map_err(|_| std::io::Error::other("stub server thread panicked"))??;
     assert_stub_routes(&seen);
-    assert_eq!(requests.load(std::sync::atomic::Ordering::Relaxed), 4);
+    assert_eq!(requests.load(std::sync::atomic::Ordering::Relaxed), 7);
     assert_usage(&usage);
     Ok(())
 }
@@ -129,18 +130,20 @@ fn jev_request() -> EvaluationRequest {
 
 #[cfg(feature = "planner")]
 fn assert_stub_routes(requests: &[String]) {
-    assert_eq!(requests.len(), 4, "all four model calls must hit this stub");
+    assert_eq!(requests.len(), 7, "all model calls must hit this stub");
     assert_eq!(
         requests
             .iter()
             .filter(|request| request.starts_with("POST /v1/chat/completions "))
             .count(),
-        3
+        4
     );
-    assert!(
+    assert_eq!(
         requests
             .iter()
-            .any(|request| request.starts_with("POST /jev "))
+            .filter(|request| request.starts_with("POST /jev "))
+            .count(),
+        3
     );
     for model in ["planner-local", "rescue-local", "output-local"] {
         assert!(
@@ -153,18 +156,18 @@ fn assert_stub_routes(requests: &[String]) {
 #[cfg(feature = "planner")]
 fn assert_usage(recorder: &UsageRecorder) {
     let tally = recorder.snapshot();
-    for role in [tally.planner, tally.rescue, tally.output] {
-        assert_eq!(role.calls, 1);
+    for (role, calls) in [(tally.planner, 2), (tally.rescue, 1), (tally.output, 1)] {
+        assert_eq!(role.calls, calls);
         assert_eq!(role.input_tokens, Some(10));
         assert_eq!(role.cached_input_tokens, Some(2));
         assert_eq!(role.output_tokens, Some(3));
         assert_eq!(role.cost_usd_nanos, Some(400));
     }
-    assert_eq!(tally.jev.calls, 1);
-    assert_eq!(tally.jev.input_tokens, Some(20));
-    assert_eq!(tally.jev.cached_input_tokens, Some(7));
-    assert_eq!(tally.jev.output_tokens, Some(5));
-    assert_eq!(tally.jev.cost_usd_nanos, Some(400));
+    assert_eq!(tally.jev.calls, 3);
+    assert_eq!(tally.jev.input_tokens, Some(60));
+    assert_eq!(tally.jev.cached_input_tokens, Some(21));
+    assert_eq!(tally.jev.output_tokens, Some(15));
+    assert_eq!(tally.jev.cost_usd_nanos, Some(1_200));
 }
 
 #[cfg(feature = "planner")]
@@ -176,7 +179,9 @@ fn stub_server(replies: [&'static str; 3]) -> std::io::Result<StubServer> {
     let counted = Arc::clone(&calls);
     let server = std::thread::spawn(move || {
         let mut requests = Vec::new();
-        for _ in 0..4 {
+        let mut planner_attempts = 0;
+        let mut chat_replies = 0;
+        for _ in 0..7 {
             let (mut stream, _) = listener.accept()?;
             let raw = read_request(&mut stream)?;
             counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -195,7 +200,22 @@ fn stub_server(replies: [&'static str; 3]) -> std::io::Result<StubServer> {
                 .to_string();
                 write_response(&mut stream, "application/json", &body)?;
             } else {
-                let call = replies[requests.len()];
+                if raw.contains("planner-local") && planner_attempts == 0 {
+                    planner_attempts += 1;
+                    write_response_with_status(
+                        &mut stream,
+                        503,
+                        "application/json",
+                        r#"{"error":"temporary outage"}"#,
+                    )?;
+                    requests.push(raw);
+                    continue;
+                }
+                if raw.contains("planner-local") {
+                    planner_attempts += 1;
+                }
+                let call = replies[chat_replies];
+                chat_replies += 1;
                 let body = format!(
                     "data: {{\"id\":\"stub\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\",\"content\":{}}},\"finish_reason\":null}}]}}\n\n\
                      data: {{\"id\":\"stub\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":10,\"completion_tokens\":3,\"total_tokens\":13,\"prompt_tokens_details\":{{\"cached_tokens\":2}},\"cost\":0.0000004}}}}\n\n\
@@ -237,9 +257,19 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<String> {
 
 #[cfg(feature = "planner")]
 fn write_response(stream: &mut TcpStream, content_type: &str, body: &str) -> std::io::Result<()> {
+    write_response_with_status(stream, 200, content_type, body)
+}
+
+#[cfg(feature = "planner")]
+fn write_response_with_status(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &str,
+) -> std::io::Result<()> {
     write!(
         stream,
-        "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} Stub\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     )
 }
