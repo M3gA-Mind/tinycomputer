@@ -58,6 +58,7 @@ fn secret_type_preflight_uses_gate_metadata_without_sending_text_to_the_page() {
                     target: request.target.clone(),
                     current_url: request.current_url.clone(),
                     destination_url: request.destination_url.clone(),
+                    observation: request.observation,
                     context: request.context.clone(),
                 });
                 ActionVerdict::Refuse {

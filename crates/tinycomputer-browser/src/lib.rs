@@ -50,6 +50,7 @@ mod surface;
 
 pub use action_gate::{
     ActionContext, ActionGate, ActionRequest, ActionTarget, ActionVerdict, AllowAllActions,
+    ObservationKind,
 };
 pub use engine::{Engine, Launcher, Reply};
 pub use error::{Error, Result};

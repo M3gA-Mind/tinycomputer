@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tinycomputer_bus::browser::{
     Action, EvaluateRequest, LocateBy, Locator, NavigateRequest, ReadFormat, ReadRequest,
-    SessionOptions, SnapshotRequest, Target,
+    ScreenshotRequest, SessionOptions, SnapshotRequest, Target,
 };
 
 use super::open;
@@ -68,6 +68,120 @@ impl ActionGate for RefuseUnknownCurrentUrl {
             ActionVerdict::Allow
         }
     }
+}
+
+struct RefuseUntrustedObservations;
+
+impl ActionGate for RefuseUntrustedObservations {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        if request.observation.is_some()
+            && request
+                .current_url
+                .as_deref()
+                .is_some_and(|url| !url.starts_with("https://") || url.contains("127.0.0.1"))
+        {
+            ActionVerdict::Refuse {
+                reason: "page URL is not public HTTPS".to_owned(),
+            }
+        } else {
+            ActionVerdict::Allow
+        }
+    }
+}
+
+#[tokio::test]
+async fn untrusted_page_observations_are_refused_before_content_reaches_the_engine() {
+    for url in ["http://shop.test/", "https://127.0.0.1/"] {
+        let url = url.to_owned();
+        let fake = Fake::scripted(move |command| {
+            (command["action"] == "url").then(|| ok(&serde_json::json!({"url": url.clone()})))
+        });
+        let browser = Browser::with_scratch(
+            Arc::new(fake.clone()),
+            super::scratch("blocked-observation"),
+        )
+        .with_action_gate(Arc::new(RefuseUntrustedObservations));
+        let id = browser
+            .open_session(SessionOptions::default())
+            .await
+            .unwrap()
+            .id;
+
+        assert!(matches!(
+            browser.snapshot(&id, SnapshotRequest::default()).await,
+            Err(Error::ActionRefused { .. })
+        ));
+        assert!(matches!(
+            browser.read_page(&id, ReadRequest::default()).await,
+            Err(Error::ActionRefused { .. })
+        ));
+        assert!(matches!(
+            browser.screenshot(&id, ScreenshotRequest::default()).await,
+            Err(Error::ActionRefused { .. })
+        ));
+        let actions = fake.actions();
+        assert!(!actions.contains(&"snapshot".to_owned()), "{actions:?}");
+        assert!(!actions.contains(&"read".to_owned()), "{actions:?}");
+        assert!(!actions.contains(&"screenshot".to_owned()), "{actions:?}");
+        browser.close_session(&id).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_snapshot_is_discarded_if_the_live_url_changes_during_observation() {
+    let url = Arc::new(std::sync::Mutex::new("https://shop.test/".to_owned()));
+    let page_url = url.clone();
+    let fake = Fake::scripted(move |command| match command["action"].as_str() {
+        Some("url") => Some(ok(&serde_json::json!({
+            "url": page_url.lock().unwrap().clone(),
+        }))),
+        Some("snapshot") => {
+            *page_url.lock().unwrap() = "http://127.0.0.1/".to_owned();
+            Some(ok(&serde_json::json!({
+                "snapshot": "text from the page that must not be returned",
+                "refs": {},
+            })))
+        }
+        _ => None,
+    });
+    let browser = Browser::with_scratch(Arc::new(fake), super::scratch("redirected-observation"))
+        .with_action_gate(Arc::new(RefuseUntrustedObservations));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+
+    assert!(matches!(
+        browser.snapshot(&id, SnapshotRequest::default()).await,
+        Err(Error::ActionRefused { .. })
+    ));
+}
+
+#[test]
+fn browser_surface_never_exposes_an_untrusted_page_snapshot_to_its_runner() {
+    use crate::surface::{BrowserSurface, Perception};
+    use tinycomputer_core::surface::{Depth, Surface};
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let fake = Fake::scripted(|command| {
+        (command["action"] == "url").then(|| ok(&serde_json::json!({"url": "https://127.0.0.1/"})))
+    });
+    let browser =
+        Browser::with_scratch(Arc::new(fake.clone()), super::scratch("runner-observation"))
+            .with_action_gate(Arc::new(RefuseUntrustedObservations));
+    let surface = BrowserSurface::new(
+        Arc::new(browser),
+        SessionOptions::default(),
+        runtime.handle().clone(),
+    )
+    .with_perception(Perception::Tree);
+
+    assert!(surface.observe("browser", None, Depth::Full).is_err());
+    assert!(
+        !fake.actions().contains(&"snapshot".to_owned()),
+        "the runner must be refused before the accessibility tree is read"
+    );
 }
 
 #[derive(Default)]
