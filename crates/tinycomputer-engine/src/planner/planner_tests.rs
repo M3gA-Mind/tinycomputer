@@ -9,6 +9,16 @@ use tinycomputer_bus::agent::{InputKind, SurfaceKind};
 
 use super::{Completion, LanguageModel, ModelUse, Planner, REPAIRS, Role, Turn};
 
+#[cfg(feature = "planner")]
+struct RestoreNetworkGuard;
+
+#[cfg(feature = "planner")]
+impl Drop for RestoreNetworkGuard {
+    fn drop(&mut self) {
+        tinyinference_llm::allow_network_models();
+    }
+}
+
 /// Answers from a queue and records every conversation it was shown.
 #[derive(Default)]
 struct Scripted {
@@ -240,12 +250,6 @@ async fn the_open_router_planner_needs_a_key_and_never_prints_it() {
     // No network in tests: the guard makes the model call fail fast, which
     // exercises the adapter without reaching OpenRouter.
     tinyinference_llm::deny_network_models();
-    struct RestoreNetworkGuard;
-    impl Drop for RestoreNetworkGuard {
-        fn drop(&mut self) {
-            tinyinference_llm::allow_network_models();
-        }
-    }
     let _restore_network = RestoreNetworkGuard;
     let failed = planner.plan("x", &[], &[], &[]).await.unwrap_err();
     assert!(!failed.contains("secret-key"));

@@ -27,7 +27,6 @@ type StubServer = (
 #[tokio::test]
 async fn host_planner_rescue_output_and_jev_calls_stay_on_the_supplied_stub()
 -> Result<(), Box<dyn std::error::Error>> {
-    let _network_test = crate::MODEL_NETWORK_TEST_MUTEX.lock().await;
     use crate::{Briefing, Harvest, HostModels, openai_compatible_models};
     use tinycomputer_bus::agent::SurfaceKind;
 
@@ -35,6 +34,7 @@ async fn host_planner_rescue_output_and_jev_calls_stay_on_the_supplied_stub()
     const RESCUE: &str = r#"{"action":"give_up","reason":"no repair"}"#;
     const OUTPUT: &str = r#"{"answer":"done"}"#;
 
+    let _network_test = crate::MODEL_NETWORK_TEST_MUTEX.lock().await;
     let (base, requests, server) = stub_server([PLAN, RESCUE, OUTPUT])?;
     let models = HostModels {
         planner: host_model(&base, "planner-secret", "planner-local"),

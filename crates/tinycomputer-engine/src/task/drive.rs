@@ -157,7 +157,7 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
         }
         let id = cell.view.borrow().id.clone();
         let started = Instant::now();
-        let run_call = runner.run(&id, &constraints, request);
+        let run_call = runner.run_with_usage(&id, &constraints, request, task_usage(&cell));
         let reply = if let Some(ms) = time_left {
             let Ok(reply) = tokio::time::timeout(Duration::from_millis(ms), run_call).await else {
                 stop_task(&cell, runner.as_ref(), elapsed_budget_failed()).await;
