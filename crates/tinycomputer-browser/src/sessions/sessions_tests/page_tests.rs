@@ -2,14 +2,17 @@
 //! reading, evaluation, and raw commands.
 
 use serde_json::{Value, json};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tinycomputer_bus::browser::{
     Action, EvaluateRequest, LocateBy, Locator, NavigateRequest, ReadFormat, ReadRequest,
-    SnapshotRequest, Target,
+    SessionOptions, SnapshotRequest, Target,
 };
 
 use super::open;
 use crate::error::Error;
 use crate::fake::{Fake, failure, ok};
+use crate::{ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser};
 
 #[tokio::test]
 async fn navigation_reports_the_page_and_refusals_are_typed() {
@@ -36,6 +39,246 @@ async fn navigation_reports_the_page_and_refusals_are_typed() {
         browser.navigate(&id, NavigateRequest::new("")).await,
         Err(Error::InvalidInput { .. })
     ));
+}
+
+struct RefuseNamedAction(&'static str);
+
+impl ActionGate for RefuseNamedAction {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        let action = request.payload["action"].as_str().unwrap_or_default();
+        if action == self.0 {
+            ActionVerdict::Refuse {
+                reason: "host policy refused this action".to_owned(),
+            }
+        } else {
+            ActionVerdict::Allow
+        }
+    }
+}
+
+struct RefuseUnknownCurrentUrl;
+
+impl ActionGate for RefuseUnknownCurrentUrl {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        if request.current_url.is_none() && request.destination_url.is_none() {
+            ActionVerdict::Refuse {
+                reason: "current page URL is unavailable".to_owned(),
+            }
+        } else {
+            ActionVerdict::Allow
+        }
+    }
+}
+
+#[derive(Default)]
+struct CaptureActionRequest(std::sync::Mutex<Vec<String>>);
+
+impl ActionGate for CaptureActionRequest {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        self.0.lock().unwrap().push(format!("{request:?}"));
+        if request.payload["action"] == "fill" {
+            assert_eq!(request.payload["value"], "private@example.test");
+        }
+        ActionVerdict::Allow
+    }
+}
+
+#[tokio::test]
+async fn gate_receives_task_page_destination_and_value_without_debugging_the_value() {
+    let page_url = Arc::new(std::sync::Mutex::new("about:blank".to_owned()));
+    let page_url_for_script = Arc::clone(&page_url);
+    let fake = Fake::scripted(move |command| match command["action"].as_str() {
+        Some("url") => Some(ok(
+            &json!({"url": page_url_for_script.lock().unwrap().clone()}),
+        )),
+        Some("navigate") => {
+            *page_url_for_script.lock().unwrap() =
+                command["url"].as_str().unwrap_or_default().to_owned();
+            Some(ok(
+                &json!({"url": page_url_for_script.lock().unwrap().clone(), "title": "Checkout"}),
+            ))
+        }
+        _ => None,
+    });
+    let gate = Arc::new(CaptureActionRequest::default());
+    let browser = Browser::with_scratch(Arc::new(fake), super::scratch("gate-context"))
+        .with_action_gate(gate.clone());
+    let id = browser
+        .open_session_with_context(
+            SessionOptions::default(),
+            ActionContext {
+                task_id: Some("task-17".to_owned()),
+                payment_in_play: true,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+    browser
+        .perform(
+            &id,
+            Action::Fill {
+                target: Target::locator(Locator::new(LocateBy::Role, "textbox").with_name("Email")),
+                value: "private@example.test".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let requests = gate.0.lock().unwrap();
+    let navigation = requests
+        .iter()
+        .find(|request| request.contains("destination_url: Some(\"https://shop.test/checkout\")"))
+        .unwrap();
+    assert!(navigation.contains("task_id: Some(\"task-17\")"));
+    assert!(navigation.contains("payment_in_play: true"));
+    let fill = requests
+        .iter()
+        .find(|request| request.contains("action: Some(\"fill\")"))
+        .unwrap();
+    assert!(fill.contains("current_url: Some(\"https://shop.test/checkout\")"));
+    assert!(fill.contains("role: Some(\"textbox\")"));
+    assert!(fill.contains("name: Some(\"Email\")"));
+    assert!(!fill.contains("private@example.test"));
+}
+
+#[tokio::test]
+async fn an_unknown_current_url_is_not_replaced_with_the_last_known_page() {
+    let url_unavailable = Arc::new(AtomicBool::new(false));
+    let unavailable_for_script = Arc::clone(&url_unavailable);
+    let fake = Fake::scripted(move |command| {
+        (command["action"] == "url" && unavailable_for_script.load(Ordering::SeqCst))
+            .then(|| failure("page URL is temporarily unavailable"))
+    });
+    let browser = Browser::with_scratch(Arc::new(fake.clone()), super::scratch("gate-unknown-url"))
+        .with_action_gate(Arc::new(RefuseUnknownCurrentUrl));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+
+    url_unavailable.store(true, Ordering::SeqCst);
+    let error = browser
+        .perform(
+            &id,
+            Action::Click {
+                target: Target::reference("e1"),
+                new_tab: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::ActionRefused { ref reason } if reason == "current page URL is unavailable")
+    );
+    assert!(!fake.actions().iter().any(|action| action == "click"));
+}
+
+#[tokio::test]
+async fn refused_order_click_never_reaches_the_page_and_reports_the_reason() {
+    let fake = Fake::new();
+    let browser = Browser::with_scratch(Arc::new(fake.clone()), super::scratch("gate-click"))
+        .with_action_gate(Arc::new(RefuseNamedAction("click")));
+    let id = browser
+        .open_session_with_context(
+            SessionOptions::default(),
+            ActionContext {
+                task_id: Some("task-17".to_owned()),
+                payment_in_play: true,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+    let error = browser
+        .perform(
+            &id,
+            Action::Click {
+                target: Target::locator(
+                    Locator::new(LocateBy::Role, "button").with_name("Place order"),
+                ),
+                new_tab: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::ActionRefused { ref reason } if reason == "host policy refused this action")
+    );
+    assert!(!fake.actions().iter().any(|action| action == "click"));
+}
+
+#[tokio::test]
+async fn refused_fill_leaves_the_page_field_empty() {
+    let field = Arc::new(std::sync::Mutex::new(String::new()));
+    let field_for_script = Arc::clone(&field);
+    let fake = Fake::scripted(move |command| match command["action"].as_str() {
+        Some("fill") => {
+            *field_for_script.lock().unwrap() =
+                command["value"].as_str().unwrap_or_default().to_owned();
+            Some(ok(&json!({})))
+        }
+        Some("inputvalue") => Some(ok(
+            &json!({"value": field_for_script.lock().unwrap().clone()}),
+        )),
+        _ => None,
+    });
+    let browser = Browser::with_scratch(Arc::new(fake.clone()), super::scratch("gate-fill"))
+        .with_action_gate(Arc::new(RefuseNamedAction("fill")));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    let error = browser
+        .perform(
+            &id,
+            Action::Fill {
+                target: Target::selector("#email"),
+                value: "private@example.test".to_owned(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::ActionRefused { .. }));
+    assert_eq!(*field.lock().unwrap(), "");
+    assert!(!fake.actions().iter().any(|action| action == "fill"));
+}
+
+#[tokio::test]
+async fn raw_commands_and_evaluate_are_consulted_by_the_gate() {
+    let fake = Fake::new();
+    let browser = Browser::with_scratch(Arc::new(fake.clone()), super::scratch("gate-raw"))
+        .with_action_gate(Arc::new(RefuseNamedAction("evaluate")));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    let command = browser
+        .command(
+            &id,
+            json!({"action": "evaluate", "script": "document.body.remove()"}),
+        )
+        .await;
+    assert!(matches!(command, Err(Error::ActionRefused { .. })));
+    let evaluate = browser
+        .evaluate(&id, EvaluateRequest::new("document.body.remove()"))
+        .await;
+    assert!(matches!(evaluate, Err(Error::ActionRefused { .. })));
+    assert!(!fake.actions().iter().any(|action| action == "evaluate"));
 }
 
 #[tokio::test]

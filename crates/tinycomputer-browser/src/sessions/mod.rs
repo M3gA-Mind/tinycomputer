@@ -10,8 +10,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
+use tinycomputer_bus::browser::ElementRef;
 use tinycomputer_bus::browser::{DownloadInfo, PageState, SessionId, SessionInfo, SessionOptions};
 
+use crate::action_gate::{ActionContext, ActionGate, default_gate};
+use crate::action_gate::{ActionRequest, ActionVerdict};
 use crate::convert;
 use crate::engine::{Engine, Launcher};
 use crate::error::{Error, Result};
@@ -47,7 +50,6 @@ fn navigating(error: &Error) -> bool {
 }
 
 /// Browser automation over agent-browser, one engine per session.
-#[derive(Debug)]
 pub struct Browser {
     launcher: Arc<dyn Launcher>,
     sessions: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<Session>>>>,
@@ -58,6 +60,20 @@ pub struct Browser {
     /// the moment the limit is checked, so two concurrent opens cannot both
     /// see room for the last slot.
     opening: AtomicUsize,
+    action_gate: Arc<dyn ActionGate>,
+}
+
+impl std::fmt::Debug for Browser {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Browser")
+            .field("scratch", &self.scratch)
+            .field(
+                "session_count",
+                &self.sessions.lock().map(|sessions| sessions.len()).ok(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 /// One reserved launch slot, given back when the launch ends — inserted,
@@ -81,6 +97,8 @@ struct Session {
     deep: crate::deep::Minted,
     downloads: Vec<DownloadInfo>,
     dir: PathBuf,
+    action_context: ActionContext,
+    refs: Vec<ElementRef>,
 }
 
 impl std::fmt::Debug for Session {
@@ -96,6 +114,16 @@ impl std::fmt::Debug for Session {
 impl Session {
     async fn run(&mut self, command: Value) -> Result<Value> {
         reply::data(&self.engine.execute(command).await)
+    }
+
+    /// The current address for gate context, or `None` while the page is
+    /// briefly between documents. Never substitute a cached, potentially
+    /// stale address for the location of the page about to be acted on.
+    async fn action_url(&mut self) -> Option<String> {
+        match self.run(json!({"action": "url"})).await {
+            Ok(data) => Some(reply::text(&data, "url")),
+            Err(_) => None,
+        }
     }
 
     async fn page(&mut self) -> Result<PageState> {
@@ -232,6 +260,21 @@ impl Browser {
             scratch,
             counter: AtomicU64::new(0),
             opening: AtomicUsize::new(0),
+            action_gate: default_gate(),
+        }
+    }
+
+    /// Sets the trusted host policy consulted before browser actions.
+    #[must_use]
+    pub fn with_action_gate(mut self, gate: Arc<dyn ActionGate>) -> Self {
+        self.action_gate = gate;
+        self
+    }
+
+    pub(crate) fn check_action(&self, request: &ActionRequest) -> Result<()> {
+        match self.action_gate.check(request) {
+            ActionVerdict::Allow => Ok(()),
+            ActionVerdict::Refuse { reason } => Err(Error::ActionRefused { reason }),
         }
     }
 
@@ -245,6 +288,20 @@ impl Browser {
     /// saying what to set when a browser to launch is not found or will not
     /// start, and whatever the engine reports when one cannot be reached.
     pub async fn open_session(&self, options: SessionOptions) -> Result<SessionInfo> {
+        self.open_session_with_context(options, ActionContext::default())
+            .await
+    }
+
+    /// Opens a session with host-supplied task context for its action gate.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Browser::open_session`].
+    pub async fn open_session_with_context(
+        &self,
+        options: SessionOptions,
+        action_context: ActionContext,
+    ) -> Result<SessionInfo> {
         // Checked and reserved under the table's lock, so the check and the
         // claim are one step for every concurrent caller.
         let reservation = {
@@ -275,6 +332,8 @@ impl Browser {
             deep: crate::deep::Minted::default(),
             downloads: Vec::new(),
             dir: self.scratch.join(id.as_str()),
+            action_context,
+            refs: Vec::new(),
         };
         // A browser this module launches says what to set when it cannot
         // start; one attached to keeps the engine's own words.

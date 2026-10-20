@@ -8,6 +8,7 @@ use tinycomputer_bus::browser::{
 };
 
 use super::{Browser, Session};
+use crate::action_gate::ActionRequest;
 use crate::convert;
 use crate::deep;
 use crate::error::{Error, Result};
@@ -44,12 +45,20 @@ const URL_IS_NO_PAGE: &[&str] = &[
 /// text shows. So is a permission grant, which changes what pages may do.
 const NEITHER_ACTS_NOR_READS: &[&str] = &["url", "waitforloadstate"];
 
+fn raw_destination(command: &Value) -> Option<String> {
+    URL_FIELDS
+        .iter()
+        .find_map(|field| command.get(*field).and_then(Value::as_str))
+        .map(str::to_owned)
+}
+
 impl Browser {
     /// Navigates the session's active page.
     ///
     /// # Errors
     ///
     /// [`Error::NoSuchSession`], [`Error::InvalidInput`] for an empty URL,
+    /// [`Error::ActionRefused`] when the trusted host refuses it,
     /// [`Error::BlockedByPolicy`] outside the allowed origins (refused before
     /// the browser is asked, or after a redirect that leaves them), and
     /// whatever else the navigation reports.
@@ -57,6 +66,14 @@ impl Browser {
         let session = self.session(id)?;
         let mut session = session.lock().await;
         let command = convert::navigate(&request)?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::raw(
+            command.clone(),
+            current_url,
+            Some(request.url.clone()),
+            &session.action_context,
+            &session.refs,
+        ))?;
         if !session.origins.admits(&request.url) {
             return Err(Error::BlockedByPolicy { url: request.url });
         }
@@ -113,6 +130,7 @@ impl Browser {
             &controls,
             request.max_chars,
         );
+        session.refs.clone_from(&snapshot.refs);
         Ok(snapshot)
     }
 
@@ -149,6 +167,14 @@ impl Browser {
             // The page may have moved on its own since the last call: an
             // action is never sent to a refused one.
             session.check_if_readable(false).await?;
+            let current_url = session.action_url().await;
+            self.check_action(&ActionRequest::typed(
+                &action,
+                current_url,
+                None,
+                &session.action_context,
+                &session.refs,
+            ))?;
             let value = session.act_deep(number, &action).await?;
             return session.outcome(value, None).await;
         }
@@ -157,6 +183,14 @@ impl Browser {
         // The page may have moved on its own since the last call (a redirect,
         // a timer): an action is never sent to a refused one.
         session.check_if_readable(false).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::typed(
+            &action,
+            current_url,
+            None,
+            &session.action_context,
+            &session.refs,
+        ))?;
         match keys {
             Keys::Checked(selector) => session.focus_only(&selector).await?,
             Keys::Blurred => session.blur().await?,
@@ -219,18 +253,19 @@ impl Browser {
     /// `{"action": "inputvalue", "selector": "@e3"}`, and returns its `data`.
     ///
     /// This is the escape hatch for engine capabilities the typed calls do
-    /// not cover. It carries no policy of its own beyond the allowed origins:
+    /// not cover. The trusted host's [`ActionGate`](crate::ActionGate) is
+    /// consulted before the raw command is sent:
     /// a command that would open or fetch an address outside them is never
     /// sent, nor any command that acts on the page or reads what it shows
     /// while the session shows a refused page (only a wait for the page to
     /// load and a read of its address go ahead), and the page a command
     /// leaves the session on is checked before its result is returned. A
-    /// caller exposing it to a model must still decide which actions to
-    /// allow.
+    /// A host that does not install a gate allows everything by default.
     ///
     /// # Errors
     ///
-    /// [`Error::NoSuchSession`], [`Error::InvalidInput`] when `command` names
+    /// [`Error::NoSuchSession`], [`Error::ActionRefused`] when the trusted
+    /// host refuses it, [`Error::InvalidInput`] when `command` names
     /// no `action`, [`Error::BlockedByPolicy`] for a page the allowed origins
     /// refuse, and whatever the engine reports.
     pub async fn command(&self, id: &SessionId, command: Value) -> Result<Value> {
@@ -243,6 +278,14 @@ impl Browser {
         };
         let session = self.session(id)?;
         let mut session = session.lock().await;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::raw(
+            command.clone(),
+            current_url,
+            raw_destination(&command),
+            &session.action_context,
+            &session.refs,
+        ))?;
         if !URL_IS_NO_PAGE.contains(&action) {
             for field in URL_FIELDS {
                 if let Some(url) = command.get(*field).and_then(Value::as_str)
@@ -283,7 +326,8 @@ impl Browser {
     ///
     /// # Errors
     ///
-    /// [`Error::NoSuchSession`], [`Error::InvalidInput`] for an empty
+    /// [`Error::NoSuchSession`], [`Error::ActionRefused`] when the trusted
+    /// host refuses it, [`Error::InvalidInput`] for an empty
     /// expression, [`Error::BlockedByPolicy`] when the page it would run in,
     /// or the page it leads to, is outside the allowed origins, and
     /// [`Error::PageError`] when the script throws.
@@ -292,6 +336,14 @@ impl Browser {
         let mut session = session.lock().await;
         let command = convert::evaluate(&request)?;
         session.check_if_readable(false).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::raw(
+            command.clone(),
+            current_url,
+            None,
+            &session.action_context,
+            &session.refs,
+        ))?;
         let data = session.run(command).await?;
         session.check_if_readable(true).await?;
         Ok(data.get("result").cloned().unwrap_or(Value::Null))
