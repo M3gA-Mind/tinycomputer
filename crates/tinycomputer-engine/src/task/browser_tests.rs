@@ -2,8 +2,13 @@
 
 use std::sync::Arc;
 
+use serde_json::{Value, json};
+use tinycomputer_browser::{
+    ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser, Engine, Launcher, Reply,
+    SessionOptions,
+};
 use tinycomputer_bus::agent::{
-    AwaitTaskRequest, StartTaskRequest, SurfaceKind, TaskConstraints, TaskStatus,
+    AwaitTaskRequest, PaymentMode, StartTaskRequest, SurfaceKind, TaskConstraints, TaskStatus,
 };
 use tinycomputer_bus::{
     DesktopResponse, FlowRunResult, FlowStopReason, JevMetrics, RunFlowRequest, StepOutcome,
@@ -12,7 +17,7 @@ use tinycomputer_bus::{
 use tinycomputer_bus::{Flow, FlowAction, FlowStep};
 
 use super::{FlowFuture, FlowRunner};
-use crate::{Completion, LanguageModel, Rescuer, Tasks, Turn};
+use crate::{BrowserRunner, Completion, JevRuntime, LanguageModel, Rescuer, Tasks, Turn};
 
 struct ScriptedBrowserRunner {
     failure: Option<&'static str>,
@@ -107,10 +112,11 @@ async fn a_browser_action_refusal_keeps_its_reason_in_rescue_and_task_report()
         return Err("the task start reply had no view".into());
     };
     let finished = settle(&tasks, &started.id).await?;
-    assert!(matches!(
-        &finished.status,
-        TaskStatus::Failed { reason, .. } if reason == REASON
-    ));
+    let TaskStatus::Failed { reason, .. } = &finished.status else {
+        return Err(format!("unexpected refusal status: {:?}", finished.status).into());
+    };
+    assert!(reason.contains(REASON), "{reason}");
+    let reported_reason = reason.clone();
 
     let report = tasks.report(&started.id);
     assert!(report.ok, "{:?}", report.error);
@@ -118,8 +124,215 @@ async fn a_browser_action_refusal_keeps_its_reason_in_rescue_and_task_report()
         return Err("the task report reply had no report".into());
     };
     assert_eq!(report.view.status, finished.status);
-    assert_eq!(report.steps[0].note, REASON);
-    assert_eq!(report.rescues[0].failure, REASON);
+    assert_eq!(report.steps[0].note, reported_reason);
+    assert_eq!(report.rescues[0].failure, reported_reason);
+    Ok(())
+}
+
+#[derive(Debug, Clone, Default)]
+struct BrowserScript {
+    commands: Arc<std::sync::Mutex<Vec<Value>>>,
+    current_url: Arc<std::sync::Mutex<String>>,
+}
+
+impl BrowserScript {
+    fn commands(&self) -> Vec<Value> {
+        self.commands
+            .lock()
+            .map(|commands| commands.clone())
+            .unwrap_or_default()
+    }
+}
+
+struct BrowserScriptEngine(BrowserScript);
+
+impl Engine for BrowserScriptEngine {
+    fn execute(&mut self, command: Value) -> Reply<'_> {
+        if let Ok(mut commands) = self.0.commands.lock() {
+            commands.push(command.clone());
+        }
+        let action = command["action"].as_str().unwrap_or_default();
+        let data = match action {
+            "navigate" => {
+                let url = command["url"].as_str().unwrap_or_default().to_owned();
+                if let Ok(mut current_url) = self.0.current_url.lock() {
+                    *current_url = url.clone();
+                }
+                json!({"url": url, "title": "Local fixture"})
+            }
+            "url" => json!({
+                "url": self
+                    .0
+                    .current_url
+                    .lock()
+                    .map(|url| url.clone())
+                    .unwrap_or_default()
+            }),
+            "title" => json!({"title": "Local fixture"}),
+            "snapshot" => json!({
+                "snapshot": "- heading \"Browser runner fixture\" [ref=h1]",
+                "refs": {"h1": {"role": "heading", "name": "Browser runner fixture"}}
+            }),
+            "evaluate" => json!({"result": 42}),
+            "screenshot" => {
+                let Some(path) = command["path"].as_str() else {
+                    return Box::pin(async {
+                        json!({"id":"", "success":false, "error":"screenshot path missing"})
+                    });
+                };
+                if let Err(error) = std::fs::write(path, png_header(1280, 800)) {
+                    return Box::pin(async move {
+                        json!({"id":"", "success":false, "error":error.to_string()})
+                    });
+                }
+                json!({"path": path})
+            }
+            _ => json!({}),
+        };
+        Box::pin(async move { json!({"id":"", "success":true, "data":data}) })
+    }
+}
+
+impl Launcher for BrowserScript {
+    fn open(&self, _session: &str) -> Box<dyn Engine> {
+        Box::new(BrowserScriptEngine(self.clone()))
+    }
+}
+
+#[derive(Default)]
+struct RecordingGate {
+    contexts: std::sync::Mutex<Vec<ActionContext>>,
+    refusal: Option<String>,
+}
+
+impl ActionGate for RecordingGate {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        if let Ok(mut contexts) = self.contexts.lock() {
+            contexts.push(request.context.clone());
+        }
+        if let Some(reason) = &self.refusal
+            && request.destination_url.is_some()
+        {
+            return ActionVerdict::Refuse {
+                reason: reason.clone(),
+            };
+        }
+        ActionVerdict::Allow
+    }
+}
+
+#[tokio::test]
+async fn public_task_manager_runs_the_real_browser_runner_without_a_model()
+-> Result<(), Box<dyn std::error::Error>> {
+    let script = BrowserScript::default();
+    let gate = Arc::new(RecordingGate::default());
+    let browser = Arc::new(Browser::new(Arc::new(script.clone())).with_action_gate(gate.clone()));
+    let runner = Arc::new(
+        BrowserRunner::new(browser, runtime()?).with_session_options(SessionOptions {
+            headless: true,
+            ..SessionOptions::default()
+        }),
+    );
+    let tasks = Tasks::new(runner);
+    let started = tasks.start(&request());
+    assert!(started.ok, "{:?}", started.error);
+    let Some(started) = started.data else {
+        return Err("the task start reply had no view".into());
+    };
+
+    let finished = settle(&tasks, &started.id).await?;
+    assert!(matches!(finished.status, TaskStatus::Done { .. }));
+    assert!(script.commands().iter().any(|command| {
+        command["action"] == "navigate" && command["url"] == "http://127.0.0.1:8765/index.html"
+    }));
+    let contexts = gate
+        .contexts
+        .lock()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    assert!(contexts.iter().any(|context| {
+        context.task_id.as_deref() == Some(started.id.0.as_str()) && !context.payment_in_play
+    }));
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_action_refusal_from_the_real_runner_survives_rescue_and_report()
+-> Result<(), Box<dyn std::error::Error>> {
+    const REASON: &str = "the host refused this browser action";
+    let script = BrowserScript::default();
+    let gate = Arc::new(RecordingGate {
+        contexts: std::sync::Mutex::default(),
+        refusal: Some(REASON.to_owned()),
+    });
+    let browser = Arc::new(Browser::new(Arc::new(script.clone())).with_action_gate(gate.clone()));
+    let mut request = request();
+    request.constraints.payment = PaymentMode::FillThenApprove;
+    request.constraints.origins = vec!["http://127.0.0.1:8765".to_owned()];
+    let tasks = Tasks::new(Arc::new(BrowserRunner::new(browser, runtime()?)))
+        .with_rescuer(Rescuer::new(Arc::new(RefusalRecovery)));
+    let started = tasks.start(&request);
+    assert!(started.ok, "{:?}", started.error);
+    let Some(started) = started.data else {
+        return Err("the task start reply had no view".into());
+    };
+
+    let finished = settle(&tasks, &started.id).await?;
+    let TaskStatus::Failed { reason, .. } = &finished.status else {
+        return Err(format!("unexpected refusal status: {:?}", finished.status).into());
+    };
+    assert!(reason.contains(REASON), "{reason}");
+    let reported_reason = reason.clone();
+    assert!(!script.commands().iter().any(|command| {
+        command["action"] == "navigate" && command["url"] == "http://127.0.0.1:8765/index.html"
+    }));
+    let contexts = gate
+        .contexts
+        .lock()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    assert!(contexts.iter().any(|context| {
+        context.task_id.as_deref() == Some(started.id.0.as_str()) && context.payment_in_play
+    }));
+    let report = tasks.report(&started.id);
+    assert!(report.ok, "{:?}", report.error);
+    let Some(report) = report.data else {
+        return Err("the task report reply had no report".into());
+    };
+    assert_eq!(report.view.status, finished.status);
+    assert_eq!(report.steps[0].note, reported_reason);
+    assert_eq!(report.rescues[0].failure, reported_reason);
+    Ok(())
+}
+
+#[tokio::test]
+async fn runner_hooks_share_the_task_surface_and_release_its_session()
+-> Result<(), Box<dyn std::error::Error>> {
+    let script = BrowserScript::default();
+    let runner = BrowserRunner::new(Arc::new(Browser::new(Arc::new(script.clone()))), runtime()?);
+    let task = tinycomputer_bus::agent::TaskId::new("t-hooks");
+    let constraints = TaskConstraints::default();
+    runner.prepare(&task, &constraints).await;
+    runner
+        .open_page(&task, "http://127.0.0.1:8765/index.html")
+        .await;
+    let visible = runner.visible_text(&task).await;
+    assert!(
+        visible
+            .iter()
+            .any(|line| line.contains("Browser runner fixture"))
+    );
+    assert!(runner.capture(&task).await.is_some());
+    runner.warm(&task, 1).await;
+    runner.journal(None, "test", &|| json!({"phase":"host"}));
+    runner.journal(Some(&task), "test", &|| json!({"phase":"task"}));
+    runner.release(&task);
+    assert!(runner.capture(&task).await.is_none());
+    runner
+        .open_page(
+            &tinycomputer_bus::agent::TaskId::new("t-unknown"),
+            "https://unused.test",
+        )
+        .await;
+    runner.release(&tinycomputer_bus::agent::TaskId::new("t-unknown"));
     Ok(())
 }
 
@@ -159,4 +372,16 @@ async fn settle(
             return Ok(view);
         }
     }
+}
+
+fn runtime() -> Result<JevRuntime, std::io::Error> {
+    JevRuntime::sage("local-test-key", false)
+        .map_err(|error| std::io::Error::other(error.message.clone()))
+}
+
+fn png_header(width: u32, height: u32) -> Vec<u8> {
+    let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    png.extend(width.to_be_bytes());
+    png.extend(height.to_be_bytes());
+    png
 }
