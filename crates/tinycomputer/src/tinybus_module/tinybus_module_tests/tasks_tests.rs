@@ -427,15 +427,11 @@ async fn a_task_browser_launches_with_its_own_binary_and_profile_and_checks_page
         [json!("https://www.example.com/")],
         "a page outside the origins is refused before the browser is asked"
     );
-    let supplied_context = contexts
-        .0
-        .lock()
-        .map(|contexts| {
-            contexts.iter().any(|context| {
-                context.task_id.as_deref() == Some(task.0.as_str()) && context.payment_in_play
-            })
+    let supplied_context = contexts.0.lock().is_ok_and(|contexts| {
+        contexts.iter().any(|context| {
+            context.task_id.as_deref() == Some(task.0.as_str()) && context.payment_in_play
         })
-        .unwrap_or(false);
+    });
     assert!(
         supplied_context,
         "task id and payment mode reach the browser gate"
