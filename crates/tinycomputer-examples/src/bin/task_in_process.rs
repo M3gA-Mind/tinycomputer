@@ -1,5 +1,5 @@
 //! Runs a browser task directly through `tinycomputer-engine`, without loading
-//! the module or using TinyBus.
+//! the module or using `TinyBus`.
 //!
 //! Start the local travel fixture, then run this binary from the workspace:
 //!
