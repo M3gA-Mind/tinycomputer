@@ -136,12 +136,20 @@ impl FlowRunner for Script {
     }
 
     fn redact(&self, _task: &TaskId, text: &str) -> String {
-        let mut redacted = self.host_secrets
+        let mut redacted = self
+            .host_secrets
             .lock()
             .unwrap()
             .iter()
-            .fold(text.to_owned(), |text, secret| text.replace(secret, "[redacted]"));
-        if let Some(secret) = self.host_secret.lock().ok().and_then(|secret| secret.clone()) {
+            .fold(text.to_owned(), |text, secret| {
+                text.replace(secret, "[redacted]")
+            });
+        if let Some(secret) = self
+            .host_secret
+            .lock()
+            .ok()
+            .and_then(|secret| secret.clone())
+        {
             redacted = redacted.replace(&secret, "•••• 1111");
         }
         redacted
