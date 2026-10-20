@@ -119,10 +119,27 @@ pub(super) fn redact_value(value: &mut serde_json::Value, redact: &impl Fn(&str)
                 redact_value(item, redact);
             }
         }
-        serde_json::Value::Object(fields) => {
-            for item in fields.values_mut() {
-                redact_value(item, redact);
+        serde_json::Value::Number(number) => {
+            let text = number.to_string();
+            let masked = redact(&text);
+            if masked != text {
+                *value = serde_json::Value::String(masked);
             }
+        }
+        serde_json::Value::Object(fields) => {
+            let mut safe_fields = serde_json::Map::new();
+            for (key, mut item) in std::mem::take(fields) {
+                redact_value(&mut item, redact);
+                let base = redact(&key);
+                let mut safe_key = base.clone();
+                let mut suffix = 2_u32;
+                while safe_fields.contains_key(&safe_key) {
+                    safe_key = format!("{base}#{suffix}");
+                    suffix = suffix.saturating_add(1);
+                }
+                safe_fields.insert(safe_key, item);
+            }
+            *fields = safe_fields;
         }
         _ => {}
     }

@@ -18,7 +18,9 @@ use crate::{JevRuntime, UsageRecorder};
 /// The host owns the browser launcher and the configured Jev runtime. This
 /// runner adds no bus or desktop adapter. Each task keeps its browser session
 /// across pauses and continuations, and [`FlowRunner::release`] closes it when
-/// the task ends.
+/// the task ends. When a `SecretHost` is configured, tasks have no screenshot
+/// artifacts, since host-held values rendered by a page cannot be scrubbed
+/// from pixels.
 pub struct BrowserRunner {
     browser: Arc<Browser>,
     runtime: JevRuntime,
@@ -165,6 +167,9 @@ impl FlowRunner for BrowserRunner {
     }
 
     fn capture(&self, task: &TaskId) -> CaptureFuture {
+        if self.secret_host.is_some() {
+            return Box::pin(async { None });
+        }
         let surface = self
             .surfaces
             .lock()

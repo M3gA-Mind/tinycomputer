@@ -52,6 +52,7 @@ pub trait SecretHost: Send + Sync + 'static {
     /// host policy refuses the type.
     fn type_secret(&self, request: &SecretTypeRequest) -> Result<(), String>;
 
-    /// Replace any host-held secret values appearing in outbound text.
+    /// Replace any host-held secret values appearing in outbound text,
+    /// including their textual representations as JSON numbers and keys.
     fn redact(&self, task_id: &str, text: &str) -> String;
 }
