@@ -38,6 +38,7 @@
 
 mod artifact;
 mod brief;
+mod browser;
 mod budget;
 mod controller;
 mod describe;
@@ -60,6 +61,7 @@ use tinycomputer_bus::agent::{TaskConstraints, TaskId};
 use tinycomputer_bus::browser::OutputRef;
 use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
 
+pub use browser::BrowserRunner;
 pub use controller::Tasks;
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
@@ -89,6 +91,21 @@ pub trait FlowRunner: Send + Sync + 'static {
         constraints: &TaskConstraints,
         request: RunFlowRequest,
     ) -> FlowFuture;
+
+    /// Runs a task flow with its usage recorder attached to model calls.
+    ///
+    /// Runners that do not account for model usage may keep the default. A
+    /// runner backed by [`JevRuntime`](crate::JevRuntime) should override
+    /// this method and attach `usage` to the cloned runtime before running.
+    fn run_with_usage(
+        &self,
+        task: &TaskId,
+        constraints: &TaskConstraints,
+        request: RunFlowRequest,
+        _usage: std::sync::Arc<crate::UsageRecorder>,
+    ) -> FlowFuture {
+        self.run(task, constraints, request)
+    }
 
     /// The visible text of the task's surface now, to spot a wall only a
     /// person can pass. Empty by default.
@@ -138,6 +155,17 @@ pub trait FlowRunner: Send + Sync + 'static {
     /// on whether it finishes or not. Does nothing by default.
     fn warm(&self, _task: &TaskId, _votes: u32) -> PrepareFuture {
         Box::pin(async {})
+    }
+
+    /// Warms Jev while the task is planned, recording those calls in the
+    /// same task tally. Runners that warm the model override this method.
+    fn warm_with_usage(
+        &self,
+        task: &TaskId,
+        votes: u32,
+        _usage: std::sync::Arc<crate::UsageRecorder>,
+    ) -> PrepareFuture {
+        self.warm(task, votes)
     }
 
     /// Writes an `event` of the time a task spends outside its flows

@@ -38,7 +38,7 @@ impl Tasks {
                 needs_input(&missing),
                 "The task still needs values before it can start.",
             );
-            return AgentResponse::ok(cell.view.borrow().clone());
+            return AgentResponse::ok(cell.current_view());
         }
         // A newly supplied value can turn a reference that only looked
         // undefined at `StartTask` into a fact used somewhere Jev must never
@@ -66,7 +66,7 @@ impl Tasks {
         };
         drop(state);
         self.spawn(cell, vec![run]);
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     pub(super) fn decide(
@@ -119,7 +119,7 @@ impl Tasks {
             );
             self.runner.release(&cell.view.borrow().id);
         }
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     /// Runs the step a person has just got the task past, and the rest.
@@ -141,6 +141,6 @@ impl Tasks {
                 }],
             );
         }
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 }

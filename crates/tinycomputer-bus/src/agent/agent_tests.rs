@@ -11,7 +11,8 @@ use serde_json::json;
 
 use super::{
     AgentError, AgentResponse, AwaitTaskRequest, ContinueTaskRequest, InputField, InputKind,
-    PaymentMode, StartTaskRequest, SurfaceKind, TaskId, TaskReportRequest, TaskStatus, TaskView,
+    PaymentMode, StartTaskRequest, SurfaceKind, TaskId, TaskReportRequest, TaskStatus, TaskUsage,
+    TaskView,
 };
 
 #[test]
@@ -223,6 +224,7 @@ fn replies_carry_data_or_an_actionable_error() {
         step: None,
         progress: 0.25,
         next: vec!["AwaitTask".to_owned()],
+        usage: TaskUsage::default(),
     };
     let ok = serde_json::to_value(AgentResponse::ok(view)).unwrap();
     assert_eq!(ok["ok"], true);

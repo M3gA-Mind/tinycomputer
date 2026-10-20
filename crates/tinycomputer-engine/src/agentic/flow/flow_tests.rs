@@ -92,9 +92,11 @@ fn runtime(client: impl Evaluator + 'static) -> JevRuntime {
             endpoint_url: None,
             fast: false,
         },
+        #[cfg(feature = "desktop")]
         pending: Arc::default(),
         journal: crate::agentic::journal::Journal::default(),
         copies: Arc::default(),
+        usage: None,
     }
 }
 
@@ -124,9 +126,11 @@ async fn run_with(
             endpoint_url: None,
             fast: false,
         },
+        #[cfg(feature = "desktop")]
         pending: Arc::default(),
         journal: crate::agentic::journal::Journal::default(),
         copies: Arc::default(),
+        usage: None,
     };
     // One framing per decision, so every test that counts requests counts
     // decisions; voting has its own tests.

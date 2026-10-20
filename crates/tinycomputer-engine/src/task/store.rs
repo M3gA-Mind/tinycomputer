@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use tinycomputer_bus::agent::{
     AgentResponse, Rescue, StartTaskRequest, TaskBudget, TaskConstraints, TaskId, TaskOutput,
-    TaskStatus, TaskView,
+    TaskStatus, TaskUsage, TaskView,
 };
 use tinycomputer_bus::browser::OutputRef;
 use tinycomputer_bus::{FLOW_GUIDE, Flow, GroundingHint, JevExchange, StepReport};
@@ -19,6 +19,7 @@ use super::errors::too_many;
 use super::interpret::Resume;
 use super::publish::{next_calls, publish};
 use super::{MAX_TASKS, Tasks};
+use crate::UsageRecorder;
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
 
@@ -33,7 +34,19 @@ pub(super) struct Cell {
     pub(super) shaper: Option<Shaper>,
 }
 
+impl Cell {
+    /// The latest published state with usage accumulated since that update.
+    pub(super) fn current_view(&self) -> TaskView {
+        let mut view = self.view.borrow().clone();
+        if let Ok(state) = self.state.lock() {
+            view.usage = state.usage.snapshot();
+        }
+        view
+    }
+}
+
 pub(super) struct State {
+    pub(super) usage: Arc<UsageRecorder>,
     pub(super) flow: Flow,
     /// The task in the caller's words, for Jev's brief; empty when only a
     /// flow was given.
@@ -95,6 +108,7 @@ impl Tasks {
     ) -> Option<Arc<Cell>> {
         let number = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
         let id = TaskId::new(format!("t-{number}"));
+        let usage = Arc::new(UsageRecorder::default());
         let view = TaskView {
             id,
             status: TaskStatus::Running,
@@ -102,10 +116,12 @@ impl Tasks {
             step: None,
             progress: 0.0,
             next: next_calls(&TaskStatus::Running),
+            usage: TaskUsage::default(),
         };
         let cell = Arc::new(Cell {
             view: watch::Sender::new(view),
             state: Mutex::new(State {
+                usage,
                 flow: flow.clone(),
                 goal: request.task.clone().unwrap_or_default(),
                 facts,
@@ -158,7 +174,7 @@ impl Tasks {
             },
             "No planner is configured: write a flow for this task with the guide and start it again.",
         );
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     pub(super) fn start_planned(
@@ -187,7 +203,7 @@ impl Tasks {
         if let Ok(mut slot) = cell.worker.lock() {
             *slot = Some(worker.abort_handle());
         }
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     pub(super) fn spawn(&self, cell: &Arc<Cell>, runs: Vec<Run>) {

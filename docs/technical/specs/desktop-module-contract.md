@@ -230,3 +230,14 @@ is a zero-argument terminal joined native cleanup barrier for the listener
 process and its readers; hosts must await success before ABI unload. Stop remains
 per-lease/reusable and retains ownership on native cleanup faults. Existing
 member arities and legacy poll JSON are unchanged. See [Globe replay](globe-replay.md).
+
+## Host model usage (2.21)
+
+Contract 2.21 adds optional `TaskView.usage` and `TaskReport.usage` objects.
+They summarize Jev, planner, rescue, and output model calls with provider-
+reported input, cached input, output tokens, and USD cost in nanodollars.
+Unknown measurements stay absent. `LanguageModelProvider.open_ai_compatible`
+identifies a host-owned compatible route in the non-secret model summary; the
+module's private TinyBus model configuration still accepts only its fixed
+provider endpoints. Rust embedding hosts may supply arbitrary model and Jev
+endpoints directly.

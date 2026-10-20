@@ -232,7 +232,7 @@ impl Tasks {
                 "The task needs values before it can start.",
             );
         }
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     /// Waits until the task is no longer running, or `timeout_ms` passes.
@@ -250,7 +250,7 @@ impl Tasks {
             }
         })
         .await;
-        AgentResponse::ok(changes.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     /// Answers what a paused task asked for, and resumes it.
@@ -316,7 +316,7 @@ impl Tasks {
             publish(&cell, TaskStatus::Cancelled, "The task was cancelled.");
         }
         self.runner.release(id);
-        AgentResponse::ok(cell.view.borrow().clone())
+        AgentResponse::ok(cell.current_view())
     }
 
     /// Everything the task did.
@@ -325,12 +325,14 @@ impl Tasks {
         let Some(cell) = self.find(id) else {
             return no_such_task(id);
         };
-        let view = cell.view.borrow().clone();
+        let view = cell.current_view();
+        let usage = view.usage;
         let Ok(state) = cell.state.lock() else {
             return poisoned();
         };
         AgentResponse::ok(TaskReport {
             view,
+            usage,
             flow: Some(state.flow.clone()),
             steps: state.steps.clone(),
             records: records(&state.reads),
@@ -364,7 +366,7 @@ impl Tasks {
             tasks
                 .values()
                 .rev()
-                .map(|cell| cell.view.borrow().clone())
+                .map(|cell| cell.current_view())
                 .collect(),
         )
     }
