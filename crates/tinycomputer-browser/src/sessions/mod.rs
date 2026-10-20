@@ -116,12 +116,13 @@ impl Session {
         reply::data(&self.engine.execute(command).await)
     }
 
-    /// The best current address for gate context, without making an action
-    /// fail solely because a page is briefly between documents.
-    async fn action_url(&mut self) -> String {
+    /// The current address for gate context, or `None` while the page is
+    /// briefly between documents. Never substitute a cached, potentially
+    /// stale address for the location of the page about to be acted on.
+    async fn action_url(&mut self) -> Option<String> {
         match self.run(json!({"action": "url"})).await {
-            Ok(data) => reply::text(&data, "url"),
-            Err(_) => self.info.url.clone(),
+            Ok(data) => Some(reply::text(&data, "url")),
+            Err(_) => None,
         }
     }
 

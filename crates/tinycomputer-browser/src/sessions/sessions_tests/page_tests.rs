@@ -3,6 +3,7 @@
 
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tinycomputer_bus::browser::{
     Action, EvaluateRequest, LocateBy, Locator, NavigateRequest, ReadFormat, ReadRequest,
     SessionOptions, SnapshotRequest, Target,
@@ -48,6 +49,20 @@ impl ActionGate for RefuseNamedAction {
         if action == self.0 {
             ActionVerdict::Refuse {
                 reason: "host policy refused this action".to_owned(),
+            }
+        } else {
+            ActionVerdict::Allow
+        }
+    }
+}
+
+struct RefuseUnknownCurrentUrl;
+
+impl ActionGate for RefuseUnknownCurrentUrl {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        if request.current_url.is_none() && request.destination_url.is_none() {
+            ActionVerdict::Refuse {
+                reason: "current page URL is unavailable".to_owned(),
             }
         } else {
             ActionVerdict::Allow
@@ -124,10 +139,47 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
         .iter()
         .find(|request| request.contains("action: Some(\"fill\")"))
         .unwrap();
-    assert!(fill.contains("current_url: \"https://shop.test/checkout\""));
+    assert!(fill.contains("current_url: Some(\"https://shop.test/checkout\")"));
     assert!(fill.contains("role: Some(\"textbox\")"));
     assert!(fill.contains("name: Some(\"Email\")"));
     assert!(!fill.contains("private@example.test"));
+}
+
+#[tokio::test]
+async fn an_unknown_current_url_is_not_replaced_with_the_last_known_page() {
+    let url_unavailable = Arc::new(AtomicBool::new(false));
+    let unavailable_for_script = Arc::clone(&url_unavailable);
+    let fake = Fake::scripted(move |command| {
+        (command["action"] == "url" && unavailable_for_script.load(Ordering::SeqCst))
+            .then(|| failure("page URL is temporarily unavailable"))
+    });
+    let browser = Browser::with_scratch(Arc::new(fake.clone()), super::scratch("gate-unknown-url"))
+        .with_action_gate(Arc::new(RefuseUnknownCurrentUrl));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+
+    url_unavailable.store(true, Ordering::SeqCst);
+    let error = browser
+        .perform(
+            &id,
+            Action::Click {
+                target: Target::reference("e1"),
+                new_tab: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::ActionRefused { ref reason } if reason == "current page URL is unavailable")
+    );
+    assert!(!fake.actions().iter().any(|action| action == "click"));
 }
 
 #[tokio::test]
