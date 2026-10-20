@@ -24,6 +24,7 @@ mod render;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tinycomputer_bus::agent::{LanguageModelConfiguration, Rescue};
 use tinycomputer_bus::{FLOW_GUIDE, Flow, FlowStep, StepReport};
 
@@ -95,7 +96,7 @@ steps the screen is also past>}, or {\"action\": \"give_up\", \"reason\": \"<why
 
 /// What the rescuer is told about a failure, with every fact value already
 /// redacted.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Briefing {
     /// The task in the caller's words; empty when only a flow was given.
     pub goal: String,

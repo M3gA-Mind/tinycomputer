@@ -63,6 +63,61 @@ use tinycomputer_bus::agent::{TaskConstraints, TaskId};
 use tinycomputer_bus::browser::OutputRef;
 use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
 
+/// Sanitizes every textual representation in a JSON report or model payload
+/// through the task runner's host secret filter.
+pub(super) fn redact_task_value(
+    runner: &dyn FlowRunner,
+    task: &TaskId,
+    value: &mut serde_json::Value,
+) {
+    redact_value(value, &|text| runner.redact(task, text));
+}
+
+/// Serializes, sanitizes and rebuilds a task model payload or report. Returns
+/// `None` when the redacted representation no longer fits its declared type.
+pub(super) fn redact_task_data<T>(runner: &dyn FlowRunner, task: &TaskId, data: T) -> Option<T>
+where
+    T: serde::Serialize + serde::de::DeserializeOwned,
+{
+    let mut value = serde_json::to_value(data).ok()?;
+    redact_task_value(runner, task, &mut value);
+    serde_json::from_value(value).ok()
+}
+
+fn redact_value(value: &mut serde_json::Value, redact: &impl Fn(&str) -> String) {
+    match value {
+        serde_json::Value::String(text) => *text = redact(text),
+        serde_json::Value::Number(number) => {
+            let text = number.to_string();
+            let masked = redact(&text);
+            if masked != text {
+                *value = serde_json::Value::String(masked);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_value(item, redact);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            let mut safe_fields = serde_json::Map::new();
+            for (key, mut item) in std::mem::take(fields) {
+                redact_value(&mut item, redact);
+                let base = redact(&key);
+                let mut safe_key = base.clone();
+                let mut suffix = 2_u32;
+                while safe_fields.contains_key(&safe_key) {
+                    safe_key = format!("{base}#{suffix}");
+                    suffix = suffix.saturating_add(1);
+                }
+                safe_fields.insert(safe_key, item);
+            }
+            *fields = safe_fields;
+        }
+        _ => {}
+    }
+}
+
 pub use browser::BrowserRunner;
 pub use controller::Tasks;
 pub use describe::capabilities;

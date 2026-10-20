@@ -13,7 +13,7 @@ use super::names::{fact_names, known_names};
 use super::publish::publish;
 use super::store::{Cell, Run};
 use super::timing;
-use super::{FlowRunner, RESCUE_TIMEOUT_MS};
+use super::{FlowRunner, RESCUE_TIMEOUT_MS, redact_task_data};
 use crate::rescue::{Briefing, Guidance, MAX_RESCUES, Rescuer, resumed};
 
 /// A recoverable failure of a top-level step is first rescued: `Err` holds
@@ -59,6 +59,59 @@ pub(super) enum Rescued {
     GaveUp(String),
     /// No rescue was tried: none is configured, or the task's are spent.
     Skipped,
+}
+
+struct RescueContext {
+    id: TaskId,
+    facts: Facts,
+    goal: String,
+    flow: Flow,
+    failed: usize,
+    failure: String,
+    reached: Vec<StepReport>,
+    earlier: Vec<Rescue>,
+    rules: Vec<String>,
+    reads: BTreeMap<String, String>,
+}
+
+async fn briefing(runner: &dyn FlowRunner, context: RescueContext) -> Option<Briefing> {
+    let screen = runner
+        .visible_text(&context.id)
+        .await
+        .iter()
+        .map(|line| {
+            runner.redact(
+                &context.id,
+                &context.facts.redact(&context.facts.mask(line)),
+            )
+        })
+        .collect();
+    let (known, mut collected) = recalled(&context.flow, &context.facts, &context.reads);
+    for (_, value) in &mut collected {
+        *value = runner.redact(&context.id, value);
+    }
+    let mut steps = Vec::new();
+    for step in context.reached {
+        steps.push(redact_task_data(
+            runner,
+            &context.id,
+            redacted(&context.facts, step),
+        )?);
+    }
+    let briefing = Briefing {
+        goal: runner.redact(&context.id, &context.facts.redact(&context.goal)),
+        flow: context.flow,
+        failed: context.failed,
+        failure: runner.redact(&context.id, &context.facts.redact(&context.failure)),
+        steps,
+        earlier: context.earlier,
+        screen,
+        rules: context.rules,
+        known,
+        collected,
+        secrets: fact_names(&context.facts),
+    };
+    redact_task_data(runner, &context.id, briefing)
 }
 
 /// The names a rescue's steps may use — the flow's, the facts', and what the
@@ -135,28 +188,24 @@ pub(super) async fn rescue(
     };
     let attempt = earlier.len() + 1;
     let id = cell.view.borrow().id.clone();
-    let screen = runner
-        .visible_text(&id)
-        .await
-        .iter()
-        .map(|line| facts.redact(&facts.mask(line)))
-        .collect();
-    let (known, collected) = recalled(&run.flow, &facts, &reads);
-    let briefing = Briefing {
-        goal: facts.redact(&goal),
-        flow: run.flow.clone(),
-        failed,
-        failure: facts.redact(failure),
-        steps: reached
-            .into_iter()
-            .map(|step| redacted(&facts, step))
-            .collect(),
-        earlier,
-        screen,
-        rules: brief_rules,
-        known,
-        collected,
-        secrets: fact_names(&facts),
+    let Some(briefing) = briefing(
+        runner,
+        RescueContext {
+            id: id.clone(),
+            facts: facts.clone(),
+            goal,
+            flow: run.flow.clone(),
+            failed,
+            failure: failure.to_owned(),
+            reached,
+            earlier,
+            rules: brief_rules,
+            reads,
+        },
+    )
+    .await
+    else {
+        return Rescued::GaveUp("the rescue briefing could not be safely redacted".to_owned());
     };
     publish(
         cell,
@@ -169,8 +218,14 @@ pub(super) async fn rescue(
     let wait = time_left.map_or(RESCUE_TIMEOUT_MS, |left| left.min(RESCUE_TIMEOUT_MS));
     let (record, guided, spent_ms) =
         ask(runner, &id, &rescuer, &briefing, wait, (attempt, limit)).await;
-    let guided = guided.map(|steps| resumed(&briefing, steps, record.covers));
-    let reason = facts.redact(&record.reason);
+    let Some(record) = redact_task_data(runner, &id, record) else {
+        return Rescued::GaveUp("the rescue response could not be safely redacted".to_owned());
+    };
+    let guided = guided.and_then(|steps| {
+        let flow = resumed(&briefing, steps, record.covers);
+        redact_task_data(runner, &id, flow)
+    });
+    let reason = runner.redact(&id, &facts.redact(&record.reason));
     let index = {
         let Ok(mut state) = cell.state.lock() else {
             return Rescued::Skipped;
