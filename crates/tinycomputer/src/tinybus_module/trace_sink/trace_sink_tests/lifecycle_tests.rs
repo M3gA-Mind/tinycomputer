@@ -34,7 +34,9 @@ async fn expired_queued_event_is_rejected_without_a_late_host_write()
     tokio::time::timeout(Duration::from_secs(5), started_rx).await??;
 
     let (queued_reply, queued_result) = mpsc::sync_channel(1);
-    let queued_deadline = Instant::now() - Duration::from_millis(1);
+    let queued_deadline = Instant::now()
+        .checked_sub(Duration::from_millis(1))
+        .expect("an instant can represent a deadline one millisecond in the past");
     send(
         &link.worker,
         Command::Append {
