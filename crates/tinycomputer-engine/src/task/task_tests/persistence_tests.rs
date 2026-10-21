@@ -44,7 +44,11 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
     let encoded = tasks.export_paused_task(&view.id).unwrap();
     let serialized = std::str::from_utf8(&encoded).unwrap();
     assert!(!serialized.contains("swordfish-secret"));
-    assert!(serialized.contains(&profile));
+    let snapshot: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(
+        snapshot["task"]["constraints"]["browser_profile"].as_str(),
+        Some(profile.as_str())
+    );
 
     drop(tasks);
     let (restored, script) = controller(vec![finished_run(
