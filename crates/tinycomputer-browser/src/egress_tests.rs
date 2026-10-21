@@ -4,6 +4,8 @@
 
 #[path = "egress_tests/authority_tests.rs"]
 mod authority_tests;
+#[path = "egress_tests/body_tests.rs"]
+mod body_tests;
 #[path = "egress_tests/connect_tests.rs"]
 mod connect_tests;
 #[path = "egress_tests/http_tests.rs"]
