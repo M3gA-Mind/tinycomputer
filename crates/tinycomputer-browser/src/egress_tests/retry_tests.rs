@@ -2,6 +2,7 @@
 
 use super::simulator::*;
 use crate::EgressProxy;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
