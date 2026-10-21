@@ -89,20 +89,41 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
-Browser egress (2.21): a host may serve the optional
+Browser egress (2.25): a host may serve the optional
 `ai.tinyhumans.tinycomputer.BrowserEgressHost` interface
 (`tinycomputer_bus::browser_egress`) with `Authorize`, `Consume`, and
 `Validate`. Before a browser proxy request is dialed, the module asks the host
 to authorize its actual destination and receives vetted socket addresses plus
 an opaque lease. It consumes a one-use grant for an exact address before
 dialing, and reauthorizes before trying another address if a connection fails.
-The lease is revalidated while the tunnel or response remains active. A 2.20
+The lease is revalidated while uploads, tunnels, or responses remain active. A 2.24
 module cannot enforce these host decisions.
 
 Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
+
+Host-held secret facts (2.22): `StartTask` and `RunFlow` accept optional
+`fact_handles`, keyed by fact name. Each entry carries only the host's opaque
+handle, a safe mask, and a kind. These fields are confidential request data.
+They do not contain the secret value, and a module without a configured
+`SecretHost` refuses to type one. `RunFlow.task_id` gives the host the owning
+task context. Existing value facts and requests without handles keep their
+wire behavior.
+
+Continuation secret handles (2.23): `ContinueTask` accepts optional
+`fact_handles`, keyed by fact name, using the same opaque handle, mask, and kind
+shape as 2.22. A host can therefore supply a secret only when a paused task
+asks for it, without sending the value through the module. Modules without a
+configured `SecretHost` refuse to type these handles.
+
+Planner handoff (2.24): `StartTask` accepts optional `handoff_to_planner`.
+When true, the module runs the supplied flow as a prefix and hands the same
+task and retained browser page to the configured planner after the prefix
+completes. The field is refused when no module planner is configured; omitted
+or false keeps the existing start behavior.
+
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string
@@ -240,3 +261,14 @@ is a zero-argument terminal joined native cleanup barrier for the listener
 process and its readers; hosts must await success before ABI unload. Stop remains
 per-lease/reusable and retains ownership on native cleanup faults. Existing
 member arities and legacy poll JSON are unchanged. See [Globe replay](globe-replay.md).
+
+## Host model usage (2.21)
+
+Contract 2.21 adds optional `TaskView.usage` and `TaskReport.usage` objects.
+They summarize Jev, planner, rescue, and output model calls with provider-
+reported input, cached input, output tokens, and USD cost in nanodollars.
+Unknown measurements stay absent. `LanguageModelProvider.open_ai_compatible`
+identifies a host-owned compatible route in the non-secret model summary; the
+module's private TinyBus model configuration still accepts only its fixed
+provider endpoints. Rust embedding hosts may supply arbitrary model and Jev
+endpoints directly.

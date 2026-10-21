@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 21));
+    assert_eq!(CONTRACT_VERSION, (2, 25));
 }
 
 #[test]
@@ -16,8 +16,12 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 21)));
+    assert!(is_compatible((2, 25)));
     assert!(is_compatible((2, 97)));
+    // 2.24 adds same-task flow-to-planner handoff to StartTask.
+    // 2.22 adds optional host-held secret handles to StartTask and RunFlow.
+    // A host-only handle is ignored by older modules, which then refuse it
+    // instead of trying to type its opaque identifier as a value.
     // 2.12 adds replayable GlobeRead and joined terminal GlobeShutdown.
     // A 2.11 module does not implement those members.
     // 2.10 gives `StartTask` constraints `browser_executable` and
@@ -35,9 +39,12 @@ fn a_newer_minor_on_the_module_side_binds() {
     // 2.19 adds the ConsequenceHost host-callback interface (Review): a 2.19
     // host serves it, which a 2.18 module does not call, so its approvals
     // would never reach the host's policy.
-    // 2.21 adds BrowserEgressHost (Authorize/Consume/Validate): a 2.21 host
-    // serves it, while a 2.20 module cannot enforce per-destination browser dials.
+    assert!(!is_compatible((2, 23)));
+    assert!(!is_compatible((2, 22)));
+    // 2.25 adds BrowserEgressHost (Authorize/Consume/Validate): a 2.25 host
+    // serves it, while a 2.24 module cannot enforce per-destination browser dials.
     // 2.20 adds SessionOptions' optional browser identity and fingerprint fields.
+    assert!(!is_compatible((2, 24)));
     assert!(!is_compatible((2, 20)));
     assert!(!is_compatible((2, 19)));
     assert!(!is_compatible((2, 18)));
