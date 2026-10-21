@@ -17,7 +17,10 @@ impl TraceSink for RecordingSink {
         _deadline: TraceSinkDeadline,
         _byte_budget: u64,
     ) -> std::result::Result<(), TraceSinkError> {
-        self.events.lock().unwrap().push(event.clone());
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event.clone());
         Ok(())
     }
 
@@ -32,10 +35,8 @@ impl TraceSink for RecordingSink {
 
 #[test]
 fn opted_in_sink_receives_events_without_opening_the_configured_trace_path() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch")
-        .as_nanos();
+    static NEXT_TEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = NEXT_TEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
         "tinycomputer-native-trace-{}-{nonce}.jsonl",
         std::process::id(),
@@ -54,7 +55,7 @@ fn opted_in_sink_receives_events_without_opening_the_configured_trace_path() {
     assert!(
         sink.events
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .any(|event| event["event"] == "command.end")
     );

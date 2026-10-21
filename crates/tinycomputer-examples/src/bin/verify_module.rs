@@ -27,7 +27,11 @@ struct TraceSinkCapture {
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.TraceSinkHost")]
 impl TraceSinkCapture {
     async fn append(&self, event: trace_sink::TraceEvent) -> tinybus::Result<trace_sink::SinkAck> {
-        self.events.lock().unwrap().push(event.record);
+        tokio::task::yield_now().await;
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event.record);
         Ok(trace_sink::SinkAck {})
     }
 
@@ -35,6 +39,7 @@ impl TraceSinkCapture {
         &self,
         _artifact: trace_sink::TraceArtifact,
     ) -> tinybus::Result<trace_sink::TraceArtifactRef> {
+        tokio::task::yield_now().await;
         Err(tinybus::Error::failed(
             "verification fixture does not persist trace artifacts",
         ))
@@ -44,10 +49,14 @@ impl TraceSinkCapture {
         &self,
         report: trace_sink::TaskReportRecord,
     ) -> tinybus::Result<trace_sink::SinkAck> {
+        tokio::task::yield_now().await;
         if self.fail_reports.load(Ordering::SeqCst) {
             return Err(tinybus::Error::failed("verification report sink failure"));
         }
-        self.reports.lock().unwrap().push(report);
+        self.reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(report);
         Ok(trace_sink::SinkAck {})
     }
 }
@@ -184,7 +193,10 @@ fn verify_trace_sink(
     if legacy_path.exists() {
         return Err(io::Error::other("trace sink mode wrote the legacy trace file").into());
     }
-    let events = capture.events.lock().unwrap();
+    let events = capture
+        .events
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let names = events
         .iter()
         .filter_map(|event| event.get("event").and_then(serde_json::Value::as_str))
@@ -235,13 +247,18 @@ async fn verify_report_sink(
     if report.data.is_none() {
         return Err(io::Error::other("module did not return the verification task report").into());
     }
-    let captured = capture.reports.lock().unwrap();
-    if captured.len() != 1 || captured[0].task_id != task_id.to_string() {
+    let report_received = {
+        let captured = capture
+            .reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        captured.len() == 1 && captured[0].task_id == task_id.to_string()
+    };
+    if !report_received {
         return Err(
             io::Error::other("confidential host callback did not receive the task report").into(),
         );
     }
-    drop(captured);
     capture.fail_reports.store(true, Ordering::SeqCst);
     let failed = proxy
         .call_confidential::<serde_json::Value>(

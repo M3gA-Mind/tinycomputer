@@ -13,7 +13,7 @@ use tinycomputer_bus::{DesktopResponse, JevConfig};
 use tinycomputer_engine as agentic;
 
 use super::DesktopService;
-use crate::tinybus_module::config::{BrowserDefaults, cursor_config};
+use crate::tinybus_module::config::{BrowserDefaults, cursor_config, trace_sink_destination};
 use crate::tinybus_module::consequence_gate::{ConsequenceLink, ConsequencePort};
 use crate::tinybus_module::runner::WorkspaceRunner;
 use crate::tinybus_module::site_memory::{SiteLink, SiteMemoryPort, refused_flow};
@@ -26,16 +26,17 @@ impl DesktopService {
     /// # Errors
     ///
     /// Propagates whatever [`Desktop::from_config`] rejects.
+    #[cfg(test)]
     pub(crate) fn from_config(config: &serde_json::Value) -> Result<Self> {
         Self::with_browser(config, Arc::new(Browser::new(Arc::new(AgentBrowser))))
     }
 
     /// Builds the service with the connection used for optional host callbacks.
-    pub(crate) async fn from_config_with_connection(
+    pub(crate) fn from_config_with_connection(
         config: &serde_json::Value,
-        connection: tinybus::Connection,
+        connection: &tinybus::Connection,
     ) -> TinyBusResult<Self> {
-        let trace_link = if let Some(destination) = super::config::trace_sink_destination(config)
+        let trace_link = if let Some(destination) = trace_sink_destination(config)
             .map_err(|error| TinyBusError::failed(error.to_string()))?
         {
             Some(TraceLink::new(connection.clone(), destination)?)
@@ -56,6 +57,7 @@ impl DesktopService {
     /// # Errors
     ///
     /// Propagates whatever [`Desktop::from_config`] rejects.
+    #[cfg(test)]
     pub(crate) fn with_browser(config: &serde_json::Value, browser: Arc<Browser>) -> Result<Self> {
         Self::with_browser_and_trace_sink(config, browser, None)
     }

@@ -63,6 +63,22 @@ impl TraceLink {
         connection: Connection,
         destination: tinybus::BusName,
     ) -> TinyBusResult<Arc<Self>> {
+        Self::new_with_confidentiality(connection, destination, true)
+    }
+
+    #[cfg(test)]
+    fn new_for_bus_tests(
+        connection: Connection,
+        destination: tinybus::BusName,
+    ) -> TinyBusResult<Arc<Self>> {
+        Self::new_with_confidentiality(connection, destination, false)
+    }
+
+    fn new_with_confidentiality(
+        connection: Connection,
+        destination: tinybus::BusName,
+        confidential: bool,
+    ) -> TinyBusResult<Arc<Self>> {
         let worker_connection = connection.clone();
         let worker_destination = destination.clone();
         let callback_active = Arc::new(AtomicBool::new(false));
@@ -78,12 +94,13 @@ impl TraceLink {
             .name("tinycomputer-trace-sink".into())
             .spawn(move || {
                 worker(
-                    runtime,
-                    worker_connection,
-                    worker_destination,
-                    worker_callback_active,
-                    receiver,
-                )
+                    &runtime,
+                    &worker_connection,
+                    &worker_destination,
+                    &worker_callback_active,
+                    &receiver,
+                    confidential,
+                );
             })
             .map_err(|error| TinyBusError::failed(format!("trace sink worker failed: {error}")))?;
         Ok(Arc::new(Self {
@@ -118,11 +135,12 @@ impl TraceLink {
 }
 
 fn worker(
-    runtime: tokio::runtime::Handle,
-    connection: Connection,
-    destination: tinybus::BusName,
-    callback_active: Arc<AtomicBool>,
-    receiver: Receiver<Command>,
+    runtime: &tokio::runtime::Handle,
+    connection: &Connection,
+    destination: &tinybus::BusName,
+    callback_active: &Arc<AtomicBool>,
+    receiver: &Receiver<Command>,
+    confidential: bool,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
@@ -132,7 +150,7 @@ fn worker(
                 byte_budget,
                 reply,
             } => {
-                let Some(_guard) = CallbackGuard::try_acquire(&callback_active) else {
+                let Some(_guard) = CallbackGuard::try_acquire(callback_active) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
@@ -152,7 +170,7 @@ fn worker(
                             trace_sink::INTERFACE,
                         )?
                         .with_timeout(timeout);
-                    call::<SinkAck, _>(
+                    call_to_host::<SinkAck, _>(
                         &proxy,
                         trace_sink::methods::APPEND,
                         (TraceEvent {
@@ -160,6 +178,7 @@ fn worker(
                             deadline_ms,
                             byte_budget,
                         },),
+                        confidential,
                     )
                     .await
                     .map(|_| ())
@@ -174,7 +193,7 @@ fn worker(
                 limits,
                 reply,
             } => {
-                let Some(_guard) = CallbackGuard::try_acquire(&callback_active) else {
+                let Some(_guard) = CallbackGuard::try_acquire(callback_active) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
@@ -194,7 +213,7 @@ fn worker(
                             trace_sink::INTERFACE,
                         )?
                         .with_timeout(timeout);
-                    call::<TraceArtifactRef, _>(
+                    call_to_host::<TraceArtifactRef, _>(
                         &proxy,
                         trace_sink::methods::STORE_ARTIFACT,
                         (TraceArtifact {
@@ -204,6 +223,7 @@ fn worker(
                             deadline_ms,
                             limits,
                         },),
+                        confidential,
                     )
                     .await
                     .map(|reply| reply.reference)
@@ -220,6 +240,23 @@ where
     A: Serialize,
 {
     proxy.call_confidential(member, args).await
+}
+
+async fn call_to_host<T, A>(
+    proxy: &Proxy,
+    member: &str,
+    args: A,
+    confidential: bool,
+) -> TinyBusResult<T>
+where
+    T: DeserializeOwned,
+    A: Serialize,
+{
+    if confidential {
+        call(proxy, member, args).await
+    } else {
+        proxy.call(member, args).await
+    }
 }
 
 fn remaining_timeout(deadline: Instant) -> Option<Duration> {
@@ -304,7 +341,7 @@ impl EngineTraceSink for TraceLink {
             })?;
         receive(&result, timeout)
             .map_err(|_| TraceSinkError::Internal("trace sink acknowledgment timed out".into()))?
-            .map_err(|_| TraceSinkError::Internal("trace sink rejected event".into()))
+            .map_err(|()| TraceSinkError::Internal("trace sink rejected event".into()))
     }
 
     fn store_artifact(
@@ -351,7 +388,7 @@ impl EngineTraceSink for TraceLink {
             .map_err(|_| {
                 TraceSinkError::Internal("trace artifact acknowledgment timed out".into())
             })?
-            .map_err(|_| TraceSinkError::Internal("trace sink rejected artifact".into()))
+            .map_err(|()| TraceSinkError::Internal("trace sink rejected artifact".into()))
     }
 }
 

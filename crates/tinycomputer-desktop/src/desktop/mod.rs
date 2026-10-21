@@ -350,7 +350,7 @@ impl Desktop {
     /// permission report is fetched and checked first: fetching one costs a
     /// round trip to the platform, so a command that needs no permission does
     /// not pay for it.
-    fn run<F>(&self, command: &str, need: Need, run: F) -> DesktopResponse
+    fn run<F>(&self, command: &'static str, need: Need, run: F) -> DesktopResponse
     where
         F: FnOnce(&dyn PlatformAdapter, &CommandContext) -> std::result::Result<Value, AppError>,
     {
@@ -360,7 +360,7 @@ impl Desktop {
     }
 
     /// [`Desktop::run`] for the two members that also read the report itself.
-    fn run_with_report<F>(&self, command: &str, need: Need, run: F) -> DesktopResponse
+    fn run_with_report<F>(&self, command: &'static str, need: Need, run: F) -> DesktopResponse
     where
         F: FnOnce(
             &dyn PlatformAdapter,
@@ -372,9 +372,12 @@ impl Desktop {
         let adapter: &dyn PlatformAdapter = &adapter;
 
         let result = self.context().and_then(|context| {
-            let report = permission::report(need, adapter)?;
-            permission::preflight(need, &report)?;
-            run(adapter, &context, &report)
+            let scope = context.command_scope(command)?;
+            let result = permission::report(need, adapter)
+                .and_then(|report| permission::preflight(need, &report).map(|()| report))
+                .and_then(|report| run(adapter, &context, &report));
+            scope.complete(&result)?;
+            result
         });
 
         reply::envelope(command, result)

@@ -39,7 +39,7 @@ pub(crate) use dispatch::DesktopService;
 /// silently ignoring the session it was told to join would allocate refs
 /// nothing else can spend.
 async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
-    let service = DesktopService::from_config_with_connection(&config, connection.clone()).await?;
+    let service = DesktopService::from_config_with_connection(&config, &connection)?;
     // The host's per-site memory; a host that does not serve it only costs
     // tasks what earlier ones learned.
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
