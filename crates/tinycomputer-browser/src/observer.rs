@@ -92,3 +92,7 @@ pub trait ActionObserver: Send + Sync {
     /// quickly and must not retain data they do not need.
     fn observed(&self, action: ActionObservation);
 }
+
+#[cfg(test)]
+#[path = "observer_tests.rs"]
+mod observer_tests;

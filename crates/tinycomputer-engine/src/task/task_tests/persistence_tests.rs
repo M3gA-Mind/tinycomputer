@@ -5,6 +5,10 @@ use super::*;
 #[tokio::test]
 async fn a_paused_task_round_trips_into_a_fresh_controller() {
     let (tasks, _) = controller(Vec::new());
+    let profile = std::env::temp_dir()
+        .join("tinycomputer-paused-profile")
+        .to_string_lossy()
+        .into_owned();
     let missing = tasks.export_paused_task(&TaskId::new("t-900")).unwrap_err();
     assert!(matches!(&missing, crate::PausedTaskError::NoSuchTask(_)));
     assert!(missing.to_string().contains("t-900"));
@@ -20,7 +24,7 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
             }))),
             facts: BTreeMap::from([("password".to_owned(), "swordfish-secret".to_owned())]),
             constraints: TaskConstraints {
-                browser_profile: Some("/profiles/asha".to_owned()),
+                browser_profile: Some(profile.clone()),
                 ..TaskConstraints::default()
             },
             ..StartTaskRequest::default()
@@ -40,7 +44,7 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
     let encoded = tasks.export_paused_task(&view.id).unwrap();
     let serialized = std::str::from_utf8(&encoded).unwrap();
     assert!(!serialized.contains("swordfish-secret"));
-    assert!(serialized.contains("/profiles/asha"));
+    assert!(serialized.contains(&profile));
 
     drop(tasks);
     let (restored, script) = controller(vec![finished_run(
@@ -82,7 +86,7 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
         script.constraints.lock().unwrap()[0]
             .browser_profile
             .as_deref(),
-        Some("/profiles/asha")
+        Some(profile.as_str())
     );
 
     // Imported ids advance the local allocator so the next task cannot

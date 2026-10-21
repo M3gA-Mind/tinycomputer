@@ -237,6 +237,7 @@ fn text_that_never_arrives_is_reported_as_not_delivered() {
 #[test]
 fn a_surface_settles_instantly_and_has_no_addresses_unless_it_says_otherwise() {
     Surface::settle(&TextBackend::default());
+    Surface::settle_briefly(&TextBackend::default());
     // Settling briefly is settling in full, unless the surface can tell them
     // apart: the desktop's own settle runs after a launch or Escape.
     let settling = Settling::default();
