@@ -140,6 +140,46 @@ pub type CaptureFuture = Pin<Box<dyn Future<Output = Option<OutputRef>> + Send>>
 /// or could not be made so; a task goes on either way.
 pub type PrepareFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
+/// The remaining work a host may try after Jev and its rescuer cannot finish
+/// one top-level step.
+#[derive(Debug, Clone)]
+pub struct FailedStepRecovery {
+    /// The task whose browser session is still open.
+    pub task: TaskId,
+    /// Redacted context for the failed step.
+    pub briefing: crate::Briefing,
+    /// The task's original browser and payment constraints.
+    pub constraints: TaskConstraints,
+    /// Actions left in the task budget.
+    pub remaining_actions: u32,
+    /// Jev evaluations left in the task budget.
+    pub remaining_model_calls: u32,
+    /// Time left in the task budget, when bounded.
+    pub remaining_ms: Option<u64>,
+}
+
+/// What a host's bounded failed-step recovery did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailedStepRecoveryResult {
+    /// The host completed only the failed step; `TinyComputer` may run its tail.
+    Completed {
+        /// Why the host considers that step complete.
+        reason: String,
+        /// Browser actions spent while recovering it.
+        actions: u32,
+        /// Model calls spent while recovering it.
+        model_calls: u32,
+    },
+    /// The host could not safely complete the step.
+    GiveUp {
+        /// Why recovery stopped.
+        reason: String,
+    },
+}
+
+/// The future returned by [`FlowRunner::recover_failed_step`].
+pub type FailedStepRecoveryFuture = Pin<Box<dyn Future<Output = FailedStepRecoveryResult> + Send>>;
+
 /// Runs a task's flows, on surfaces that live as long as the task.
 pub trait FlowRunner: Send + Sync + 'static {
     /// Runs `request` for `task` within `constraints`, returning `RunFlow`'s
@@ -165,6 +205,17 @@ pub trait FlowRunner: Send + Sync + 'static {
         _usage: std::sync::Arc<crate::UsageRecorder>,
     ) -> FlowFuture {
         self.run(task, constraints, request)
+    }
+
+    /// Attempts a bounded recovery of one failed top-level step. The caller
+    /// invokes this only after its configured Jev rescuer gives up or is
+    /// unavailable. The default preserves the task's failure.
+    fn recover_failed_step(&self, _request: FailedStepRecovery) -> FailedStepRecoveryFuture {
+        Box::pin(async {
+            FailedStepRecoveryResult::GiveUp {
+                reason: "the host has no failed-step recovery".to_owned(),
+            }
+        })
     }
 
     /// The visible text of the task's surface now, to spot a wall only a

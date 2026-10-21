@@ -39,7 +39,8 @@ use tinycomputer_bus::{
 use super::interpret::app_at;
 use super::publish::next_calls;
 use super::{
-    ContinuePaymentRequest, FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind,
+    ContinuePaymentRequest, FailedStepRecovery, FailedStepRecoveryFuture, FailedStepRecoveryResult,
+    FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind,
 };
 
 /// Replies queued in order; a missing reply never resolves, like a flow
@@ -73,6 +74,10 @@ struct Script {
     host_secret: Mutex<Option<String>>,
     /// The pages loaded while tasks were planned, with their task.
     opened: Mutex<Vec<(TaskId, String)>>,
+    /// The host's response to a failed-step recovery request.
+    recovery: Mutex<Option<FailedStepRecoveryResult>>,
+    /// Recovery requests, including their redacted task context.
+    recoveries: Mutex<Vec<FailedStepRecovery>>,
 }
 
 impl FlowRunner for Script {
@@ -91,6 +96,16 @@ impl FlowRunner for Script {
                 None => std::future::pending().await,
             }
         })
+    }
+
+    fn recover_failed_step(&self, request: FailedStepRecovery) -> FailedStepRecoveryFuture {
+        self.recoveries.lock().unwrap().push(request);
+        let result = self.recovery.lock().unwrap().take().unwrap_or_else(|| {
+            FailedStepRecoveryResult::GiveUp {
+                reason: "no scripted recovery".to_owned(),
+            }
+        });
+        Box::pin(async move { result })
     }
 
     fn visible_text(&self, _task: &TaskId) -> super::TextFuture {
