@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use tinycomputer_browser::{ActionContext, Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::agent::{PaymentMode, TaskConstraints, TaskId};
-use tinycomputer_bus::browser::ScreenshotRequest;
+use tinycomputer_bus::browser::{ScreenshotRequest, SessionId};
 use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
 use tinycomputer_core::surface::{Depth, Surface};
 
@@ -59,6 +59,12 @@ impl BrowserRunner {
     pub fn with_secret_host(mut self, host: Arc<dyn SecretHost>) -> Self {
         self.secret_host = Some(host);
         self
+    }
+
+    /// The browser session this task runner opened, once it is prepared.
+    #[must_use]
+    pub fn session_id(&self, task: &TaskId) -> Option<SessionId> {
+        self.surfaces.lock().ok()?.get(task)?.session()
     }
 
     /// Uses `options` as the host defaults for sessions this runner opens.
