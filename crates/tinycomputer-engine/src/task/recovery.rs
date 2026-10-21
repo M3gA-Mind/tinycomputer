@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use tinycomputer_bus::agent::{Rescue, RescueOutcome, TaskId, TaskStatus};
-use tinycomputer_bus::{Flow, FlowStep, StepOutcome, StepReport};
+use tinycomputer_bus::{Flow, FlowAction, FlowStep, StepOutcome, StepReport};
 use tinycomputer_core::Facts;
 
 use super::brief::brief;
@@ -13,7 +13,9 @@ use super::names::{fact_names, known_names};
 use super::publish::publish;
 use super::store::{Cell, Run};
 use super::timing;
-use super::{FlowRunner, RESCUE_TIMEOUT_MS, redact_task_data};
+use super::{
+    FailedStepRecovery, FailedStepRecoveryResult, FlowRunner, RESCUE_TIMEOUT_MS, redact_task_data,
+};
 use crate::rescue::{Briefing, Guidance, MAX_RESCUES, Rescuer, resumed};
 
 /// A recoverable failure of a top-level step is first rescued: `Err` holds
@@ -35,19 +37,155 @@ pub(super) async fn rescued(
     else {
         return Ok(status);
     };
-    let hint = match rescue(cell, runner, run, failed, &reason, reached).await {
+    let fallback_briefing =
+        failed_step_briefing(cell, runner, run, failed, &reason, reached.clone()).await;
+    let mut hint = match rescue(cell, runner, run, failed, &reason, reached).await {
         Rescued::Run(rescued) => return Err(rescued),
         Rescued::GaveUp(why) => {
             format!("the rescuer gave up: {why}; reword the step, split it, or take over")
         }
         Rescued::Skipped => hint,
     };
-    Ok(TaskStatus::Failed {
+    if let Some(briefing) = fallback_briefing
+        && exact_top_level_tail(&briefing)
+    {
+        let (constraints, budget, spent) = {
+            let Ok(state) = cell.state.lock() else {
+                return Ok(failed_status(failed, reason, hint));
+            };
+            (state.constraints.clone(), state.budget, state.spent)
+        };
+        let remaining_actions = budget
+            .max_actions
+            .unwrap_or(120)
+            .saturating_sub(spent.actions);
+        let remaining_model_calls = budget
+            .max_model_calls
+            .unwrap_or(super::DEFAULT_MODEL_CALLS)
+            .saturating_sub(spent.model_calls);
+        let remaining_ms = budget
+            .max_elapsed_ms
+            .map(|max| max.saturating_sub(spent.elapsed_ms));
+        let request = FailedStepRecovery {
+            task: cell.view.borrow().id.clone(),
+            briefing: briefing.clone(),
+            constraints,
+            remaining_actions,
+            remaining_model_calls,
+            remaining_ms,
+        };
+        let timeout_ms = remaining_ms
+            .unwrap_or(RESCUE_TIMEOUT_MS)
+            .min(RESCUE_TIMEOUT_MS);
+        let recovered = tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            runner.recover_failed_step(request),
+        )
+        .await;
+        match recovered {
+            Ok(FailedStepRecoveryResult::Completed {
+                reason: recovery_reason,
+                actions,
+                model_calls: _,
+            }) => {
+                let tail = resumed(&briefing, Vec::new(), 0);
+                // A final failed step has no remaining Run. Letting an empty
+                // flow reach RunFlow would turn completion into a false failure.
+                if tail.steps.is_empty() {
+                    return Ok(failed_status(
+                        failed,
+                        reason,
+                        format!(
+                            "{hint}; host recovery completed the last step but no safe tail exists"
+                        ),
+                    ));
+                }
+                if let Ok(mut state) = cell.state.lock() {
+                    state.spent.actions = state.spent.actions.saturating_add(actions);
+                    state.rescues.push(Rescue {
+                        step: failed,
+                        failure: reason,
+                        reason: recovery_reason,
+                        steps: Vec::new(),
+                        covers: 0,
+                        outcome: RescueOutcome::Recovered,
+                    });
+                }
+                return Err(Run {
+                    flow: tail,
+                    allow_destructive: run.allow_destructive,
+                    rescue: None,
+                });
+            }
+            Ok(FailedStepRecoveryResult::GiveUp { reason: why }) => {
+                hint = format!("{hint}; host recovery gave up: {why}");
+            }
+            Err(_) => {
+                hint = format!("{hint}; host recovery took too long");
+            }
+        }
+    }
+    Ok(failed_status(failed, reason, hint))
+}
+
+fn failed_status(failed: usize, reason: String, hint: String) -> TaskStatus {
+    TaskStatus::Failed {
         step: Some(failed),
         reason,
         hint,
         recoverable: true,
-    })
+    }
+}
+
+/// Builds the same redacted briefing used by Jev's rescuer for the host hook.
+async fn failed_step_briefing(
+    cell: &Cell,
+    runner: &dyn FlowRunner,
+    run: &Run,
+    failed: usize,
+    failure: &str,
+    reached: Vec<StepReport>,
+) -> Option<Briefing> {
+    let id = { cell.view.borrow().id.clone() };
+    let (facts, goal, earlier, rules, reads) = {
+        let state = cell.state.lock().ok()?;
+        (
+            state.facts.clone(),
+            state.goal.clone(),
+            state.rescues.clone(),
+            brief(&state).rules,
+            state.reads.clone(),
+        )
+    };
+    briefing(
+        runner,
+        RescueContext {
+            id,
+            facts,
+            goal,
+            flow: run.flow.clone(),
+            failed,
+            failure: failure.to_owned(),
+            reached,
+            earlier,
+            rules,
+            reads,
+        },
+    )
+    .await
+}
+
+/// The existing resume operation can preserve this tail exactly only when
+/// failure is at a top-level atomic step. A failed branch or loop might have
+/// unfinished nested siblings or iterations, so the host must give up.
+fn exact_top_level_tail(briefing: &Briefing) -> bool {
+    let Some(step) = briefing.flow.steps.get(briefing.failed) else {
+        return false;
+    };
+    !matches!(
+        step.action(),
+        FlowAction::If(_) | FlowAction::RepeatUntil(_) | FlowAction::StopBefore(_)
+    )
 }
 
 /// What a rescue came to.
