@@ -2,7 +2,20 @@
 
 use super::export::{resumable, validate_pause};
 use super::types::{Envelope, PausedTask};
-use super::*;
+use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use tinycomputer_bus::Flow;
+use tinycomputer_bus::agent::{TaskStatus, TaskView};
+use tinycomputer_core::{Facts, SecretFactHandle};
+
+use super::interpret::Resume;
+use super::publish::{needs_input, publish};
+use super::store::{Cell, State};
+use super::{MAX_TASKS, PausedTaskError, TaskCallBudget, Tasks, UsageRecorder};
+use crate::rescue::Rescuer;
+use crate::shape::Shaper;
 
 impl Tasks {
     /// Restores a versioned paused task into this controller.

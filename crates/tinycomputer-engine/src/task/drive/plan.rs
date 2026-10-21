@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskStatus};
 
-use super::{drive, DEFAULT_VOTES, Run};
-use crate::task::publish::publish;
+use super::{DEFAULT_VOTES, Run, drive};
 use crate::task::FlowRunner;
+use crate::task::publish::publish;
 
 /// Plans the task, then runs the plan — or asks for what it needs first.
 pub(in crate::task) async fn plan_then_drive(

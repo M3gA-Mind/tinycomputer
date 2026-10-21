@@ -6,11 +6,11 @@ use std::time::Duration;
 use tinycomputer_bus::agent::{TaskId, TaskStatus};
 
 use super::{Harvest, SHAPE_TIMEOUT_MS, TaskRecords};
+use crate::task::FlowRunner;
 use crate::task::artifact::capture;
 use crate::task::publish::{publish, records};
 use crate::task::redact_task_value;
 use crate::task::store::Cell;
-use crate::task::FlowRunner;
 
 /// Every run finished: the task is done, with what it read, shaped as its
 /// `output` asks when it asks.

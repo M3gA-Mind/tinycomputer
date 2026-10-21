@@ -1,7 +1,12 @@
 //! Encoding paused tasks and validating state before it leaves the controller.
 
+use std::collections::BTreeMap;
+
+use tinycomputer_bus::agent::{TaskId, TaskStatus};
+use tinycomputer_core::Facts;
+
 use super::types::{Envelope, PausedTask};
-use super::*;
+use super::{PausedTaskError, Resume, Tasks, VERSION};
 
 impl Tasks {
     /// Encodes a task paused for input, approval, or human help.

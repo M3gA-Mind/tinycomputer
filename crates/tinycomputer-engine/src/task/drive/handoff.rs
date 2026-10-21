@@ -9,9 +9,9 @@ use tinycomputer_bus::FLOW_GUIDE;
 use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskId, TaskStatus};
 
 use super::drive;
+use crate::task::FlowRunner;
 use crate::task::publish::publish;
 use crate::task::store::{Cell, Run};
-use crate::task::FlowRunner;
 
 pub(in crate::task) async fn handle_plan_failure(
     cell: Arc<Cell>,
