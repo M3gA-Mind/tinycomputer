@@ -410,13 +410,9 @@ async fn process_local_screenshot_handles_are_dropped_from_snapshots() {
             ..
         }
     ));
-    assert!(
-        restored
-            .report(&imported.id)
-            .data
-            .unwrap()
-            .artifacts
-            .is_empty()
+    assert_eq!(
+        restored.report(&imported.id).data.unwrap().artifacts,
+        Vec::<tinycomputer_bus::browser::OutputRef>::new()
     );
 }
 
@@ -453,7 +449,10 @@ async fn import_rejects_unknown_versions_and_inconsistent_pending_state() {
         .unwrap_err();
     assert!(std::error::Error::source(&malformed).is_some());
     assert!(malformed.to_string().contains("paused-task JSON"));
-    assert!(fresh.list().data.unwrap().is_empty());
+    assert_eq!(
+        fresh.list().data.unwrap(),
+        Vec::<tinycomputer_bus::agent::TaskView>::new()
+    );
 }
 
 #[tokio::test]
@@ -475,7 +474,10 @@ async fn import_refuses_invalid_ids_duplicate_tasks_and_unmatched_approval_state
             .import_paused_task(&serde_json::to_vec(&invalid_id).unwrap())
             .is_err()
     );
-    assert!(fresh.list().data.unwrap().is_empty());
+    assert_eq!(
+        fresh.list().data.unwrap(),
+        Vec::<tinycomputer_bus::agent::TaskView>::new()
+    );
 
     let (tasks, _) = controller(vec![gated_for_persistence("Send", "sending the email")]);
     let view = start(
@@ -493,7 +495,10 @@ async fn import_refuses_invalid_ids_duplicate_tasks_and_unmatched_approval_state
             .import_paused_task(&serde_json::to_vec(&malformed).unwrap())
             .is_err()
     );
-    assert!(fresh.list().data.unwrap().is_empty());
+    assert_eq!(
+        fresh.list().data.unwrap(),
+        Vec::<tinycomputer_bus::agent::TaskView>::new()
+    );
 }
 
 #[tokio::test]
@@ -548,7 +553,10 @@ fn task_id_allocator_refuses_to_wrap() {
         ..StartTaskRequest::default()
     });
     assert_eq!(code(&reply), "TOO_MANY_TASKS");
-    assert!(tasks.list().data.unwrap().is_empty());
+    assert_eq!(
+        tasks.list().data.unwrap(),
+        Vec::<tinycomputer_bus::agent::TaskView>::new()
+    );
 }
 
 #[tokio::test]
@@ -611,7 +619,10 @@ async fn persistence_refuses_secret_leaks_and_host_bound_browser_endpoints() {
         fresh.import_paused_task(&serde_json::to_vec(&endpoint_snapshot).unwrap()),
         Err(crate::PausedTaskError::HostBoundEndpoint)
     ));
-    assert!(fresh.list().data.unwrap().is_empty());
+    assert_eq!(
+        fresh.list().data.unwrap(),
+        Vec::<tinycomputer_bus::agent::TaskView>::new()
+    );
 }
 
 fn gated_for_persistence(target: &str, phrase: &str) -> DesktopResponse {

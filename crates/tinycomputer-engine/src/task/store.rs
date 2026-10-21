@@ -125,13 +125,17 @@ impl Tasks {
         facts: Facts,
         request: &StartTaskRequest,
     ) -> Option<Arc<Cell>> {
-        let number = self
-            .counter
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                value.checked_add(1)
-            })
-            .ok()?
-            .checked_add(1)?;
+        let number = loop {
+            let current = self.counter.load(Ordering::Relaxed);
+            let number = current.checked_add(1)?;
+            if self
+                .counter
+                .compare_exchange_weak(current, number, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                break number;
+            }
+        };
         let id = TaskId::new(format!("t-{number}"));
         let usage = Arc::new(UsageRecorder::default());
         let view = TaskView {
