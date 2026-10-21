@@ -59,7 +59,9 @@ impl EngineTraceSink for TraceLink {
             .ok_or_else(|| TraceSinkError::Internal("trace artifact deadline expired".into()))?;
         let (reply, result) = mpsc::sync_channel(1);
         let kind = match artifact.kind {
-            EngineArtifactKind::Screenshot => tinycomputer_bus::trace_sink::TraceArtifactKind::Screenshot,
+            EngineArtifactKind::Screenshot => {
+                tinycomputer_bus::trace_sink::TraceArtifactKind::Screenshot
+            }
             EngineArtifactKind::RefMap => tinycomputer_bus::trace_sink::TraceArtifactKind::RefMap,
         };
         send(

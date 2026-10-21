@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -19,25 +19,16 @@ use tinybus::{Connection, Error as TinyBusError, Proxy, Result as TinyBusResult}
 use tinycomputer_bus::trace_sink::{
     self, SinkAck, TaskReportRecord, TraceArtifact, TraceArtifactKind, TraceArtifactRef, TraceEvent,
 };
-use tinycomputer_desktop::{
-    TraceSinkArtifactKind as EngineArtifactKind, TraceSinkError,
-};
+use tinycomputer_desktop::{TraceSinkArtifactKind as EngineArtifactKind, TraceSinkError};
 
 mod engine_adapter;
 
-pub(super) use engine_adapter::{operation_deadline, receive, send};
-use engine_adapter::{CALL_TIMEOUT, remaining_timeout, validate_artifact_size};
+pub(super) use engine_adapter::{
+    operation_deadline, receive, remaining_millis, remaining_timeout, send, validate_artifact_size,
+};
+pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn validate_artifact_size(size: usize) -> std::result::Result<(), TraceSinkError> {
-    if size > tinycomputer_bus::trace_sink::MAX_TRACE_ARTIFACT_BYTES {
-        return Err(TraceSinkError::Internal(
-            "trace artifact exceeds the 8 MiB bus limit".into(),
-        ));
-    }
-    Ok(())
-}
-
-enum Command {
+pub(super) enum Command {
     Append {
         record: serde_json::Value,
         deadline: Instant,
@@ -315,19 +306,7 @@ where
     }
 }
 
-fn remaining_timeout(deadline: Instant) -> Option<Duration> {
-    let remaining = deadline.checked_duration_since(Instant::now())?;
-    let timeout = remaining.min(CALL_TIMEOUT);
-    (timeout.as_millis() > 0).then_some(timeout)
-}
-
-fn remaining_millis(deadline: Instant) -> Option<u64> {
-    let remaining = deadline.checked_duration_since(Instant::now())?;
-    let millis = u64::try_from(remaining.as_millis()).unwrap_or(u64::MAX);
-    (millis > 0).then_some(millis)
-}
-
-struct CallbackGuard<'a>(&'a AtomicBool);
+pub(super) struct CallbackGuard<'a>(&'a AtomicBool);
 
 impl<'a> CallbackGuard<'a> {
     fn try_acquire(active: &'a AtomicBool) -> Option<Self> {
@@ -347,25 +326,6 @@ impl Drop for CallbackGuard<'_> {
 impl Drop for TraceLink {
     fn drop(&mut self) {
         let _ = self.shutdown();
-    }
-}
-
-fn operation_deadline(deadline: TraceSinkDeadline) -> Option<Instant> {
-    let remaining = deadline.remaining();
-    (!remaining.is_zero())
-        .then(|| Instant::now().checked_add(remaining))
-        .flatten()
-}
-
-fn receive<T>(receiver: &mpsc::Receiver<T>, timeout: Duration) -> Result<T, RecvTimeoutError> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(|| receiver.recv_timeout(timeout))
-        }
-        // A current-thread executor cannot make progress while this sync
-        // callback waits, so fail instead of deadlocking its dispatch loop.
-        Ok(_) => Err(RecvTimeoutError::Timeout),
-        Err(_) => receiver.recv_timeout(timeout),
     }
 }
 
