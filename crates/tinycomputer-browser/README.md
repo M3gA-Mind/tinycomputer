@@ -42,8 +42,8 @@ contents remain opaque to the proxy and require TinySecurity's explicit
 [`configuration.md`](../../docs/crates/tinycomputer/configuration.md#browser)
 for the host contract and its privacy behavior.
 
-The Chromium egress fixture tests are ignored in the default suite because
-they need an installed browser; run them explicitly with
-`cargo test -p tinycomputer-browser --features agent-browser chromium_ -- --ignored`.
+The Chromium egress fixture tests are excluded from the default suite because
+they need an installed browser; run them with
+`cargo test -p tinycomputer-browser --features 'agent-browser live-tests' live_`.
 They use local fixtures only. Other browser integration tests run in the Docker
 lab (`docs/technical/docker-lab.md`).

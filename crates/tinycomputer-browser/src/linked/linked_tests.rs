@@ -98,8 +98,8 @@ async fn a_closed_or_lost_browser_cannot_implicitly_launch_without_the_proxy() {
 }
 
 #[tokio::test]
-#[ignore = "requires an installed Chromium; exercises its actual proxy behavior"]
-async fn chromium_loopback_navigation_uses_the_authenticated_session_proxy() {
+#[cfg(feature = "live-tests")]
+async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy() {
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -143,8 +143,8 @@ async fn chromium_loopback_navigation_uses_the_authenticated_session_proxy() {
 }
 
 #[tokio::test]
-#[ignore = "requires an installed Chromium; verifies denied subresource egress"]
-async fn chromium_subresource_never_reaches_a_denied_destination() {
+#[cfg(feature = "live-tests")]
+async fn live_chromium_subresource_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
@@ -198,8 +198,8 @@ async fn chromium_subresource_never_reaches_a_denied_destination() {
 }
 
 #[tokio::test]
-#[ignore = "requires an installed Chromium; verifies denied redirect egress"]
-async fn chromium_redirect_never_reaches_a_denied_destination() {
+#[cfg(feature = "live-tests")]
+async fn live_chromium_redirect_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
@@ -249,8 +249,8 @@ async fn chromium_redirect_never_reaches_a_denied_destination() {
 }
 
 #[tokio::test]
-#[ignore = "requires an installed Chromium; verifies denied WebSocket egress"]
-async fn chromium_websocket_never_reaches_a_denied_destination() {
+#[cfg(feature = "live-tests")]
+async fn live_chromium_websocket_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
