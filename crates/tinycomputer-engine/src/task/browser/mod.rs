@@ -15,7 +15,7 @@ mod redaction;
 use crate::SecretHost;
 use crate::{JevRuntime, UsageRecorder};
 use redaction::SecretRedactingSurface;
-pub(super) use redaction::{redact_observation_error, redact_response, redact_screen};
+use redaction::{redact_observation_error, redact_response, redact_screen};
 
 /// Runs task flows directly on one in-process browser surface per task.
 ///
