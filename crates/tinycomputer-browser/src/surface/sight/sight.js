@@ -1322,7 +1322,7 @@
       role: what,
       name,
       description,
-      value: valueOf(element, what),
+      value: limits.hideFormValues && privateField(element) ? '' : valueOf(element, what),
       states: statesOf(element, what),
       box: [box(element).x, box(element).y, box(element).width, box(element).height].map(Math.round),
       path: pathOf(element),
