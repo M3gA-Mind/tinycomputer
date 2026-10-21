@@ -66,7 +66,6 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
         )
         .await
         .unwrap();
-    client.shutdown().await.unwrap();
     let mut response = Vec::new();
     client.read_to_end(&mut response).await.unwrap();
     assert!(
