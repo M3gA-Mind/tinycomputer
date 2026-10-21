@@ -68,14 +68,8 @@ pub(super) async fn serve(
     if request.connect || request.has_upgrade {
         tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     } else {
-        if !forward_request_body_with_lease(
-            &mut client,
-            &mut upstream,
-            &request,
-            &auth,
-            &lease,
-        )
-        .await?
+        if !forward_request_body_with_lease(&mut client, &mut upstream, &request, &auth, &lease)
+            .await?
         {
             return Ok(());
         }

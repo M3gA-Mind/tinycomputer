@@ -69,12 +69,16 @@ pub(super) async fn initialize_upstream(
         "browser upstream request timed out",
     )
     .await?;
-    write_all_bounded(
-        upstream,
-        &request.bytes[request.split..],
-        "browser upstream body timed out",
-    )
-    .await
+    if request.chunked {
+        Ok(())
+    } else {
+        write_all_bounded(
+            upstream,
+            &request.bytes[request.split..],
+            "browser upstream body timed out",
+        )
+        .await
+    }
 }
 pub(super) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
@@ -136,12 +140,7 @@ pub(super) async fn forward_request_body_with_lease(
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
 ) -> io::Result<bool> {
-    let body = read_request_body(
-        client,
-        upstream,
-        request,
-        buffered_body_len(request),
-    );
+    let body = read_request_body(client, upstream, request, buffered_body_len(request));
     tokio::pin!(body);
     let mut validations = validation_interval();
     loop {

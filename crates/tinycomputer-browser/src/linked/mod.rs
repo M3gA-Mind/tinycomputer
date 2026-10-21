@@ -201,12 +201,7 @@ fn enforce_launch(
     let has_ambient_browser_config = command.get("action").and_then(Value::as_str)
         == Some("launch")
         && has_ambient_browser_config();
-    enforce_launch_with_config(
-        command,
-        proxy,
-        proxy_password,
-        has_ambient_browser_config,
-    )
+    enforce_launch_with_config(command, proxy, proxy_password, has_ambient_browser_config)
 }
 
 fn enforce_launch_with_config(
@@ -273,7 +268,6 @@ fn has_ambient_browser_config() -> bool {
         || std::env::var_os("AGENT_BROWSER_PROXY_PASSWORD").is_some()
         || std::env::var_os("AGENT_BROWSER_PROFILE").is_some()
         || std::env::var_os("AGENT_BROWSER_RESTORE").is_some()
-}
 }
 
 #[cfg(test)]

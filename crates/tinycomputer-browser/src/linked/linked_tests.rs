@@ -17,7 +17,9 @@ use tokio::{
     net::TcpListener,
 };
 
-use super::{AgentBrowser, ENGINE, EnforcedAgentBrowser, Linked, enforce_launch, state_options};
+use super::{
+    AgentBrowser, ENGINE, EnforcedAgentBrowser, Linked, enforce_launch_with_config, state_options,
+};
 use crate::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
     engine::{Engine, Launcher},
@@ -410,10 +412,11 @@ impl EgressAuthorizer for RejectAllButFixture {
 
 #[test]
 fn enforced_launch_uses_only_the_host_proxy_and_network_containment_flags() {
-    let launch = enforce_launch(
+    let launch = enforce_launch_with_config(
         json!({"id":"launch","action":"launch","headless":true,"args":[]}),
         "http://127.0.0.1:39123",
         "session-secret",
+        false,
     )
     .expect("enforced launch");
     assert_eq!(launch["proxy"]["server"], "http://127.0.0.1:39123");
@@ -433,22 +436,32 @@ fn enforced_launch_uses_only_the_host_proxy_and_network_containment_flags() {
 
 #[test]
 fn enforced_launch_refuses_external_cdp_and_caller_flags() {
-    let cdp = enforce_launch(
+    let cdp = enforce_launch_with_config(
         json!({"action":"launch","cdpUrl":"http://127.0.0.1:9222"}),
         "http://127.0.0.1:39123",
         "session-secret",
+        false,
     );
     assert!(cdp.is_err());
-    let args = enforce_launch(
+    let args = enforce_launch_with_config(
         json!({"action":"launch","args":["--proxy-server=http://attacker.test"]}),
         "http://127.0.0.1:39123",
         "session-secret",
+        false,
     );
     assert!(args.is_err());
-    let executable = enforce_launch(
+    let executable = enforce_launch_with_config(
         json!({"action":"launch","executablePath":"/tmp/attacker-browser"}),
         "http://127.0.0.1:39123",
         "session-secret",
+        false,
     );
     assert!(executable.is_err());
+    let ambient = enforce_launch_with_config(
+        json!({"action":"launch"}),
+        "http://127.0.0.1:39123",
+        "session-secret",
+        true,
+    );
+    assert!(ambient.is_err());
 }
