@@ -13,9 +13,9 @@ use tokio::{
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_address = destination.local_addr().unwrap();
-    // This loopback alias has no listener; using the live listener's port keeps
-    // the refusal local and avoids a freed ephemeral port race with other tests.
-    let first_address = SocketAddr::from(([127, 0, 0, 2], second_address.port()));
+    // Port 1 on the primary loopback interface is closed on the test runners,
+    // so the refusal is immediate and cannot race another ephemeral listener.
+    let first_address = SocketAddr::from(([127, 0, 0, 1], 1));
     let server = tokio::spawn(async move {
         let (mut socket, _) = destination.accept().await.unwrap();
         socket
@@ -53,7 +53,9 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
     assert!(
         std::str::from_utf8(&response)
             .unwrap()
-            .ends_with("\r\n\r\nok")
+            .ends_with("\r\n\r\nok"),
+        "unexpected proxy response: {}",
+        String::from_utf8_lossy(&response)
     );
     server.await.unwrap();
 }
