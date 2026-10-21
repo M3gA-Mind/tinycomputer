@@ -69,11 +69,35 @@ fn browser_callback_contract_has_no_http_payload_or_caller_selected_addresses() 
         serde_json::to_value(decision).unwrap(),
         serde_json::json!({ "allowed": true })
     );
-    assert_eq!(serde_json::from_value::<BrowserEgressTarget>(serde_json::to_value(&target).unwrap()).unwrap(), target);
-    assert_eq!(serde_json::from_value::<BrowserEgressGrant>(serde_json::to_value(&grant).unwrap()).unwrap(), grant);
-    assert_eq!(serde_json::from_value::<BrowserEgressConsumeRequest>(serde_json::to_value(&consume).unwrap()).unwrap(), consume);
-    assert_eq!(serde_json::from_value::<BrowserEgressValidateRequest>(serde_json::to_value(&validate).unwrap()).unwrap(), validate);
-    assert_eq!(serde_json::from_value::<BrowserEgressDecision>(serde_json::to_value(decision).unwrap()).unwrap(), decision);
+    assert_eq!(
+        serde_json::from_value::<BrowserEgressTarget>(serde_json::to_value(&target).unwrap())
+            .unwrap(),
+        target
+    );
+    assert_eq!(
+        serde_json::from_value::<BrowserEgressGrant>(serde_json::to_value(&grant).unwrap())
+            .unwrap(),
+        grant
+    );
+    assert_eq!(
+        serde_json::from_value::<BrowserEgressConsumeRequest>(
+            serde_json::to_value(&consume).unwrap()
+        )
+        .unwrap(),
+        consume
+    );
+    assert_eq!(
+        serde_json::from_value::<BrowserEgressValidateRequest>(
+            serde_json::to_value(&validate).unwrap()
+        )
+        .unwrap(),
+        validate
+    );
+    assert_eq!(
+        serde_json::from_value::<BrowserEgressDecision>(serde_json::to_value(decision).unwrap())
+            .unwrap(),
+        decision
+    );
     assert_eq!(METHODS, ["Authorize", "Consume", "Validate"]);
 }
 
