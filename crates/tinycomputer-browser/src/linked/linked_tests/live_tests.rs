@@ -10,8 +10,10 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc,
+        Mutex,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -38,6 +40,7 @@ async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy(
     let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
         address,
         authorizations: authorizations.clone(),
+        denied_targets: Arc::new(Mutex::new(Vec::new())),
     }))
     .open("live-egress");
     let launch = browser
@@ -69,6 +72,7 @@ async fn live_chromium_subresource_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
+    let denied_targets = Arc::new(Mutex::new(Vec::new()));
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
     let body = format!(
@@ -93,6 +97,7 @@ async fn live_chromium_subresource_never_reaches_a_denied_destination() {
     let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
         address,
         authorizations: Arc::new(AtomicUsize::new(0)),
+        denied_targets: denied_targets.clone(),
     }))
     .open("live-egress-subresource");
     let launch = browser
@@ -106,6 +111,7 @@ async fn live_chromium_subresource_never_reaches_a_denied_destination() {
             "url":format!("http://127.0.0.1:{}/", address.port())
         }))
         .await;
+    wait_for_denied_target(&denied_targets, denied_address.port()).await;
     browser
         .execute(json!({"id":"close","action":"close"}))
         .await;
@@ -124,6 +130,7 @@ async fn live_chromium_redirect_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
+    let denied_targets = Arc::new(Mutex::new(Vec::new()));
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
     let fixture_server = tokio::spawn(async move {
@@ -144,6 +151,7 @@ async fn live_chromium_redirect_never_reaches_a_denied_destination() {
     let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
         address,
         authorizations: Arc::new(AtomicUsize::new(0)),
+        denied_targets: denied_targets.clone(),
     }))
     .open("live-egress-redirect");
     let launch = browser
@@ -157,6 +165,7 @@ async fn live_chromium_redirect_never_reaches_a_denied_destination() {
             "url":format!("http://127.0.0.1:{}/", address.port())
         }))
         .await;
+    wait_for_denied_target(&denied_targets, denied_address.port()).await;
     browser
         .execute(json!({"id":"close","action":"close"}))
         .await;
@@ -175,6 +184,7 @@ async fn live_chromium_websocket_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
     let denied_address = denied.local_addr().unwrap();
+    let denied_targets = Arc::new(Mutex::new(Vec::new()));
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
     let body = format!(
@@ -199,6 +209,7 @@ async fn live_chromium_websocket_never_reaches_a_denied_destination() {
     let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
         address,
         authorizations: Arc::new(AtomicUsize::new(0)),
+        denied_targets: denied_targets.clone(),
     }))
     .open("live-egress-websocket");
     let launch = browser
@@ -212,6 +223,7 @@ async fn live_chromium_websocket_never_reaches_a_denied_destination() {
             "url":format!("http://127.0.0.1:{}/", address.port())
         }))
         .await;
+    wait_for_denied_target(&denied_targets, denied_address.port()).await;
     browser
         .execute(json!({"id":"close","action":"close"}))
         .await;
@@ -229,6 +241,26 @@ async fn live_chromium_websocket_never_reaches_a_denied_destination() {
 struct RejectAllButFixture {
     address: SocketAddr,
     authorizations: Arc<AtomicUsize>,
+    denied_targets: Arc<Mutex<Vec<(String, u16)>>>,
+}
+
+#[cfg(live_browser_tests)]
+async fn wait_for_denied_target(denied_targets: &Arc<Mutex<Vec<(String, u16)>>>, port: u16) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let was_denied = denied_targets
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, denied_port)| *denied_port == port);
+            if was_denied {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Chromium should attempt the denied destination");
 }
 
 #[cfg(live_browser_tests)]
@@ -239,8 +271,15 @@ impl EgressAuthorizer for RejectAllButFixture {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<DialGrant>> + Send>> {
         let address = self.address;
         self.authorizations.fetch_add(1, Ordering::SeqCst);
+        let allowed = target.hostname == "127.0.0.1" && target.port == address.port();
+        if !allowed {
+            self.denied_targets
+                .lock()
+                .unwrap()
+                .push((target.hostname, target.port));
+        }
         Box::pin(async move {
-            if target.hostname == "127.0.0.1" && target.port == address.port() {
+            if allowed {
                 Ok(DialGrant {
                     lease: "live-fixture-lease".into(),
                     addresses: vec![address],
