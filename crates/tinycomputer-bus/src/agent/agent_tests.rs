@@ -281,6 +281,18 @@ fn waiting_and_continuing_have_forgiving_defaults() {
     assert_eq!(resume.id.to_string(), "t-1");
     assert_eq!(resume.inputs["date of birth"], "1990-04-02");
     assert_eq!(resume.approve, None);
+
+    let private: ContinueTaskRequest = serde_json::from_value(json!({
+        "id": "t-2",
+        "fact_handles": {
+            "email": {"handle": "opaque-email", "mask": "‹email›", "kind": "asked_input"}
+        }
+    }))
+    .unwrap();
+    assert_eq!(private.fact_handles["email"].handle, "opaque-email");
+    let wire = serde_json::to_value(private).unwrap();
+    assert_eq!(wire["fact_handles"]["email"]["mask"], "‹email›");
+    assert_eq!(wire["inputs"], json!({}));
 }
 
 #[test]

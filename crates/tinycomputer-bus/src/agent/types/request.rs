@@ -238,6 +238,11 @@ pub struct ContinueTaskRequest {
     /// Values for a `needs_input` pause, by the field names it listed. Added
     /// to the task's facts.
     pub inputs: BTreeMap<String, String>,
+    /// Opaque host handles for secret values the task asked for. The value
+    /// remains with the host and is resolved only when the task types it.
+    /// A name cannot be supplied in both `inputs` and `fact_handles`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fact_handles: BTreeMap<String, SecretHandle>,
     /// The decision on a `needs_approval` pause, or `true` to go past a
     /// non-payment `checkpoint`.
     pub approve: Option<bool>,
