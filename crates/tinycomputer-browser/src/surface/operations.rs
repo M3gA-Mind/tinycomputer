@@ -71,12 +71,13 @@ impl Surface for BrowserSurface {
                     })
             })
             .map_err(|error| Box::new(failure("snapshot", &error)))?;
-        let mut screen = tree::screen(&snapshot.tree, &snapshot.title);
+        let mut screen = if self.hide_form_values {
+            tree::screen_without_form_values(&snapshot.tree, &snapshot.title)
+        } else {
+            tree::screen(&snapshot.tree, &snapshot.title)
+        };
         if !app.is_empty() {
             app.clone_into(&mut screen.app);
-        }
-        if self.hide_form_values {
-            hide_form_values(&mut screen);
         }
         Ok(screen)
     }
@@ -360,15 +361,9 @@ fn hide_form_values(screen: &mut Screen) {
             .any(|action| matches!(action.as_str(), "SetValue" | "TypeText"))
             || matches!(
                 candidate.role.as_str(),
-                "textbox"
-                    | "searchbox"
-                    | "combobox"
-                    | "textarea"
-                    | "spinbutton"
-                    | "checkbox"
-                    | "radio"
-                    | "switch"
-            );
+                "textbox" | "searchbox" | "combobox" | "textarea" | "spinbutton"
+            )
+            || tree::is_form_role(&candidate.role);
         if editable {
             candidate.value = None;
         }
