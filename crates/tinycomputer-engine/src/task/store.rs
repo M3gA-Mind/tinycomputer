@@ -28,11 +28,16 @@ use crate::shape::Shaper;
 pub(super) struct Cell {
     pub(super) view: watch::Sender<TaskView>,
     pub(super) state: Mutex<State>,
-    pub(super) worker: Mutex<Option<tokio::task::AbortHandle>>,
+    pub(super) worker: Mutex<Option<WorkerSlot>>,
     /// Who a failed step is handed to before the task fails.
     pub(super) rescuer: Option<Rescuer>,
     /// Who turns what a finished task read into the shape it asked for.
     pub(super) shaper: Option<Shaper>,
+}
+
+pub(super) struct WorkerSlot {
+    pub(super) abort: tokio::task::AbortHandle,
+    pub(super) done: watch::Receiver<bool>,
 }
 
 impl Cell {
@@ -207,29 +212,53 @@ impl Tasks {
             return too_many();
         };
         publish(&cell, TaskStatus::Running, "Planning the task.");
-        let worker = tokio::spawn(plan_then_drive(
-            cell.clone(),
-            self.runner.clone(),
-            planner,
-            task.to_owned(),
-            request.constraints.surfaces.clone(),
-        ));
+        let (done, done_rx) = watch::channel(false);
+        let running_cell = cell.clone();
+        let runner = self.runner.clone();
+        let task = task.to_owned();
+        let surfaces = request.constraints.surfaces.clone();
+        let completion = WorkerCompletion(done);
+        let worker = tokio::spawn(async move {
+            let _completion = completion;
+            plan_then_drive(running_cell, runner, planner, task, surfaces).await;
+        });
         if let Ok(mut slot) = cell.worker.lock() {
-            *slot = Some(worker.abort_handle());
+            *slot = Some(WorkerSlot {
+                abort: worker.abort_handle(),
+                done: done_rx,
+            });
         }
         AgentResponse::ok(cell.current_view())
     }
 
     pub(super) fn spawn(&self, cell: &Arc<Cell>, runs: Vec<Run>) {
         publish(cell, TaskStatus::Running, "The task is running.");
-        let worker = tokio::spawn(drive(cell.clone(), self.runner.clone(), runs));
+        let (done, done_rx) = watch::channel(false);
+        let running_cell = cell.clone();
+        let runner = self.runner.clone();
+        let completion = WorkerCompletion(done);
+        let worker = tokio::spawn(async move {
+            let _completion = completion;
+            drive(running_cell, runner, runs).await;
+        });
         if let Ok(mut slot) = cell.worker.lock() {
-            *slot = Some(worker.abort_handle());
+            *slot = Some(WorkerSlot {
+                abort: worker.abort_handle(),
+                done: done_rx,
+            });
         }
     }
 
     pub(super) fn find(&self, id: &TaskId) -> Option<Arc<Cell>> {
         let number = id.0.strip_prefix("t-")?.parse().ok()?;
         self.cells.lock().ok()?.get(&number).cloned()
+    }
+}
+
+struct WorkerCompletion(watch::Sender<bool>);
+
+impl Drop for WorkerCompletion {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
     }
 }

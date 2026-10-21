@@ -40,6 +40,7 @@ mod artifact;
 mod brief;
 mod browser;
 mod budget;
+mod cancel;
 mod controller;
 mod describe;
 mod drive;
