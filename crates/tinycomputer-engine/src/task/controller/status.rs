@@ -7,9 +7,9 @@ use tinycomputer_bus::agent::{
     TaskView,
 };
 
-use super::{FlowRunner, MAX_AWAIT_MS, PaymentCheckpointState, Tasks};
+use super::{MAX_AWAIT_MS, PaymentCheckpointState, Tasks};
 use crate::task::errors::{no_such_task, poisoned};
-use crate::task::publish::{publish, records, state_name};
+use crate::task::publish::{publish, records};
 use crate::task::redact_task_data;
 
 impl Tasks {

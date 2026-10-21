@@ -4,12 +4,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use tinycomputer_bus::agent::{
-    AgentError, AgentResponse, ContinuePaidAtShopRequest, ContinuePaymentRequest,
-    ContinueTaskRequest, PaymentMode, SecretHandle, TaskStatus, TaskView,
+    AgentError, AgentResponse, ContinueTaskRequest, PaymentMode, SecretHandle, TaskStatus,
+    TaskView,
 };
 use tinycomputer_core::{Facts, SecretFactHandle};
 
-use super::{Cell, PaymentCheckpointState, Resume, Tasks, WorkerCompletion, WorkerSlot};
+use super::{
+    Cell, ContinuePaidAtShopRequest, ContinuePaymentRequest, PaymentCheckpointState, Resume, Tasks,
+    WorkerCompletion, WorkerSlot,
+};
 use crate::task::drive::plan_payment_then_drive;
 use crate::task::errors::{no_planner, no_such_task, poisoned};
 use crate::task::publish::{next_calls, state_name};

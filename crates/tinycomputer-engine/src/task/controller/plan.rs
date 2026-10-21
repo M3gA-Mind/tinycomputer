@@ -2,7 +2,7 @@
 
 use tinycomputer_bus::agent::{AgentError, AgentResponse, PlanTaskRequest, TaskPlan};
 
-use super::{FlowRunner, Tasks};
+use super::Tasks;
 use crate::task::errors::no_planner;
 
 impl Tasks {

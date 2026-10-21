@@ -1,27 +1,14 @@
 //! [`Tasks`], the controller, and the calls it answers: planning, starting,
 //! awaiting, continuing, cancelling, and reporting a task.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use tinycomputer_bus::agent::{
-    AgentError, AgentResponse, AwaitTaskRequest, ContinueTaskRequest, LanguageModelConfiguration,
-    PaymentMode, PlanTaskRequest, SecretHandle, StartTaskRequest, TaskId, TaskPlan, TaskReport,
-    TaskReportRequest, TaskStatus, TaskView,
-};
-use tinycomputer_core::{Facts, SecretFactHandle};
+use tinycomputer_bus::agent::{LanguageModelConfiguration, SecretHandle, TaskId};
 
 use super::FlowRunner;
-use super::drive::plan_payment_then_drive;
-use super::errors::{no_planner, no_such_task, poisoned, too_many};
-use super::interpret::Resume;
-use super::names::{fact_names, is_undefined, known_names};
-use super::publish::{needs_input, next_calls, publish, records, state_name};
 use super::store::Cell;
-use super::store::{PaymentCheckpointState, Run, WorkerCompletion, WorkerSlot};
-use super::{MAX_AWAIT_MS, redact_task_data};
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
 
