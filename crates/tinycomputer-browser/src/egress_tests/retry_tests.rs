@@ -2,7 +2,7 @@
 
 use super::simulator::*;
 use crate::EgressProxy;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -10,8 +10,9 @@ use tokio::{
 
 #[tokio::test]
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {
-    let first_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let first_address = first_listener.local_addr().unwrap();
+    // Port zero is never a dialable listener port, so this candidate fails
+    // immediately without racing another test binding a released ephemeral port.
+    let first_address = SocketAddr::from(([127, 0, 0, 1], 0));
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_address = destination.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -34,9 +35,6 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
     let mut client = TcpStream::connect(proxy.url().replace("http://", ""))
         .await
         .unwrap();
-    // The reserved port is known to have no listener, and holding it until
-    // the request is ready prevents another test process from claiming it.
-    drop(first_listener);
     client
         .write_all(
             format!(
