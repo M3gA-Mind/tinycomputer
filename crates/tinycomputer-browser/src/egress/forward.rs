@@ -18,7 +18,7 @@ pub(super) async fn initialize_upstream(
     request: &ProxyRequest,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
-    validations: &mut tokio::time::Interval,
+    validations: &LeaseValidationClock,
 ) -> io::Result<bool> {
     if request.connect {
         write_all_bounded(
