@@ -393,6 +393,15 @@ impl BrowserSurface {
             // subtree can be read beside sight, not two.
             _ => return None,
         }
+        // Shadow reads may refresh the browser's native refs, so map Sight
+        // controls only after the last such read, against the exact snapshot
+        // generation that will be used by the next action.
+        let snapshot = self
+            .block(self.browser.snapshot(&id, SnapshotRequest::default()))
+            .ok()?;
+        for candidate in &mut screen.candidates {
+            attach_unique_snapshot_ref(candidate, &snapshot.refs);
+        }
         self.keep_denoised(sight::denoised(result));
         Some(screen)
     }
@@ -458,6 +467,31 @@ impl BrowserSurface {
                 .map(|outcome| json!({"value": outcome.value, "url": outcome.page.url}))
         });
         reply(command, outcome)
+    }
+}
+
+/// Replace a Sight-only selector with a native snapshot ref only when the
+/// current accessibility snapshot identifies exactly one control with the
+/// same role and accessible name. Unmatched and duplicate controls retain
+/// their Sight refs, which the host action gate will not treat as trusted.
+fn attach_unique_snapshot_ref(
+    candidate: &mut tinycomputer_core::surface::Candidate,
+    refs: &[tinycomputer_bus::browser::ElementRef],
+) {
+    if sight::is_seen(&candidate.ref_id)
+        && let Some(name) = candidate.name.as_deref()
+    {
+        let mut matches = refs
+            .iter()
+            .filter(|item| item.role == candidate.role && item.name.as_str() == name);
+        if let Some(found) = matches.next()
+            && matches.next().is_none()
+        {
+            candidate.ref_id.clone_from(&found.id);
+        }
+    }
+    for child in &mut candidate.children {
+        attach_unique_snapshot_ref(child, refs);
     }
 }
 
