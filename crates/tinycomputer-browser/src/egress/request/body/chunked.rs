@@ -116,6 +116,12 @@ async fn read_chunk_line<C: tokio::io::AsyncRead + Unpin>(
             .position(|window| window == b"\r\n")
         {
             let end = *offset + end + 2;
+            if end.saturating_sub(*offset) > 8192 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "chunk line is too long",
+                ));
+            }
             let line = pending[*offset..end].to_vec();
             *offset = end;
             return Ok(line);
