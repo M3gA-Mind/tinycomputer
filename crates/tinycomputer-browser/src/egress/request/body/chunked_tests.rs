@@ -59,9 +59,12 @@ async fn rejects_bytes_after_the_terminal_chunk() {
 
 #[tokio::test]
 async fn rejects_chunk_lines_over_the_limit() {
-    let mut input = vec![b'a'; 8193];
+    let mut input = b"1;".to_vec();
+    input.resize(8193, b'x');
     input.extend_from_slice(b"\r\n");
-    assert!(forward(&input).await.is_err());
+    let error = forward(&input).await.unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(error.to_string(), "chunk line is too long");
 }
 
 #[tokio::test]
