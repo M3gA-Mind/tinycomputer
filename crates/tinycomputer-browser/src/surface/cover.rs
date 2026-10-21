@@ -92,8 +92,7 @@ pub(crate) const COVER_JS: &str = r#"((x, y, exact, press, grid, hideFormValues 
     const attributeName = squash(control.getAttribute('aria-label')
       || control.getAttribute('title') || control.getAttribute('placeholder'));
     const nestedInField = hideFormValues && insidePrivateField(above(control));
-    const privateRoot = hideFormValues && privateField(control);
-    const name = cut(nestedInField ? '' : (attributeName || (privateRoot ? '' : squash(control.innerText))));
+    const name = cut(nestedInField ? '' : (attributeName || safeText(control)));
     return { said: name ? `${role} "${name}"` : `an unnamed ${role}`, bare: false, spot: null };
   }
   const dialog = nearest(hit, 'dialog, [role=dialog], [role=alertdialog], [aria-modal=true]');
