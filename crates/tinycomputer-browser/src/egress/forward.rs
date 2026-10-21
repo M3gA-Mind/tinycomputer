@@ -18,6 +18,7 @@ pub(super) async fn initialize_upstream(
     request: &ProxyRequest,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
+    validations: &mut tokio::time::Interval,
 ) -> io::Result<bool> {
     if request.connect {
         write_all_bounded(
@@ -33,6 +34,7 @@ pub(super) async fn initialize_upstream(
                 "browser CONNECT payload timed out",
                 auth,
                 lease,
+                validations,
             )
             .await;
         }
@@ -73,6 +75,7 @@ pub(super) async fn initialize_upstream(
         "browser upstream request timed out",
         auth,
         lease,
+        validations,
     )
     .await?
     {
@@ -87,6 +90,7 @@ pub(super) async fn initialize_upstream(
             "browser upstream body timed out",
             auth,
             lease,
+            validations,
         )
         .await
     }
@@ -168,6 +172,7 @@ pub(super) async fn forward_request_body_with_lease<C, U>(
     request: &ProxyRequest,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
+    validations: &mut tokio::time::Interval,
 ) -> io::Result<bool>
 where
     C: tokio::io::AsyncRead + Unpin,
@@ -175,7 +180,6 @@ where
 {
     let body = read_request_body(client, upstream, request, buffered_body_len(request));
     tokio::pin!(body);
-    let mut validations = validation_interval();
     loop {
         tokio::select! {
             biased;
@@ -187,7 +191,7 @@ where
     }
 }
 
-fn validation_interval() -> tokio::time::Interval {
+pub(super) fn validation_interval() -> tokio::time::Interval {
     let period = Duration::from_secs(1);
     let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -232,10 +236,10 @@ pub(super) async fn write_all_with_lease<W: tokio::io::AsyncWrite + Unpin>(
     message: &'static str,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
+    validations: &mut tokio::time::Interval,
 ) -> io::Result<bool> {
     let write = write_all_bounded(stream, bytes, message);
     tokio::pin!(write);
-    let mut validations = validation_interval();
     loop {
         tokio::select! {
             biased;

@@ -2,7 +2,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use super::chunked::forward_chunked_request_body;
+use super::forward_chunked_request_body;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 async fn forward(input: &[u8]) -> std::io::Result<Vec<u8>> {

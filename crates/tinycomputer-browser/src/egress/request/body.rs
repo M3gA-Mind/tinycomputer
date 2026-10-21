@@ -8,9 +8,6 @@ use crate::egress::forward::write_all_bounded;
 
 mod chunked;
 
-#[cfg(test)]
-mod chunked_tests;
-
 use super::ProxyRequest;
 
 pub(in crate::egress) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {

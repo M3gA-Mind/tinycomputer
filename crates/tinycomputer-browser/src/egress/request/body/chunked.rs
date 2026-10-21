@@ -6,6 +6,10 @@ use tokio::io::AsyncReadExt;
 
 use crate::egress::forward::write_all_bounded;
 
+#[cfg(test)]
+#[path = "chunked_tests.rs"]
+mod chunked_tests;
+
 pub(super) async fn forward_chunked_request_body<C, U>(
     client: &mut C,
     upstream: &mut U,

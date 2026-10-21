@@ -8,7 +8,7 @@ use super::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
     forward::{
         forward_request_body_with_lease, forward_response_with_lease, initialize_upstream, refuse,
-        tunnel_with_lease, validate_lease,
+        tunnel_with_lease, validate_lease, validation_interval,
     },
     request::{has_valid_buffered_body, read_proxy_request},
 };
@@ -54,10 +54,20 @@ where
     else {
         return refuse(&mut client).await;
     };
+    let mut validations = validation_interval();
     if !validate_lease(&auth, &lease).await? {
         return Ok(());
     }
-    if !initialize_upstream(&mut client, &mut upstream, &request, &auth, &lease).await? {
+    if !initialize_upstream(
+        &mut client,
+        &mut upstream,
+        &request,
+        &auth,
+        &lease,
+        &mut validations,
+    )
+    .await?
+    {
         return Ok(());
     }
     if request.connect || request.has_upgrade {
@@ -80,6 +90,7 @@ where
                 &request,
                 &auth,
                 &lease,
+                &mut validations,
             ) => {
                 if upload? {
                     response.await?;
