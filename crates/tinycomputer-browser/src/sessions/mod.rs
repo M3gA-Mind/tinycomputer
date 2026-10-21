@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,6 +22,7 @@ use crate::error::{Error, Result};
 use crate::origins::Origins;
 use crate::outputs::OutputStore;
 use crate::reply;
+use crate::{ActionObservation, ActionObserver};
 
 mod artifacts;
 mod deep;
@@ -61,6 +63,7 @@ pub struct Browser {
     /// see room for the last slot.
     opening: AtomicUsize,
     action_gate: Arc<dyn ActionGate>,
+    action_observer: Arc<RwLock<Option<Arc<dyn ActionObserver>>>>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -273,6 +276,7 @@ impl Browser {
             counter: AtomicU64::new(0),
             opening: AtomicUsize::new(0),
             action_gate: default_gate(),
+            action_observer: Arc::default(),
         }
     }
 
@@ -281,6 +285,17 @@ impl Browser {
     pub fn with_action_gate(mut self, gate: Arc<dyn ActionGate>) -> Self {
         self.action_gate = gate;
         self
+    }
+
+    /// Installs a trusted host observer for successful browser actions.
+    pub fn set_action_observer(&self, observer: Option<Arc<dyn ActionObserver>>) {
+        *self.action_observer.write().unwrap() = observer;
+    }
+
+    pub(crate) fn observe_action(&self, observation: ActionObservation) {
+        if let Some(observer) = self.action_observer.read().unwrap().as_ref() {
+            observer.observed(observation);
+        }
     }
 
     pub(crate) fn check_action(&self, request: &ActionRequest) -> Result<()> {

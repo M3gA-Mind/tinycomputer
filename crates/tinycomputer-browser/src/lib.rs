@@ -41,6 +41,7 @@ mod error;
 mod fake;
 #[cfg(feature = "agent-browser")]
 mod linked;
+mod observer;
 mod origins;
 mod outputs;
 mod profile_lock;
@@ -56,6 +57,7 @@ pub use engine::{Engine, Launcher, Reply};
 pub use error::{Error, Result};
 #[cfg(feature = "agent-browser")]
 pub use linked::AgentBrowser;
+pub use observer::{ActionObservation, ActionObserver, ObservedAction, ObservedTarget};
 pub use outputs::SWEEP_INTERVAL;
 pub use profile_lock::{claim_profile, in_use as profile_in_use, release as release_profile};
 pub use sessions::{Browser, MAX_SESSIONS};
