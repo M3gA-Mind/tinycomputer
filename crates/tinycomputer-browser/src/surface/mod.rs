@@ -209,9 +209,10 @@ impl BrowserSurface {
     ///
     /// Returns an error when the current session is unavailable or either
     /// the surface or session state is poisoned.
-    pub async fn update_action_context(&self, context: ActionContext) -> Result<()> {
+    pub async fn update_action_context(&self, mut context: ActionContext) -> Result<()> {
         let id = self.session();
         if let Some(id) = id {
+            context.session_id = Some(id.to_string());
             self.browser
                 .update_action_context(&id, context.clone())
                 .await?;

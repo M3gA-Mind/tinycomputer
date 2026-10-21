@@ -222,6 +222,7 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
             SessionOptions::default(),
             ActionContext {
                 task_id: Some("task-17".to_owned()),
+                session_id: Some("untrusted-session-id".to_owned()),
                 payment_in_play: true,
             },
         )
@@ -248,6 +249,8 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
         .find(|request| request.contains("destination_url: Some(\"https://shop.test/checkout\")"))
         .unwrap();
     assert!(navigation.contains("task_id: Some(\"task-17\")"));
+    assert!(navigation.contains(&format!("session_id: Some(\"{id}\")")));
+    assert!(!navigation.contains("untrusted-session-id"));
     assert!(navigation.contains("payment_in_play: true"));
     let fill = requests
         .iter()
@@ -257,6 +260,41 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
     assert!(fill.contains("role: Some(\"textbox\")"));
     assert!(fill.contains("name: Some(\"Email\")"));
     assert!(!fill.contains("private@example.test"));
+}
+
+#[tokio::test]
+async fn updating_action_context_cannot_replace_the_actual_session_id() {
+    let fake = Fake::scripted(|_| None);
+    let gate = Arc::new(CaptureActionRequest::default());
+    let browser = Browser::with_scratch(Arc::new(fake), super::scratch("gate-context-update"))
+        .with_action_gate(gate.clone());
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .update_action_context(
+            &id,
+            ActionContext {
+                task_id: Some("task-18".to_owned()),
+                session_id: Some("spoofed-session-id".to_owned()),
+                payment_in_play: true,
+            },
+        )
+        .await
+        .unwrap();
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+    let requests = gate.0.lock().unwrap();
+    let navigation = requests
+        .iter()
+        .find(|request| request.contains("destination_url: Some(\"https://shop.test/checkout\")"))
+        .unwrap();
+    assert!(navigation.contains(&format!("session_id: Some(\"{id}\")")));
+    assert!(!navigation.contains("spoofed-session-id"));
 }
 
 #[tokio::test]
@@ -306,6 +344,7 @@ async fn refused_order_click_never_reaches_the_page_and_reports_the_reason() {
             SessionOptions::default(),
             ActionContext {
                 task_id: Some("task-17".to_owned()),
+                session_id: None,
                 payment_in_play: true,
             },
         )

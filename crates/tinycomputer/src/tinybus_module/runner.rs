@@ -75,6 +75,7 @@ impl WorkspaceRunner {
                 .with_cursor(self.cursor.clone())
                 .with_action_context(ActionContext {
                     task_id: Some(task.0.clone()),
+                    session_id: None,
                     payment_in_play: constraints.payment == PaymentMode::FillThenApprove,
                 })
                 .with_perception(self.defaults.perception)
