@@ -18,7 +18,7 @@ pub(super) async fn serve(
     session_id: String,
     proxy_password: String,
 ) -> io::Result<()> {
-    let Some(mut request) = read_proxy_request(&mut client, &session_id, &proxy_password).await?
+    let Some(request) = read_proxy_request(&mut client, &session_id, &proxy_password).await?
     else {
         return Ok(());
     };
