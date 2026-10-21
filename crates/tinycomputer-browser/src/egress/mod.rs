@@ -128,7 +128,7 @@ where
     match accepted.await {
         Ok(connection) => Some(connection),
         Err(error) => {
-            tracing::warn!(%error, "browser proxy listener accept failed");
+            log::warn!("browser proxy listener accept failed: {error}");
             tokio::time::sleep(Duration::from_millis(50)).await;
             None
         }
