@@ -70,13 +70,15 @@ pub(super) async fn serve(
     } else {
         let (mut client_reader, mut client_writer) = client.into_split();
         let (mut upstream_reader, mut upstream_writer) = upstream.into_split();
+        let response = forward_response_with_lease(
+            &mut client_writer,
+            &mut upstream_reader,
+            &auth,
+            lease.clone(),
+        );
+        tokio::pin!(response);
         tokio::select! {
-            result = forward_response_with_lease(
-                &mut client_writer,
-                &mut upstream_reader,
-                &auth,
-                lease.clone(),
-            ) => result?,
+            result = &mut response => result?,
             upload = forward_request_body_with_lease(
                 &mut client_reader,
                 &mut upstream_writer,
@@ -85,12 +87,7 @@ pub(super) async fn serve(
                 &lease,
             ) => {
                 if upload? {
-                    forward_response_with_lease(
-                        &mut client_writer,
-                        &mut upstream_reader,
-                        &auth,
-                        lease,
-                    ).await?;
+                    response.await?;
                 }
             }
         }

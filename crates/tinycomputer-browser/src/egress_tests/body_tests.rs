@@ -254,3 +254,78 @@ async fn an_early_upstream_rejection_is_forwarded_before_upload_completion() {
     );
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn a_response_chunk_survives_upload_completion_while_the_client_is_backpressured() {
+    const REQUEST_BODY_LENGTH: usize = 1024 * 1024;
+    const RESPONSE_BODY_LENGTH: usize = 8 * 1024 * 1024;
+    let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = destination.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = destination.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let n = socket.read(&mut chunk).await.unwrap();
+            assert_ne!(n, 0);
+            request.extend_from_slice(&chunk[..n]);
+        }
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {RESPONSE_BODY_LENGTH}\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let body = vec![b'x'; RESPONSE_BODY_LENGTH];
+        socket.write_all(&body).await.unwrap();
+    });
+    let proxy = EgressProxy::bind(
+        Arc::new(FixtureAuthorizer {
+            address,
+            allow: true,
+            consumed: Arc::new(AtomicBool::new(false)),
+        }),
+        "response-backpressure-session".into(),
+        FIXTURE_PASSWORD.into(),
+    )
+    .await
+    .unwrap();
+    let mut client = TcpStream::connect(proxy.url().replace("http://", ""))
+        .await
+        .unwrap();
+    client
+        .write_all(
+            format!(
+                "POST http://body.test:{}/upload HTTP/1.1\r\nHost: body.test:{}\r\nProxy-Authorization: {}\r\nContent-Length: {REQUEST_BODY_LENGTH}\r\n\r\n",
+                address.port(),
+                address.port(),
+                proxy_authorization()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let chunk = [b'y'; 16 * 1024];
+    for _ in 0..REQUEST_BODY_LENGTH / chunk.len() {
+        client.write_all(&chunk).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    let response_header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("upstream response headers should be present")
+        + 4;
+    assert_eq!(response.len() - response_header_end, RESPONSE_BODY_LENGTH);
+    assert!(
+        response[response_header_end..]
+            .iter()
+            .all(|byte| *byte == b'x')
+    );
+    server.await.unwrap();
+}
