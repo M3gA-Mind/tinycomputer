@@ -4,13 +4,16 @@
 //! locally: the authorizer returns a finite set of vetted socket addresses and
 //! the proxy consumes the grant before dialing one exact address.
 
-use std::{future::Future, io, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{future::Future, io, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
-use tokio::{net::TcpListener, task::JoinSet};
+use tokio::{net::{TcpListener, TcpStream}, task::JoinSet};
 
 mod forward;
 mod request;
 mod serve;
+
+#[cfg(test)]
+mod egress_tests;
 
 #[cfg(test)]
 pub(crate) use request::parse_authority;
@@ -92,8 +95,8 @@ impl EgressProxy {
             let mut connections = JoinSet::new();
             loop {
                 tokio::select! {
-                    accepted = listener.accept(), if connections.len() < 64 => {
-                        let Ok((stream, _)) = accepted else { break; };
+                    accepted = accept_connection(listener.accept()), if connections.len() < 64 => {
+                        let Some((stream, _)) = accepted else { continue; };
                         let auth = authorizer.clone();
                         let session = session_id.clone();
                         let password = proxy_password.clone();
@@ -112,6 +115,22 @@ impl EgressProxy {
     #[must_use]
     pub fn url(&self) -> String {
         format!("http://{}:{}", self.address.ip(), self.address.port())
+    }
+}
+
+async fn accept_connection<A>(
+    accepted: A,
+) -> Option<(TcpStream, SocketAddr)>
+where
+    A: Future<Output = io::Result<(TcpStream, SocketAddr)>>,
+{
+    match accepted.await {
+        Ok(connection) => Some(connection),
+        Err(error) => {
+            tracing::warn!(%error, "browser proxy listener accept failed");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            None
+        }
     }
 }
 
