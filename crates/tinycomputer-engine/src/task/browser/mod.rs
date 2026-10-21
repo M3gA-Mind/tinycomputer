@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use tinycomputer_browser::{ActionContext, Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::agent::{PaymentMode, TaskConstraints, TaskId};
 use tinycomputer_bus::browser::{ScreenshotRequest, SessionId, SnapshotRequest};
-use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation, RunFlowRequest};
-use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface};
+use tinycomputer_bus::{DesktopError, DesktopResponse, RunFlowRequest};
+use tinycomputer_core::surface::{Depth, Surface};
 
 use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
 
@@ -15,6 +15,7 @@ mod redaction;
 use crate::SecretHost;
 use crate::{JevRuntime, UsageRecorder};
 use redaction::SecretRedactingSurface;
+#[cfg(test)]
 use redaction::{redact_observation_error, redact_response, redact_screen};
 
 /// Runs task flows directly on one in-process browser surface per task.

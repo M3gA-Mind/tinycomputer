@@ -1,10 +1,19 @@
 //! Finishing a task and publishing its final answer.
 
-use super::*;
+use std::sync::Arc;
+use std::time::Duration;
+
+use tinycomputer_bus::agent::{TaskId, TaskStatus};
+
+use super::{Harvest, SHAPE_TIMEOUT_MS, TaskRecords};
+use crate::task::artifact::capture;
+use crate::task::publish::{publish, records};
+use crate::task::redact_task_value;
+use crate::task::store::Cell;
+use crate::task::FlowRunner;
 
 /// Every run finished: the task is done, with what it read, shaped as its
 /// `output` asks when it asks.
-
 pub(in crate::task) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
     // The last look at the surface, before shaping and before release.
     let _ = capture(cell, runner).await;
