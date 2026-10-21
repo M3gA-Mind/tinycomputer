@@ -240,6 +240,102 @@ async fn prepare_page(
     }
 }
 
+/// Plans the rest of a task after a supplied flow prefix. The runner is not
+/// prepared or opened here: it still owns the page the prefix left current.
+async fn plan_handoff(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+) -> Result<Option<tinycomputer_bus::Flow>, String> {
+    let (task, surfaces, facts, planner) = {
+        let state = cell
+            .state
+            .lock()
+            .map_err(|_| "task state is unavailable".to_owned())?;
+        (
+            state.goal.clone(),
+            state.constraints.surfaces.clone(),
+            state.facts.clone(),
+            cell.planner.clone(),
+        )
+    };
+    if task.trim().is_empty() {
+        return Err("the handoff task text is empty".to_owned());
+    }
+    let plan = if let Some(planner) = planner {
+        let planner = planner.with_usage_recorder(task_usage(cell));
+        let started = Instant::now();
+        let names = facts
+            .names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let secrets = facts
+            .secret_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let (outcome, used) = planner
+            .plan_measured(&task, &names, &secrets, &surfaces)
+            .await;
+        let id = cell.view.borrow().id.clone();
+        runner.journal(Some(&id), "plan", &|| {
+            super::timing::planned(&outcome, used, started.elapsed(), planner.configuration())
+        });
+        match outcome {
+            Ok(plan) => plan,
+            Err(reason) if runner.plan_recovery_enabled() => {
+                let flow =
+                    super::plan_recovery::host_plan(cell, runner, task, FLOW_GUIDE.to_owned())
+                        .await
+                        .map_err(|recovery| {
+                            format!("{reason}; host recovery failed: {recovery}")
+                        })?;
+                tinycomputer_bus::agent::TaskPlan {
+                    flow,
+                    questions: Vec::new(),
+                    notes: Vec::new(),
+                }
+            }
+            Err(reason) => return Err(reason),
+        }
+    } else if runner.plan_recovery_enabled() {
+        let flow =
+            super::plan_recovery::host_plan(cell, runner, task, FLOW_GUIDE.to_owned()).await?;
+        tinycomputer_bus::agent::TaskPlan {
+            flow,
+            questions: Vec::new(),
+            notes: Vec::new(),
+        }
+    } else {
+        return Err("no planner or host plan-recovery hook is configured".to_owned());
+    };
+
+    let known = super::names::known_names(&plan.flow, &facts);
+    let fact_names = super::names::fact_names(&facts);
+    let missing = crate::agentic::missing_inputs(&plan.flow, &known, &fact_names);
+    let waiting = if plan.questions.is_empty() {
+        (!missing.is_empty()).then(|| super::publish::needs_input(&missing))
+    } else {
+        Some(TaskStatus::NeedsInput {
+            fields: plan.questions,
+        })
+    };
+    if let Ok(mut state) = cell.state.lock() {
+        state.flow = plan.flow.clone();
+    }
+    if let Some(status) = waiting {
+        let id = cell.view.borrow().id.clone();
+        runner.release(&id);
+        publish(
+            cell,
+            status,
+            "The remaining task needs values before it can continue.",
+        );
+        return Ok(None);
+    }
+    Ok(Some(plan.flow))
+}
+
 /// Runs a task's flows in order until one stops it or all finish.
 ///
 /// A task's [`TaskBudget`] bounds the whole task, not one run of it: an
@@ -273,9 +369,13 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
         };
         let spent_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let (next, result) = run_outcome(&run.flow, &reply, constraints.payment);
+        let completed = result
+            .as_ref()
+            .is_some_and(|result| result.stop == tinycomputer_bus::FlowStopReason::Completed);
         let reached = result
             .as_ref()
             .map_or_else(Vec::new, |result| result.steps.clone());
+        let mut handoff = false;
         let redacted = {
             let Ok(mut state) = cell.state.lock() else {
                 return;
@@ -311,6 +411,10 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
                     }
                 }
             }
+            if completed && state.handoff_to_planner {
+                state.handoff_to_planner = false;
+                handoff = true;
+            }
             if let Next::Stop { resume, .. } = &next {
                 state.resume.clone_from(resume);
                 if state.payment_checkpoint == PaymentCheckpointState::Unavailable
@@ -321,6 +425,39 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
             }
             state.facts.clone()
         };
+        if handoff {
+            match plan_handoff(&cell, runner.as_ref()).await {
+                Ok(Some(flow)) => {
+                    let allow = cell
+                        .state
+                        .lock()
+                        .map_or(false, |state| state.constraints.allow_destructive);
+                    runs.push_front(Run {
+                        flow,
+                        allow_destructive: allow,
+                        rescue: None,
+                    });
+                    continue;
+                }
+                Ok(None) => return,
+                Err(reason) => {
+                    let id = cell.view.borrow().id.clone();
+                    runner.release(&id);
+                    let reason = runner.redact(&id, &reason);
+                    publish(
+                        &cell,
+                        TaskStatus::Failed {
+                            step: None,
+                            reason: reason.clone(),
+                            hint: "the recipe prefix ran, but the task could not be planned from the current page".to_owned(),
+                            recoverable: true,
+                        },
+                        &format!("Planning the remaining task failed: {reason}"),
+                    );
+                    return;
+                }
+            }
+        }
         if let Next::Stop { status, .. } = next {
             let status = human_wall(&cell, runner.as_ref(), *status).await;
             let status = match rescued(&cell, runner.as_ref(), &run, status, reached).await {
@@ -331,6 +468,14 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
                 }
             };
             let status = captured(&cell, runner.as_ref(), status).await;
+            if matches!(
+                status,
+                TaskStatus::Checkpoint { .. } | TaskStatus::Failed { .. } | TaskStatus::Cancelled
+            ) {
+                if let Ok(mut state) = cell.state.lock() {
+                    state.handoff_to_planner = false;
+                }
+            }
             let summary = redacted.redact(&stopped_summary(&status));
             let ended = matches!(
                 status,

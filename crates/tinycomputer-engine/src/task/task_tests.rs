@@ -75,6 +75,7 @@ struct Script {
     host_secret: Mutex<Option<String>>,
     /// The pages loaded while tasks were planned, with their task.
     opened: Mutex<Vec<(TaskId, String)>>,
+    task_ids: Mutex<Vec<TaskId>>,
     /// The host's response to a failed-step recovery request.
     recovery: Mutex<Option<FailedStepRecoveryResult>>,
     /// Recovery requests, including their redacted task context.
@@ -88,10 +89,11 @@ struct Script {
 impl FlowRunner for Script {
     fn run(
         &self,
-        _task: &TaskId,
+        task: &TaskId,
         constraints: &TaskConstraints,
         request: RunFlowRequest,
     ) -> FlowFuture {
+        self.task_ids.lock().unwrap().push(task.clone());
         self.requests.lock().unwrap().push(request);
         self.constraints.lock().unwrap().push(constraints.clone());
         let reply = self.replies.lock().unwrap().pop_front();

@@ -221,6 +221,14 @@ impl Tasks {
             return AgentResponse::err(refusal);
         }
         let Some(flow) = request.flow.clone() else {
+            if request.handoff_to_planner {
+                return AgentResponse::err(AgentError::new(
+                    "INVALID_REQUEST",
+                    "planner handoff needs both a supplied flow and task goal",
+                    "pass `task`, `flow`, and `handoff_to_planner: true` together",
+                    true,
+                ));
+            }
             if let (Some(task), Some(planner)) = (&request.task, &self.planner) {
                 return self.start_planned(request, facts, task, planner.clone());
             }
@@ -234,6 +242,20 @@ impl Tasks {
                 true,
             ));
         };
+        if request.handoff_to_planner && request.task.as_deref().is_none_or(str::is_empty) {
+            return AgentResponse::err(AgentError::new(
+                "INVALID_REQUEST",
+                "planner handoff needs a non-empty task goal",
+                "pass a task goal with the supplied prefix flow",
+                true,
+            ));
+        }
+        if request.handoff_to_planner
+            && self.planner.is_none()
+            && !self.runner.plan_recovery_enabled()
+        {
+            return AgentResponse::err(no_planner());
+        }
         let known = known_names(&flow, &facts);
         let fact_names = fact_names(&facts);
         let validation = crate::agentic::check_flow(&flow, &known, &fact_names);
@@ -393,6 +415,7 @@ impl Tasks {
         state.constraints.payment = PaymentMode::FillThenApprove;
         state.payment_checkpoint = PaymentCheckpointState::Transitioned;
         state.resume = None;
+        state.handoff_to_planner = false;
         let (done, done_rx) = tokio::sync::watch::channel(false);
         let completion = WorkerCompletion::new(done);
         let runner = self.runner.clone();
@@ -471,6 +494,7 @@ impl Tasks {
         let surfaces = state.constraints.surfaces.clone();
         state.payment_checkpoint = PaymentCheckpointState::Transitioned;
         state.resume = None;
+        state.handoff_to_planner = false;
         let (done, done_rx) = tokio::sync::watch::channel(false);
         let completion = WorkerCompletion::new(done);
         let runner = self.runner.clone();
@@ -535,12 +559,16 @@ impl Tasks {
             ) {
                 state.payment_checkpoint = PaymentCheckpointState::Closed;
                 state.resume = None;
+                state.handoff_to_planner = false;
                 drop(state);
                 self.runner.release(id);
                 return AgentResponse::ok(cell.current_view());
             }
         }
         if !cell.view.borrow().status.is_final() {
+            if let Ok(mut state) = cell.state.lock() {
+                state.handoff_to_planner = false;
+            }
             if let Ok(worker) = cell.worker.lock()
                 && let Some(worker) = worker.as_ref()
             {

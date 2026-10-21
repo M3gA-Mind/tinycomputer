@@ -50,6 +50,11 @@ pub struct StartTaskRequest {
     pub task: Option<String>,
     /// A flow to run instead of planning one.
     pub flow: Option<Flow>,
+    /// After a supplied flow completes, continue the same task by planning
+    /// `task` from the current surface. The task id and browser session are
+    /// retained; the named start page is not reopened.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub handoff_to_planner: bool,
     /// Values the task may type, by name — traveller name, date of birth,
     /// email, phone, card number.
     ///
