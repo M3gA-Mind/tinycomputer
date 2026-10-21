@@ -428,6 +428,7 @@ fn build_cell(
             dialog_left_open: task.dialog_left_open,
             finished: task.finished,
             resume: task.resume,
+            payment_checkpoint: super::store::PaymentCheckpointState::Unavailable,
             spent: task.spent,
             rescues: task.rescues,
             output: task.output,
