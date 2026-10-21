@@ -58,6 +58,7 @@ fn approval(approve: Option<bool>) -> ContinueTaskRequest {
     ContinueTaskRequest {
         id: TaskId::new("t1"),
         inputs: std::collections::BTreeMap::new(),
+        fact_handles: std::collections::BTreeMap::new(),
         approve,
         answer: None,
     }

@@ -8,6 +8,25 @@ use tinycomputer_bus::{JevConfiguration, JevProvider};
 
 use super::rescue_tests::Model;
 
+fn continue_with_handle(
+    id: tinycomputer_bus::agent::TaskId,
+) -> tinycomputer_bus::agent::ContinueTaskRequest {
+    tinycomputer_bus::agent::ContinueTaskRequest {
+        id,
+        approve: Some(true),
+        answer: Some(String::new()),
+        fact_handles: std::collections::BTreeMap::from([(
+            "email".to_owned(),
+            tinycomputer_bus::agent::SecretHandle {
+                handle: "opaque-email".to_owned(),
+                mask: "‹email›".to_owned(),
+                kind: "asked_input".to_owned(),
+            },
+        )]),
+        ..tinycomputer_bus::agent::ContinueTaskRequest::default()
+    }
+}
+
 /// A decision model summary, as a configured runtime reports it.
 fn jev() -> JevConfiguration {
     JevConfiguration {
@@ -183,12 +202,25 @@ async fn describe_schemas_name_every_request_field() {
     };
 
     let start = StartTaskRequest {
+        handoff_to_planner: true,
         output: Some(tinycomputer_bus::agent::TaskOutput::default()),
+        fact_handles: std::collections::BTreeMap::from([(
+            "card number".to_owned(),
+            tinycomputer_bus::agent::SecretHandle {
+                handle: "opaque-card-reference".to_owned(),
+                mask: "•••• 1111".to_owned(),
+                kind: "payment_card".to_owned(),
+            },
+        )]),
         ..StartTaskRequest::default()
     };
     let start = serde_json::to_value(start).unwrap();
     let start_schema = schema("StartTask");
     assert_eq!(documented(&start_schema), fields(&start));
+    assert_eq!(
+        start_schema["properties"]["handoff_to_planner"]["default"],
+        false
+    );
     // The host's own settings are no model's to set, so they are not offered.
     let offered = fields(&start["constraints"])
         .into_iter()
@@ -236,12 +268,7 @@ async fn describe_schemas_name_every_request_field() {
         ),
         (
             "ContinueTask",
-            serde_json::to_value(tinycomputer_bus::agent::ContinueTaskRequest {
-                id: id.clone(),
-                approve: Some(true),
-                answer: Some(String::new()),
-                ..tinycomputer_bus::agent::ContinueTaskRequest::default()
-            }),
+            serde_json::to_value(continue_with_handle(id.clone())),
         ),
         (
             "CancelTask",
