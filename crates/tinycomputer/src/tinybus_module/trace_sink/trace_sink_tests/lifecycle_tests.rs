@@ -34,7 +34,7 @@ async fn expired_queued_event_is_rejected_without_a_late_host_write()
     tokio::time::timeout(Duration::from_secs(5), started_rx).await??;
 
     let (queued_reply, queued_result) = mpsc::sync_channel(1);
-    let queued_deadline = Instant::now() + Duration::from_millis(50);
+    let queued_deadline = Instant::now() - Duration::from_millis(1);
     send(
         &link.worker,
         Command::Append {
@@ -44,10 +44,6 @@ async fn expired_queued_event_is_rejected_without_a_late_host_write()
             reply: queued_reply,
         },
     )?;
-    tokio::time::sleep_until(
-        tokio::time::Instant::from_std(queued_deadline) + Duration::from_millis(1),
-    )
-    .await;
     release_tx
         .send(())
         .map_err(|()| TinyBusError::failed("test release receiver was dropped"))?;
@@ -103,11 +99,18 @@ async fn shutdown_joins_an_active_host_callback_and_closes_admission()
     tokio::time::timeout(Duration::from_secs(5), started_rx).await??;
 
     let shutdown_link = link.clone();
-    let mut shutdown = tokio::task::spawn_blocking(move || shutdown_link.shutdown());
+    let shutdown = tokio::task::spawn_blocking(move || shutdown_link.shutdown());
+    while link
+        .worker
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some()
+    {
+        tokio::task::yield_now().await;
+    }
     assert!(
-        tokio::time::timeout(Duration::from_millis(50), &mut shutdown)
-            .await
-            .is_err()
+        !shutdown.is_finished(),
+        "shutdown must wait for the active host callback"
     );
     release_tx
         .send(())
