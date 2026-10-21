@@ -12,7 +12,7 @@ use super::{
     request::{ProxyRequest, read_proxy_request, read_request_body},
 };
 
-async fn serve(
+pub(super) async fn serve(
     mut client: TcpStream,
     auth: Arc<dyn EgressAuthorizer>,
     session_id: String,

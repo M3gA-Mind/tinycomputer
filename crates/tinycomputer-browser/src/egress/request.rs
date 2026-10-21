@@ -1,16 +1,16 @@
 //! Parses and validates browser proxy requests before a destination is authorized.
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{io, time::Duration};
 
 use base64::Engine as _;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use super::{
     BrowserDialTarget,
-    forward::{refuse, write_all_bounded},
+    forward::{constant_time_eq, refuse, write_all_bounded},
 };
 
-struct ProxyRequest {
+pub(super) struct ProxyRequest {
     pub(super) bytes: Vec<u8>,
     pub(super) split: usize,
     pub(super) lines: Vec<String>,
@@ -237,7 +237,7 @@ pub(super) async fn read_request_body(
     }
     Ok(true)
 }
-pub(super) fn parse_authority(
+pub(crate) fn parse_authority(
     value: &str,
     scheme: &str,
     session_id: &str,

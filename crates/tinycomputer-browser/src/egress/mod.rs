@@ -12,7 +12,7 @@ mod forward;
 mod request;
 mod serve;
 
-pub(super) use request::parse_authority;
+pub(crate) use request::parse_authority;
 
 /// A destination parsed from the browser's actual proxy request.
 #[derive(Clone, PartialEq, Eq)]

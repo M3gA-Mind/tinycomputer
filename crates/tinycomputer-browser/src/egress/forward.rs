@@ -2,7 +2,6 @@
 
 use std::{io, sync::Arc, time::Duration};
 
-use base64::Engine as _;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional},
     net::TcpStream,
@@ -74,7 +73,7 @@ pub(super) async fn initialize_upstream(
     )
     .await
 }
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+pub(super) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
     for index in 0..left.len().max(right.len()) {
         difference |= usize::from(
