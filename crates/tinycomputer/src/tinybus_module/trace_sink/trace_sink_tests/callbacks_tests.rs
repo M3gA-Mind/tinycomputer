@@ -89,11 +89,11 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
         service
             .call(
                 &names::methods::START_TASK.try_into()?,
-                (serde_json::from_value::<StartTaskRequest>(
+                serde_json::json!([serde_json::from_value::<StartTaskRequest>(
                     serde_json::json!({
                         "flow": {"app": "Mail", "steps": ["start a new message"]}
                     }),
-                )?,),
+                )?]),
             )
             .await?,
     )?;
@@ -102,7 +102,7 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
         service
             .call(
                 &names::methods::TASK_REPORT.try_into()?,
-                (TaskReportRequest::new(TaskId::new(task_id.to_string())),),
+                serde_json::json!([TaskReportRequest::new(TaskId::new(task_id.to_string()))]),
             )
             .await?,
     )?;
