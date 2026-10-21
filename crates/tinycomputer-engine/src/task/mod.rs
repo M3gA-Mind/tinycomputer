@@ -50,6 +50,7 @@ mod interpret;
 mod names;
 mod page;
 mod persistence;
+mod plan_recovery;
 mod publish;
 mod recovery;
 mod resume;
@@ -62,7 +63,7 @@ use std::pin::Pin;
 
 use tinycomputer_bus::agent::{TaskConstraints, TaskId};
 use tinycomputer_bus::browser::OutputRef;
-use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
+use tinycomputer_bus::{DesktopResponse, Flow, RunFlowRequest};
 
 /// Sanitizes every textual representation in a JSON report or model payload
 /// through the task runner's host secret filter.
@@ -180,6 +181,41 @@ pub enum FailedStepRecoveryResult {
 /// The future returned by [`FlowRunner::recover_failed_step`].
 pub type FailedStepRecoveryFuture = Pin<Box<dyn Future<Output = FailedStepRecoveryResult> + Send>>;
 
+/// The task and constraints a host needs to recover an unavailable plan.
+#[derive(Debug, Clone)]
+pub struct PlanRecoveryRequest {
+    /// The task whose browser session is ready for the plan request.
+    pub task: TaskId,
+    /// The caller's task description.
+    pub task_text: String,
+    /// The guide the caller would otherwise use to supply a flow.
+    pub guide: String,
+    /// The task's original browser and payment constraints.
+    pub constraints: TaskConstraints,
+    /// Names the plan may reference; values are never included.
+    pub known_names: Vec<String>,
+    /// Secret names the flow may reference as handles.
+    pub secret_names: Vec<String>,
+    /// Actions left in the task budget.
+    pub remaining_actions: u32,
+    /// Jev evaluations left in the task budget.
+    pub remaining_model_calls: u32,
+    /// Time left in the task budget, when bounded.
+    pub remaining_ms: Option<u64>,
+}
+
+/// A same-task plan the host derived, or why it could not derive one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlanRecoveryResult {
+    /// A caller-validated flow to install on the existing task.
+    Plan(Flow),
+    /// No safe plan could be supplied.
+    GiveUp(String),
+}
+
+/// The future returned by [`FlowRunner::recover_plan`].
+pub type PlanRecoveryFuture = Pin<Box<dyn Future<Output = PlanRecoveryResult> + Send>>;
+
 /// Runs a task's flows, on surfaces that live as long as the task.
 pub trait FlowRunner: Send + Sync + 'static {
     /// Runs `request` for `task` within `constraints`, returning `RunFlow`'s
@@ -215,6 +251,21 @@ pub trait FlowRunner: Send + Sync + 'static {
             FailedStepRecoveryResult::GiveUp {
                 reason: "the host has no failed-step recovery".to_owned(),
             }
+        })
+    }
+
+    /// Whether the host can asynchronously write a plan for a task that has
+    /// no planner configured. Defaults to `false` so existing hosts keep the
+    /// immediate `needs_plan` behavior.
+    fn plan_recovery_enabled(&self) -> bool {
+        false
+    }
+
+    /// Writes a validated flow for the existing task. The default keeps the
+    /// task at `needs_plan`.
+    fn recover_plan(&self, _request: PlanRecoveryRequest) -> PlanRecoveryFuture {
+        Box::pin(async {
+            PlanRecoveryResult::GiveUp("the host cannot write a task plan".to_owned())
         })
     }
 

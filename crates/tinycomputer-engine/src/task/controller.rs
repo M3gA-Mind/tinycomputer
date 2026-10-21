@@ -225,7 +225,7 @@ impl Tasks {
                 return self.start_planned(request, facts, task, planner.clone());
             }
             if request.task.is_some() {
-                return self.register_planless(request);
+                return self.register_planless(request, facts);
             }
             return AgentResponse::err(AgentError::new(
                 "INVALID_REQUEST",
