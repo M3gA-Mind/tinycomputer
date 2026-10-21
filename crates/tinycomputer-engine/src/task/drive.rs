@@ -27,7 +27,7 @@ pub(super) async fn plan_then_drive(
     task: String,
     surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
 ) {
-    plan_then_drive_with_page(cell, runner, planner, task, surfaces, true).await;
+    plan_then_drive_with_page(cell, runner, planner, task, surfaces, true, true).await;
 }
 
 /// Plans a payment continuation against the retained current page without
@@ -39,7 +39,7 @@ pub(super) async fn plan_payment_then_drive(
     task: String,
     surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
 ) {
-    plan_then_drive_with_page(cell, runner, planner, task, surfaces, false).await;
+    plan_then_drive_with_page(cell, runner, planner, task, surfaces, false, false).await;
 }
 
 async fn plan_then_drive_with_page(
@@ -49,6 +49,7 @@ async fn plan_then_drive_with_page(
     task: String,
     surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
     open_named_page: bool,
+    prepare_runner: bool,
 ) {
     let (names, secrets, constraints, votes, capped) = cell.state.lock().map_or_else(
         |_| {
@@ -97,12 +98,13 @@ async fn plan_then_drive_with_page(
         let page = open_named_page
             .then(|| super::page::named_page(&task))
             .flatten();
-        let preparing = async {
-            runner.prepare(&id, &constraints).await;
-            if let Some(page) = &page {
-                runner.open_page(&id, page).await;
-            }
-        };
+        let preparing = prepare_page(
+            runner.clone(),
+            id.clone(),
+            constraints.clone(),
+            page,
+            prepare_runner,
+        );
         tokio::join!(planning, preparing).0
     } else {
         planning.await
@@ -160,6 +162,21 @@ async fn plan_then_drive_with_page(
             },
             "The plan needs values before it can start.",
         );
+    }
+}
+
+async fn prepare_page(
+    runner: Arc<dyn FlowRunner>,
+    id: tinycomputer_bus::agent::TaskId,
+    constraints: TaskConstraints,
+    page: Option<String>,
+    prepare_runner: bool,
+) {
+    if prepare_runner {
+        runner.prepare(&id, &constraints).await;
+        if let Some(page) = page {
+            runner.open_page(&id, &page).await;
+        }
     }
 }
 

@@ -260,3 +260,53 @@ async fn a_held_payment_replans_the_same_task_and_keeps_its_current_page() {
         TaskStatus::Done { .. }
     ));
 }
+
+#[tokio::test]
+async fn payment_continuation_reuses_the_already_prepared_task_surface() {
+    let (tasks, script) = controller(vec![payment_checkpoint(), payment_approval()]);
+    let tasks = tasks.with_planner(crate::planner::Planner::new(Arc::new(FixedPlan(
+        r#"{"app":"browser","steps":[{"enter":{"item":"one"}},{"enter":{"item":"two"}},{"enter":{"item":"three"}},{"enter":{"item":"four"}},{"stop_before":"Pay now"}]}"#.to_owned(),
+        script.planner_text.clone(),
+    ))));
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy the item in the current cart".to_owned()),
+            constraints: TaskConstraints {
+                payment: PaymentMode::StopAtPayment,
+                surfaces: vec![tinycomputer_bus::agent::SurfaceKind::Browser],
+                origins: vec!["https://.shop.example".to_owned()],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    let stopped = settle(&tasks, &started.id).await;
+    assert!(matches!(stopped.status, TaskStatus::Checkpoint { .. }));
+    assert_eq!(
+        script.prepared.lock().unwrap().as_slice(),
+        std::slice::from_ref(&started.id)
+    );
+
+    tasks
+        .continue_payment(payment_request(started.id.clone(), payment_handles()))
+        .data
+        .unwrap();
+    let paused = settle(&tasks, &started.id).await;
+    assert!(matches!(paused.status, TaskStatus::NeedsApproval { .. }));
+    assert_eq!(
+        script.prepared.lock().unwrap().as_slice(),
+        std::slice::from_ref(&started.id),
+        "continuing on the held payment form must not prepare or claim it again"
+    );
+    assert_eq!(
+        script
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| **event == "prepare")
+            .count(),
+        1
+    );
+}

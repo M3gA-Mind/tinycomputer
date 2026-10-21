@@ -396,6 +396,26 @@ impl Browser {
         Ok(info)
     }
 
+    /// Updates the host action-gate context for an existing browser session.
+    /// A retained payment checkout can therefore adopt its verified payment
+    /// mode without opening or claiming another browser session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the session has gone away, is closing, or its
+    /// state could not be read safely.
+    pub async fn update_action_context(
+        &self,
+        id: &SessionId,
+        action_context: ActionContext,
+    ) -> Result<()> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check(false).await?;
+        session.action_context = action_context;
+        Ok(())
+    }
+
     /// Closes a session and everything it owns. Closing one that is already
     /// gone succeeds.
     ///

@@ -268,6 +268,58 @@ async fn public_task_manager_runs_the_real_browser_runner_without_a_model()
 }
 
 #[tokio::test]
+async fn retained_browser_updates_payment_gate_context_without_reopening()
+-> Result<(), Box<dyn std::error::Error>> {
+    let script = BrowserScript::default();
+    let gate = Arc::new(RecordingGate::default());
+    let browser = Arc::new(Browser::new(Arc::new(script)).with_action_gate(gate.clone()));
+    let runner = BrowserRunner::new(browser, runtime()?).with_session_options(SessionOptions {
+        headless: true,
+        ..SessionOptions::default()
+    });
+    let task = tinycomputer_bus::agent::TaskId::new("t-payment-context");
+    let mut constraints = TaskConstraints {
+        surfaces: vec![SurfaceKind::Browser],
+        origins: vec!["http://127.0.0.1:8765".to_owned()],
+        payment: PaymentMode::StopAtPayment,
+        ..TaskConstraints::default()
+    };
+    runner.prepare(&task, &constraints).await;
+    let session = runner
+        .session_id(&task)
+        .ok_or("prepared task session was not retained")?;
+    let make_request = || RunFlowRequest {
+        flow: Flow {
+            app: "browser".to_owned(),
+            vars: std::collections::BTreeMap::new(),
+            steps: vec![FlowStep::Action(FlowAction::Browse(
+                "http://127.0.0.1:8765/index.html".to_owned(),
+            ))],
+        },
+        ..RunFlowRequest::default()
+    };
+    let first = runner.run(&task, &constraints, make_request()).await;
+    assert!(first.ok, "{:?}", first.error);
+
+    constraints.payment = PaymentMode::FillThenApprove;
+    let second = runner.run(&task, &constraints, make_request()).await;
+    assert!(second.ok, "{:?}", second.error);
+    assert_eq!(runner.session_id(&task).as_ref(), Some(&session));
+    let contexts = gate
+        .contexts
+        .lock()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    assert!(contexts.iter().any(|context| {
+        context.task_id.as_deref() == Some(task.0.as_str()) && !context.payment_in_play
+    }));
+    assert!(contexts.iter().any(|context| {
+        context.task_id.as_deref() == Some(task.0.as_str()) && context.payment_in_play
+    }));
+    runner.release(&task);
+    Ok(())
+}
+
+#[tokio::test]
 async fn browser_action_refusal_from_the_real_runner_survives_rescue_and_report()
 -> Result<(), Box<dyn std::error::Error>> {
     const REASON: &str = "the host refused this browser action";

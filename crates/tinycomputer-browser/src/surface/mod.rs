@@ -130,7 +130,7 @@ const EARLY_LOAD_MS: u64 = 10_000;
 pub struct BrowserSurface {
     browser: Arc<Browser>,
     options: SessionOptions,
-    action_context: ActionContext,
+    action_context: Arc<Mutex<ActionContext>>,
     session: Arc<Mutex<Option<SessionId>>>,
     handle: tokio::runtime::Handle,
     platform: Platform,
@@ -174,7 +174,7 @@ impl BrowserSurface {
         Self {
             browser,
             options,
-            action_context: ActionContext::default(),
+            action_context: Arc::new(Mutex::new(ActionContext::default())),
             session: Arc::new(Mutex::new(None)),
             handle,
             platform: Platform::current(),
@@ -198,8 +198,30 @@ impl BrowserSurface {
     /// Supplies the task facts included in each host action-gate request.
     #[must_use]
     pub fn with_action_context(mut self, context: ActionContext) -> Self {
-        self.action_context = context;
+        self.action_context = Arc::new(Mutex::new(context));
         self
+    }
+
+    /// Updates the gate context on this retained session, if it is already
+    /// open, and on any future session opened by this surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the current session is unavailable or either
+    /// the surface or session state is poisoned.
+    pub async fn update_action_context(&self, context: ActionContext) -> Result<()> {
+        let id = self.session();
+        if let Some(id) = id {
+            self.browser
+                .update_action_context(&id, context.clone())
+                .await?;
+        }
+        *self
+            .action_context
+            .lock()
+            .map_err(|_| Error::failed("the browser surface context was poisoned by a panic"))? =
+            context;
+        Ok(())
     }
 
     /// The same surface, reading pages with `perception`
@@ -318,9 +340,14 @@ impl BrowserSurface {
         if early && self.closed.load(Ordering::Acquire) {
             return Err(Error::failed("the browser surface was let go"));
         }
+        let context = self
+            .action_context
+            .lock()
+            .map_err(|_| Error::failed("the browser surface context was poisoned by a panic"))?
+            .clone();
         let info = self.block(
             self.browser
-                .open_session_with_context(self.options.clone(), self.action_context.clone()),
+                .open_session_with_context(self.options.clone(), context),
         )?;
         *slot = Some(info.id.clone());
         Ok(info.id)
