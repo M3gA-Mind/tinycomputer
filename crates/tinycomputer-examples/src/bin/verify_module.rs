@@ -225,12 +225,15 @@ async fn verify_report_sink(
             (StartTaskRequest {
                 flow: Some(serde_json::from_value(serde_json::json!({
                     "app": "verification",
-                    "steps": []
+                    "steps": ["verify report delivery"]
                 }))?),
                 ..StartTaskRequest::default()
             },),
         )
         .await?;
+    if !started.ok {
+        return Err(io::Error::other("module rejected the verification task flow").into());
+    }
     let task_id = started
         .data
         .ok_or_else(|| io::Error::other("module did not start the no-op verification task"))?

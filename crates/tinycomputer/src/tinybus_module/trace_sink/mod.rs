@@ -20,11 +20,13 @@ use tinycomputer_bus::trace_sink::{
     self, SinkAck, TaskReportRecord, TraceArtifact, TraceArtifactKind, TraceArtifactRef, TraceEvent,
 };
 use tinycomputer_desktop::{
-    TraceSink as EngineTraceSink, TraceSinkArtifact, TraceSinkArtifactKind as EngineArtifactKind,
-    TraceSinkArtifactLimits, TraceSinkDeadline, TraceSinkError,
+    TraceSinkArtifactKind as EngineArtifactKind, TraceSinkError,
 };
 
-const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+mod engine_adapter;
+
+pub(super) use engine_adapter::{operation_deadline, receive, send};
+use engine_adapter::{CALL_TIMEOUT, remaining_timeout, validate_artifact_size};
 
 fn validate_artifact_size(size: usize) -> std::result::Result<(), TraceSinkError> {
     if size > tinycomputer_bus::trace_sink::MAX_TRACE_ARTIFACT_BYTES {
@@ -56,9 +58,9 @@ enum Command {
 pub(crate) struct TraceLink {
     connection: Connection,
     destination: tinybus::BusName,
-    worker: std::sync::Mutex<Option<SyncSender<Command>>>,
+    pub(super) worker: std::sync::Mutex<Option<SyncSender<Command>>>,
     worker_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
-    callback_active: Arc<AtomicBool>,
+    pub(super) callback_active: Arc<AtomicBool>,
     confidential: bool,
 }
 
@@ -365,98 +367,6 @@ fn receive<T>(receiver: &mpsc::Receiver<T>, timeout: Duration) -> Result<T, Recv
         Ok(_) => Err(RecvTimeoutError::Timeout),
         Err(_) => receiver.recv_timeout(timeout),
     }
-}
-
-impl EngineTraceSink for TraceLink {
-    fn append(
-        &self,
-        record: &serde_json::Value,
-        deadline: TraceSinkDeadline,
-        byte_budget: u64,
-    ) -> std::result::Result<(), TraceSinkError> {
-        if self.callback_active.load(Ordering::Acquire) {
-            return Err(TraceSinkError::Internal(
-                "trace sink callback is busy".into(),
-            ));
-        }
-        let deadline = operation_deadline(deadline)
-            .ok_or_else(|| TraceSinkError::Internal("trace sink deadline expired".into()))?;
-        let timeout = remaining_timeout(deadline)
-            .ok_or_else(|| TraceSinkError::Internal("trace sink deadline expired".into()))?;
-        let (reply, result) = mpsc::sync_channel(1);
-        send(
-            &self.worker,
-            Command::Append {
-                record: record.clone(),
-                deadline,
-                byte_budget,
-                reply,
-            },
-        )?;
-        receive(&result, timeout)
-            .map_err(|_| TraceSinkError::Internal("trace sink acknowledgment timed out".into()))?
-            .map_err(|()| TraceSinkError::Internal("trace sink rejected event".into()))
-    }
-
-    fn store_artifact(
-        &self,
-        artifact: TraceSinkArtifact<'_>,
-        limits: TraceSinkArtifactLimits,
-    ) -> std::result::Result<String, TraceSinkError> {
-        validate_artifact_size(artifact.bytes.len())?;
-        if self.callback_active.load(Ordering::Acquire) {
-            return Err(TraceSinkError::Internal(
-                "trace sink callback is busy".into(),
-            ));
-        }
-        let deadline = operation_deadline(artifact.deadline)
-            .ok_or_else(|| TraceSinkError::Internal("trace artifact deadline expired".into()))?;
-        let timeout = remaining_timeout(deadline)
-            .ok_or_else(|| TraceSinkError::Internal("trace artifact deadline expired".into()))?;
-        let (reply, result) = mpsc::sync_channel(1);
-        let kind = match artifact.kind {
-            EngineArtifactKind::Screenshot => TraceArtifactKind::Screenshot,
-            EngineArtifactKind::RefMap => TraceArtifactKind::RefMap,
-        };
-        send(
-            &self.worker,
-            Command::StoreArtifact {
-                kind,
-                name: artifact.name.to_owned(),
-                bytes: artifact.bytes.to_vec(),
-                deadline,
-                limits: tinycomputer_bus::trace_sink::TraceArtifactLimits {
-                    screenshot_bytes: limits.screenshot_bytes,
-                    screenshot_count: limits.screenshot_count,
-                    refmap_bytes: limits.refmap_bytes,
-                },
-                reply,
-            },
-        )?;
-        receive(&result, timeout)
-            .map_err(|_| {
-                TraceSinkError::Internal("trace artifact acknowledgment timed out".into())
-            })?
-            .map_err(|()| TraceSinkError::Internal("trace sink rejected artifact".into()))
-    }
-}
-
-fn send(
-    worker: &std::sync::Mutex<Option<SyncSender<Command>>>,
-    command: Command,
-) -> std::result::Result<(), TraceSinkError> {
-    let worker = worker
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some(worker) = worker.as_ref() else {
-        return Err(TraceSinkError::Internal("trace sink worker stopped".into()));
-    };
-    worker.try_send(command).map_err(|error| match error {
-        TrySendError::Full(_) => TraceSinkError::Internal("trace sink worker is busy".into()),
-        TrySendError::Disconnected(_) => {
-            TraceSinkError::Internal("trace sink worker stopped".into())
-        }
-    })
 }
 
 #[cfg(test)]
