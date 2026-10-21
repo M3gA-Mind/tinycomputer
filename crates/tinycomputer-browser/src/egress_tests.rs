@@ -178,6 +178,100 @@ async fn approved_connect_reaches_only_the_consumed_socket() {
 }
 
 #[tokio::test]
+async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {
+    let unreachable = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let first_address = unreachable.local_addr().unwrap();
+    drop(unreachable);
+
+    let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let second_address = destination.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = destination.accept().await.unwrap();
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            .await
+            .unwrap();
+    });
+    let authorizer = Arc::new(MultiAddressAuthorizer {
+        addresses: vec![first_address, second_address],
+    });
+    let proxy = EgressProxy::bind(
+        authorizer,
+        "multi-address-session".into(),
+        FIXTURE_PASSWORD.into(),
+    )
+    .await
+    .unwrap();
+    let mut client = TcpStream::connect(proxy.url().replace("http://", ""))
+        .await
+        .unwrap();
+    client
+        .write_all(
+            format!(
+                "GET http://control.test:{}/ HTTP/1.1\r\nHost: control.test:{}\r\nProxy-Authorization: {}\r\n\r\n",
+                second_address.port(),
+                second_address.port(),
+                proxy_authorization()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    assert!(
+        std::str::from_utf8(&response)
+            .unwrap()
+            .ends_with("\r\n\r\nok")
+    );
+    server.await.unwrap();
+}
+
+struct MultiAddressAuthorizer {
+    addresses: Vec<SocketAddr>,
+}
+
+impl EgressAuthorizer for MultiAddressAuthorizer {
+    fn authorize(
+        &self,
+        _target: BrowserDialTarget,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<DialGrant>> + Send>> {
+        let addresses = self.addresses.clone();
+        Box::pin(async move {
+            Ok(DialGrant {
+                lease: "multi-address-lease".into(),
+                addresses,
+            })
+        })
+    }
+
+    fn consume(
+        &self,
+        _target: BrowserDialTarget,
+        grant: DialGrant,
+        address: SocketAddr,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send>> {
+        Box::pin(async move {
+            if grant.addresses.contains(&address) {
+                Ok(())
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "wrong address",
+                ))
+            }
+        })
+    }
+
+    fn validate(
+        &self,
+        _lease: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<bool>> + Send>> {
+        Box::pin(async { Ok(true) })
+    }
+}
+
+#[tokio::test]
 async fn denied_destination_never_connects_to_the_fixture() {
     let destination = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     destination.set_nonblocking(true).unwrap();
