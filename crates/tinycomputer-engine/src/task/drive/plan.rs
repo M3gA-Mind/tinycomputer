@@ -1,10 +1,11 @@
 //! Planning a task and running its first planned flow.
 
-use super::handoff::handle_plan_failure;
+use super::finish::task_usage;
+use super::handoff::{handle_plan_failure, prepare_page};
 use super::*;
 
 /// Plans the task, then runs the plan — or asks for what it needs first.
-pub(super) async fn plan_then_drive(
+pub(in crate::task) async fn plan_then_drive(
     cell: Arc<Cell>,
     runner: Arc<dyn FlowRunner>,
     planner: crate::planner::Planner,
@@ -16,7 +17,7 @@ pub(super) async fn plan_then_drive(
 
 /// Plans a payment continuation against the retained current page without
 /// reopening the task's named start page.
-pub(super) async fn plan_payment_then_drive(
+pub(in crate::task) async fn plan_payment_then_drive(
     cell: Arc<Cell>,
     runner: Arc<dyn FlowRunner>,
     planner: crate::planner::Planner,

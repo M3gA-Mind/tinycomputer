@@ -1,5 +1,7 @@
 //! Running task flows and recording their results.
 
+use super::finish::task_usage;
+use super::handoff::plan_handoff;
 use super::*;
 
 /// Runs a task's flows in order until one stops it or all finish.
@@ -12,7 +14,7 @@ use super::*;
 /// inside — so it is enforced here instead, by timing out a run that would
 /// otherwise run past what remains of it.
 
-pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Vec<Run>) {
+pub(in crate::task) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Vec<Run>) {
     let mut runs = VecDeque::from(runs);
     while let Some(run) = runs.pop_front() {
         let Some((request, constraints, time_left)) = run_request(&cell, &run) else {

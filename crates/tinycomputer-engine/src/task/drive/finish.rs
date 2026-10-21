@@ -5,7 +5,7 @@ use super::*;
 /// Every run finished: the task is done, with what it read, shaped as its
 /// `output` asks when it asks.
 
-pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
+pub(in crate::task) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
     // The last look at the surface, before shaping and before release.
     let _ = capture(cell, runner).await;
     let id = cell.view.borrow().id.clone();
@@ -122,7 +122,7 @@ fn finish_content(
     ))
 }
 
-fn task_usage(cell: &Cell) -> Arc<crate::UsageRecorder> {
+pub(in crate::task) fn task_usage(cell: &Cell) -> Arc<crate::UsageRecorder> {
     cell.state
         .lock()
         .map(|state| Arc::clone(&state.usage))

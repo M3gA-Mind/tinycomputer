@@ -1,8 +1,9 @@
 //! Recovering failed plans and handing off a task prefix to the planner.
 
+use super::finish::task_usage;
 use super::*;
 
-async fn handle_plan_failure(
+pub(in crate::task) async fn handle_plan_failure(
     cell: Arc<Cell>,
     runner: Arc<dyn FlowRunner>,
     id: TaskId,
@@ -75,7 +76,7 @@ async fn recover_plan_after_planner_failure(
     Ok(())
 }
 
-async fn prepare_page(
+pub(in crate::task) async fn prepare_page(
     runner: Arc<dyn FlowRunner>,
     id: tinycomputer_bus::agent::TaskId,
     constraints: TaskConstraints,
@@ -92,7 +93,7 @@ async fn prepare_page(
 
 /// Plans the rest of a task after a supplied flow prefix. The runner is not
 /// prepared or opened here: it still owns the page the prefix left current.
-async fn plan_handoff(
+pub(in crate::task) async fn plan_handoff(
     cell: &Arc<Cell>,
     runner: &dyn FlowRunner,
 ) -> Result<Option<tinycomputer_bus::Flow>, String> {
