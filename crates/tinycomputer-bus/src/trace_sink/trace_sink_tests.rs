@@ -1,3 +1,5 @@
+//! Tests pinning the trace sink contract's wire representations.
+
 use super::*;
 
 #[test]
