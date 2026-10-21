@@ -55,11 +55,12 @@ fn surface_names_in_success_data_use_the_contract_wire_spelling() {
 #[test]
 fn supported_surface_names_in_error_details_use_the_contract_wire_spelling() {
     let error = AppError::Adapter(
-        AdapterError::new(ErrorCode::PlatformNotSupported, "surface not supported")
-            .with_details(json!({
+        AdapterError::new(ErrorCode::PlatformNotSupported, "surface not supported").with_details(
+            json!({
                 "requested_surface": "quick-settings",
                 "supported_surfaces": ["system-tray", "notification-center"]
-            })),
+            }),
+        ),
     );
 
     let payload = reply::envelope("snapshot", Err(error))
