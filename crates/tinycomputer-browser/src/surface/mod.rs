@@ -379,9 +379,7 @@ impl BrowserSurface {
             sight::script(root)
         };
         // The timer is made inside the runtime `block` enters, not before.
-        let reading = self
-            .browser
-            .command(&id, json!({"action": "evaluate", "script": script}));
+        let reading = self.browser.observe_sight(&id, script);
         let reply = self
             .block(async { tokio::time::timeout(READ_TIMEOUT, reading).await })
             .ok()?

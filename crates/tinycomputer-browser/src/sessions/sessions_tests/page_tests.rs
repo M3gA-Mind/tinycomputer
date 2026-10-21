@@ -12,8 +12,131 @@ use tinycomputer_bus::browser::{
 use super::open;
 use crate::error::Error;
 use crate::fake::{Fake, failure, ok};
-use crate::{ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser};
+use crate::{ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser, ObservationKind};
 use crate::{ActionObservation, ActionObserver, ObservedAction};
+
+type GateObservation = (String, Option<ObservationKind>, Option<String>);
+
+#[derive(Default)]
+struct CaptureGate(std::sync::Mutex<Vec<GateObservation>>);
+
+impl ActionGate for CaptureGate {
+    fn check(&self, request: &ActionRequest) -> ActionVerdict {
+        self.0.lock().unwrap().push((
+            request.payload["action"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            request.observation,
+            request.current_url.clone(),
+        ));
+        ActionVerdict::Allow
+    }
+}
+
+#[tokio::test]
+async fn only_the_fixed_page_stability_helper_is_classified_as_an_observation() {
+    let fake = Fake::scripted(|command| match command["action"].as_str() {
+        Some("url") => Some(ok(&json!({"url": "https://shop.test/"}))),
+        Some("navigate") => Some(ok(&json!({
+            "url": command["url"],
+            "title": "Shop"
+        }))),
+        Some("evaluate") => Some(ok(&json!({"result": true}))),
+        _ => None,
+    });
+    let gate = Arc::new(CaptureGate::default());
+    let browser = Browser::with_scratch(
+        Arc::new(fake),
+        std::env::temp_dir().join(format!("tinycomputer-stability-{}", std::process::id())),
+    )
+    .with_action_gate(gate.clone());
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/"))
+        .await
+        .unwrap();
+    gate.0.lock().unwrap().clear();
+
+    let script =
+        "new Promise(resolve => { const watcher = new MutationObserver(() => resolve(true)); })";
+    browser
+        .observe_page_stability(&id, script.to_owned())
+        .await
+        .unwrap();
+    assert_eq!(
+        gate.0.lock().unwrap().as_slice(),
+        [
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::PageStability),
+                Some("https://shop.test/".to_owned())
+            ),
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::PageStability),
+                Some("https://shop.test/".to_owned())
+            )
+        ]
+    );
+
+    gate.0.lock().unwrap().clear();
+    browser
+        .observe_target_check(&id, script.to_owned())
+        .await
+        .unwrap();
+    assert_eq!(
+        gate.0.lock().unwrap().as_slice(),
+        [
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::TargetCheck),
+                Some("https://shop.test/".to_owned())
+            ),
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::TargetCheck),
+                Some("https://shop.test/".to_owned())
+            )
+        ]
+    );
+
+    gate.0.lock().unwrap().clear();
+    browser.observe_sight(&id, script.to_owned()).await.unwrap();
+    assert_eq!(
+        gate.0.lock().unwrap().as_slice(),
+        [
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::Snapshot),
+                Some("https://shop.test/".to_owned())
+            ),
+            (
+                "observe".to_owned(),
+                Some(ObservationKind::Snapshot),
+                Some("https://shop.test/".to_owned())
+            )
+        ]
+    );
+
+    gate.0.lock().unwrap().clear();
+    browser
+        .command(&id, json!({"action": "evaluate", "script": script}))
+        .await
+        .unwrap();
+    assert_eq!(
+        gate.0.lock().unwrap().as_slice(),
+        [(
+            "evaluate".to_owned(),
+            None,
+            Some("https://shop.test/".to_owned())
+        )]
+    );
+}
 
 #[tokio::test]
 async fn navigation_reports_the_page_and_refusals_are_typed() {

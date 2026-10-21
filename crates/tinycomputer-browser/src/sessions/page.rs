@@ -420,6 +420,99 @@ impl Browser {
         Ok(data)
     }
 
+    /// Runs the browser surface's fixed-purpose stability watcher. This is
+    /// crate-private so callers cannot label arbitrary evaluation as an
+    /// observation or bypass the host action gate.
+    pub(crate) async fn observe_page_stability(
+        &self,
+        id: &SessionId,
+        script: String,
+    ) -> Result<Value> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check_if_readable(false).await?;
+        let current_url = session
+            .action_url()
+            .await
+            .ok_or_else(|| Error::invalid_input("the current page URL is unknown"))?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::PageStability,
+            Some(current_url),
+            &session.action_context,
+        ))?;
+        let data = session
+            .run(serde_json::json!({"action": "evaluate", "script": script}))
+            .await?;
+        let page = session.page().await?;
+        let page = session.admit(page).await?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::PageStability,
+            Some(page.url.clone()),
+            &session.action_context,
+        ))?;
+        session.info.url.clone_from(&page.url);
+        Ok(data)
+    }
+
+    /// Runs the browser surface's fixed-purpose cover hit-test. This stays
+    /// crate-private so arbitrary evaluations cannot claim observation status.
+    pub(crate) async fn observe_target_check(
+        &self,
+        id: &SessionId,
+        script: String,
+    ) -> Result<Value> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check_if_readable(false).await?;
+        let current_url = session
+            .action_url()
+            .await
+            .ok_or_else(|| Error::invalid_input("the current page URL is unknown"))?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::TargetCheck,
+            Some(current_url),
+            &session.action_context,
+        ))?;
+        let data = session
+            .run(serde_json::json!({"action": "evaluate", "script": script}))
+            .await?;
+        let page = session.page().await?;
+        let page = session.admit(page).await?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::TargetCheck,
+            Some(page.url.clone()),
+            &session.action_context,
+        ))?;
+        session.info.url.clone_from(&page.url);
+        Ok(data)
+    }
+
+    /// Runs the browser surface's Sight snapshot script. This is crate-private
+    /// so raw evaluations cannot claim Snapshot observation authority.
+    pub(crate) async fn observe_sight(&self, id: &SessionId, script: String) -> Result<Value> {
+        let session = self.session(id)?;
+        let mut session = session.lock().await;
+        session.check_if_readable(false).await?;
+        let current_url = session.action_url().await;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Snapshot,
+            current_url,
+            &session.action_context,
+        ))?;
+        let data = session
+            .run(serde_json::json!({"action": "evaluate", "script": script}))
+            .await?;
+        let page = session.page().await?;
+        let page = session.admit(page).await?;
+        self.check_action(&ActionRequest::observation(
+            ObservationKind::Snapshot,
+            Some(page.url.clone()),
+            &session.action_context,
+        ))?;
+        session.info.url.clone_from(&page.url);
+        Ok(data)
+    }
+
     /// Evaluates JavaScript in the page and returns its value.
     ///
     /// # Errors

@@ -39,6 +39,12 @@ pub enum ObservationKind {
     ReadPage,
     /// A screenshot of the page.
     Screenshot,
+    /// A fixed browser-surface page-stability watcher. This exposes only
+    /// whether the page changed, not its content.
+    PageStability,
+    /// A fixed-purpose hit-test used by the browser surface before it decides
+    /// whether a target's pointer action is covered.
+    TargetCheck,
 }
 
 /// Information a trusted host may inspect before the browser acts or returns
