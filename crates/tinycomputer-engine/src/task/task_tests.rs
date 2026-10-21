@@ -14,6 +14,7 @@ mod errors_tests;
 mod human_tests;
 mod output_tests;
 mod page_tests;
+mod payment_tests;
 mod persistence_tests;
 mod plan_tests;
 mod rescue_tests;
@@ -37,7 +38,9 @@ use tinycomputer_bus::{
 
 use super::interpret::app_at;
 use super::publish::next_calls;
-use super::{FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind};
+use super::{
+    ContinuePaymentRequest, FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind,
+};
 
 /// Replies queued in order; a missing reply never resolves, like a flow
 /// still running.
@@ -45,6 +48,7 @@ use super::{FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind};
 struct Script {
     replies: Mutex<VecDeque<DesktopResponse>>,
     requests: Mutex<Vec<RunFlowRequest>>,
+    planner_text: Arc<Mutex<Vec<String>>>,
     constraints: Mutex<Vec<TaskConstraints>>,
     host_secrets: Mutex<Vec<String>>,
     /// What the task's surface shows when asked.

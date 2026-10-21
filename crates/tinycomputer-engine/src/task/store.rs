@@ -75,6 +75,8 @@ pub(super) struct State {
     pub(super) dialog_left_open: bool,
     pub(super) finished: usize,
     pub(super) resume: Option<Resume>,
+    /// Host-only lifecycle for the task's one payment checkpoint grant.
+    pub(super) payment_checkpoint: PaymentCheckpointState,
     /// What every run of this task has spent so far, so an approval or a
     /// human intervention that splits a task into several runs still cannot
     /// exceed its declared budget by starting each run with a fresh one.
@@ -154,6 +156,7 @@ impl Tasks {
                 dialog_left_open: false,
                 finished: 0,
                 resume: None,
+                payment_checkpoint: PaymentCheckpointState::Unavailable,
                 spent: Spent::default(),
                 rescues: Vec::new(),
                 output: request.output.clone(),
@@ -255,7 +258,26 @@ impl Tasks {
     }
 }
 
-struct WorkerCompletion(watch::Sender<bool>);
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum PaymentCheckpointState {
+    /// The task has not reached a payment checkpoint.
+    #[default]
+    Unavailable,
+    /// A non-continuable payment checkpoint may be exchanged by the host.
+    Available,
+    /// The one host continuation was consumed.
+    Transitioned,
+    /// The checkpoint was cancelled before the host authorized it.
+    Closed,
+}
+
+pub(super) struct WorkerCompletion(watch::Sender<bool>);
+
+impl WorkerCompletion {
+    pub(super) fn new(done: watch::Sender<bool>) -> Self {
+        Self(done)
+    }
+}
 
 impl Drop for WorkerCompletion {
     fn drop(&mut self) {

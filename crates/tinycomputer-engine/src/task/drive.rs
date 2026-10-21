@@ -13,7 +13,7 @@ use super::human::human_wall;
 use super::interpret::{Next, finished, run_outcome};
 use super::publish::{publish, records, stopped_summary};
 use super::recovery::{rescue_outcome, rescued};
-use super::store::{Cell, Run};
+use super::store::{Cell, PaymentCheckpointState, Run};
 use super::{DEFAULT_VOTES, FlowRunner, SHAPE_TIMEOUT_MS, redact_task_value};
 use crate::shape::Harvest;
 
@@ -26,6 +26,29 @@ pub(super) async fn plan_then_drive(
     planner: crate::planner::Planner,
     task: String,
     surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
+) {
+    plan_then_drive_with_page(cell, runner, planner, task, surfaces, true).await;
+}
+
+/// Plans a payment continuation against the retained current page without
+/// reopening the task's named start page.
+pub(super) async fn plan_payment_then_drive(
+    cell: Arc<Cell>,
+    runner: Arc<dyn FlowRunner>,
+    planner: crate::planner::Planner,
+    task: String,
+    surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
+) {
+    plan_then_drive_with_page(cell, runner, planner, task, surfaces, false).await;
+}
+
+async fn plan_then_drive_with_page(
+    cell: Arc<Cell>,
+    runner: Arc<dyn FlowRunner>,
+    planner: crate::planner::Planner,
+    task: String,
+    surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
+    open_named_page: bool,
 ) {
     let (names, secrets, constraints, votes, capped) = cell.state.lock().map_or_else(
         |_| {
@@ -71,7 +94,9 @@ pub(super) async fn plan_then_drive(
     // The one page the task names loads in it meanwhile, for a first step
     // that browses there.
     let ((outcome, used), drafting) = if constraints.surfaces == [SurfaceKind::Browser] {
-        let page = super::page::named_page(&task);
+        let page = open_named_page
+            .then(|| super::page::named_page(&task))
+            .flatten();
         let preparing = async {
             runner.prepare(&id, &constraints).await;
             if let Some(page) = &page {
@@ -211,6 +236,9 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
             }
             if let Next::Stop { resume, .. } = &next {
                 state.resume.clone_from(resume);
+                if matches!(resume, Some(super::interpret::Resume::PaymentCheckpoint)) {
+                    state.payment_checkpoint = PaymentCheckpointState::Available;
+                }
             }
             state.facts.clone()
         };
