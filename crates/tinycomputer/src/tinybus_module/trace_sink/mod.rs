@@ -21,13 +21,13 @@ use tinycomputer_bus::trace_sink::{
 };
 mod engine_adapter;
 
-#[cfg(test)]
-use engine_adapter::{operation_deadline, receive, send, validate_artifact_size};
 use engine_adapter::{remaining_millis, remaining_timeout};
+#[cfg(test)]
+use engine_adapter::{send, validate_artifact_size};
 #[cfg(test)]
 use tinycomputer_desktop::{
     TraceSink as EngineTraceSink, TraceSinkArtifact, TraceSinkArtifactKind as EngineArtifactKind,
-    TraceSinkArtifactLimits, TraceSinkDeadline, TraceSinkError,
+    TraceSinkArtifactLimits, TraceSinkDeadline,
 };
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
