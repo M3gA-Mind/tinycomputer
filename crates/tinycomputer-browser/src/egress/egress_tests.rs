@@ -5,6 +5,8 @@
 use std::io;
 use tokio::net::{TcpListener, TcpStream};
 
+mod forward_tests;
+
 #[tokio::test]
 async fn an_accept_error_waits_then_allows_later_connections() {
     let failed = super::accept_connection(std::future::ready(Err(io::Error::other(

@@ -214,6 +214,3 @@ pub(super) async fn write_all_bounded<W: tokio::io::AsyncWrite + Unpin>(
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, message))?
 }
-
-#[cfg(test)]
-mod forward_tests;

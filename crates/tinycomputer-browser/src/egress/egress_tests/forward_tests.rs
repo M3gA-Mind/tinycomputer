@@ -73,7 +73,7 @@ async fn validates_lease_while_response_write_is_blocked() {
     let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
     let task = tokio::spawn(async move {
         let mut upstream = upstream;
-        super::forward_response_with_lease(
+        super::super::forward::forward_response_with_lease(
             &mut BlockedWriter,
             &mut upstream,
             &authorizer,
