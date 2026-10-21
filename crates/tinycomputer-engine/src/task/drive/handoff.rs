@@ -33,8 +33,9 @@ async fn recover_plan_after_planner_failure(
     id: TaskId,
     task: String,
 ) -> Result<(), String> {
-    let plan = crate::task::plan_recovery::host_plan(&cell, runner.as_ref(), task, FLOW_GUIDE.to_owned())
-        .await?;
+    let plan =
+        crate::task::plan_recovery::host_plan(&cell, runner.as_ref(), task, FLOW_GUIDE.to_owned())
+            .await?;
     let facts = cell
         .state
         .lock()
@@ -264,10 +265,14 @@ async fn run_handoff_planner(
             if remaining_calls == 0 {
                 return Err(reason);
             }
-            let flow =
-                crate::task::plan_recovery::host_plan(cell, runner, draft.task, FLOW_GUIDE.to_owned())
-                    .await
-                    .map_err(|recovery| format!("{reason}; host recovery failed: {recovery}"))?;
+            let flow = crate::task::plan_recovery::host_plan(
+                cell,
+                runner,
+                draft.task,
+                FLOW_GUIDE.to_owned(),
+            )
+            .await
+            .map_err(|recovery| format!("{reason}; host recovery failed: {recovery}"))?;
             Ok(tinycomputer_bus::agent::TaskPlan {
                 flow,
                 questions: Vec::new(),
@@ -479,8 +484,8 @@ async fn draft_handoff(
             Err(reason) => Err(reason),
         }
     } else if runner.plan_recovery_enabled() {
-        let flow =
-            crate::task::plan_recovery::host_plan(cell, runner, task, FLOW_GUIDE.to_owned()).await?;
+        let flow = crate::task::plan_recovery::host_plan(cell, runner, task, FLOW_GUIDE.to_owned())
+            .await?;
         Ok(tinycomputer_bus::agent::TaskPlan {
             flow,
             questions: Vec::new(),

@@ -169,13 +169,13 @@ fn record_run(
     if let Next::Stop { resume, .. } = next {
         state.resume.clone_from(resume);
         if state.payment_checkpoint == PaymentCheckpointState::Unavailable
-            && matches!(resume, Some(crate::task::interpret::Resume::PaymentCheckpoint))
+            && matches!(
+                resume,
+                Some(crate::task::interpret::Resume::PaymentCheckpoint)
+            )
         {
             state.payment_checkpoint = PaymentCheckpointState::Available;
         }
     }
     Some((handoff, state.facts.clone()))
 }
-
-/// Every run finished: the task is done, with what it read, shaped as its
-/// `output` asks when it asks.

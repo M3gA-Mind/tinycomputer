@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Every run finished: the task is done, with what it read, shaped as its
+/// `output` asks when it asks.
+
 pub(super) async fn finish(cell: &Cell, runner: &dyn FlowRunner) {
     // The last look at the surface, before shaping and before release.
     let _ = capture(cell, runner).await;

@@ -1,7 +1,7 @@
 //! Planning a task and running its first planned flow.
 
-use super::*;
 use super::handoff::handle_plan_failure;
+use super::*;
 
 /// Plans the task, then runs the plan — or asks for what it needs first.
 pub(super) async fn plan_then_drive(
@@ -241,4 +241,3 @@ async fn plan_then_drive_with_page(
         );
     }
 }
-
