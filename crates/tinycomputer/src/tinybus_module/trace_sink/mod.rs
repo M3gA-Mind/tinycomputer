@@ -202,15 +202,15 @@ fn worker(
                 byte_budget,
                 reply,
             } => {
-                let Some(_guard) = CallbackGuard::try_acquire(callback_active) else {
-                    let _ = reply.send(Err(()));
-                    continue;
-                };
                 let Some(timeout) = remaining_timeout(deadline) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
                 let Some(deadline_ms) = remaining_millis(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(guard) = CallbackGuard::try_acquire(callback_active) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
@@ -235,6 +235,7 @@ fn worker(
                     .await
                     .map(|_| ())
                 });
+                drop(guard);
                 let _ = reply.send(result.map_err(|_| ()));
             }
             Command::StoreArtifact {
@@ -245,15 +246,15 @@ fn worker(
                 limits,
                 reply,
             } => {
-                let Some(_guard) = CallbackGuard::try_acquire(callback_active) else {
-                    let _ = reply.send(Err(()));
-                    continue;
-                };
                 let Some(timeout) = remaining_timeout(deadline) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
                 let Some(deadline_ms) = remaining_millis(deadline) else {
+                    let _ = reply.send(Err(()));
+                    continue;
+                };
+                let Some(guard) = CallbackGuard::try_acquire(callback_active) else {
                     let _ = reply.send(Err(()));
                     continue;
                 };
@@ -280,6 +281,7 @@ fn worker(
                     .await
                     .map(|reply| reply.reference)
                 });
+                drop(guard);
                 let _ = reply.send(result.map_err(|_| ()));
             }
         }
