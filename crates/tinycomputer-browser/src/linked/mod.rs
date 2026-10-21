@@ -194,9 +194,26 @@ fn failure_reply(command: &Value, reason: &str) -> Value {
 }
 
 fn enforce_launch(
+    command: Value,
+    proxy: &str,
+    proxy_password: &str,
+) -> Result<Value, &'static str> {
+    let has_ambient_browser_config = command.get("action").and_then(Value::as_str)
+        == Some("launch")
+        && has_ambient_browser_config();
+    enforce_launch_with_config(
+        command,
+        proxy,
+        proxy_password,
+        has_ambient_browser_config,
+    )
+}
+
+fn enforce_launch_with_config(
     mut command: Value,
     proxy: &str,
     proxy_password: &str,
+    has_ambient_browser_config: bool,
 ) -> Result<Value, &'static str> {
     if command.get("action").and_then(Value::as_str) != Some("launch") {
         return Ok(command);
@@ -223,18 +240,7 @@ fn enforce_launch(
     {
         return Err("network policy refuses caller-supplied browser launch arguments");
     }
-    if std::env::var_os("AGENT_BROWSER_CDP").is_some()
-        || std::env::var_os("AGENT_BROWSER_AUTO_CONNECT").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROVIDER").is_some()
-        || std::env::var_os("AGENT_BROWSER_ENGINE").is_some()
-        || std::env::var_os("AGENT_BROWSER_EXECUTABLE_PATH").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROXY").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROXY_BYPASS").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROXY_USERNAME").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROXY_PASSWORD").is_some()
-        || std::env::var_os("AGENT_BROWSER_PROFILE").is_some()
-        || std::env::var_os("AGENT_BROWSER_RESTORE").is_some()
-    {
+    if has_ambient_browser_config {
         return Err("network policy refuses ambient external browser configuration");
     }
     // Chromium's special <-loopback> token removes its implicit direct
@@ -253,6 +259,21 @@ fn enforce_launch(
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"
     ]);
     Ok(command)
+}
+
+fn has_ambient_browser_config() -> bool {
+    std::env::var_os("AGENT_BROWSER_CDP").is_some()
+        || std::env::var_os("AGENT_BROWSER_AUTO_CONNECT").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROVIDER").is_some()
+        || std::env::var_os("AGENT_BROWSER_ENGINE").is_some()
+        || std::env::var_os("AGENT_BROWSER_EXECUTABLE_PATH").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROXY").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROXY_BYPASS").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROXY_USERNAME").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROXY_PASSWORD").is_some()
+        || std::env::var_os("AGENT_BROWSER_PROFILE").is_some()
+        || std::env::var_os("AGENT_BROWSER_RESTORE").is_some()
+}
 }
 
 #[cfg(test)]
