@@ -349,48 +349,12 @@ struct SecretRedactingSurface {
 }
 
 impl SecretRedactingSurface {
-    fn redact(&self, text: &str) -> String {
-        self.host.redact(&self.task_id, text)
-    }
-
-    fn redact_value(&self, value: &mut serde_json::Value) {
-        match value {
-            serde_json::Value::String(text) => *text = self.redact(text),
-            serde_json::Value::Array(values) => {
-                for value in values {
-                    self.redact_value(value);
-                }
-            }
-            serde_json::Value::Object(values) => {
-                for value in values.values_mut() {
-                    self.redact_value(value);
-                }
-            }
-            _ => {}
-        }
-    }
-
     fn redact_screen(&self, screen: &mut Screen) {
         redact_screen(&*self.host, &self.task_id, screen);
     }
 
-    fn redact_response(&self, mut response: DesktopResponse) -> DesktopResponse {
-        if let Some(data) = &mut response.data {
-            self.redact_value(data);
-        }
-        if let Some(error) = &mut response.error {
-            error.message = self.redact(&error.message);
-            if let Some(suggestion) = &mut error.suggestion {
-                *suggestion = self.redact(suggestion);
-            }
-            if let Some(platform_detail) = &mut error.platform_detail {
-                *platform_detail = self.redact(platform_detail);
-            }
-            if let Some(details) = &mut error.details {
-                self.redact_value(details);
-            }
-        }
-        response
+    fn redact_response(&self, response: DesktopResponse) -> DesktopResponse {
+        redact_response(&*self.host, &self.task_id, response)
     }
 }
 
@@ -401,7 +365,12 @@ impl Surface for SecretRedactingSurface {
         root: Option<&str>,
         depth: Depth,
     ) -> Result<Screen, Box<DesktopResponse>> {
-        let mut screen = self.inner.observe(app, root, depth)?;
+        let mut screen = match self.inner.observe(app, root, depth) {
+            Ok(screen) => screen,
+            Err(error) => {
+                return Err(redact_observation_error(&*self.host, &self.task_id, error));
+            }
+        };
         self.redact_screen(&mut screen);
         Ok(screen)
     }
@@ -460,23 +429,86 @@ impl Surface for SecretRedactingSurface {
     }
 }
 
+fn redact_observation_error(
+    host: &dyn SecretHost,
+    task_id: &str,
+    response: Box<DesktopResponse>,
+) -> Box<DesktopResponse> {
+    Box::new(redact_response(host, task_id, *response))
+}
+
+fn redact_response(
+    host: &dyn SecretHost,
+    task_id: &str,
+    response: DesktopResponse,
+) -> DesktopResponse {
+    let redact = |text: &str| host.redact(task_id, text);
+    let Ok(mut value) = serde_json::to_value(response) else {
+        return redaction_failed_response();
+    };
+
+    // These fields can be used to address or replay an operation. Rewriting
+    // them into a placeholder would make an apparently valid response point
+    // at a different target, so fail closed on a collision.
+    if operational_collision(&value, &redact) {
+        return redaction_failed_response();
+    }
+    super::redact_value(&mut value, &redact);
+    serde_json::from_value(value).unwrap_or_else(|_| redaction_failed_response())
+}
+
+fn operational_collision(value: &serde_json::Value, redact: &impl Fn(&str) -> String) -> bool {
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().any(|(key, value)| {
+            let operational = matches!(
+                key.as_str(),
+                "command" | "code" | "ref" | "ref_id" | "target" | "action" | "available_actions"
+            );
+            (operational && value.as_str().is_some_and(|text| redact(text) != text))
+                || operational_collision(value, redact)
+        }),
+        serde_json::Value::Array(items) => {
+            items.iter().any(|item| operational_collision(item, redact))
+        }
+        _ => false,
+    }
+}
+
+fn redaction_failed_response() -> DesktopResponse {
+    DesktopResponse::err(
+        "redaction",
+        DesktopError::new(
+            "REDACTION_FAILED",
+            "the browser response could not be safely redacted",
+        ),
+    )
+}
+
 fn redact_screen(host: &dyn SecretHost, task_id: &str, screen: &mut Screen) {
-    fn candidate(host: &dyn SecretHost, task_id: &str, node: &mut Candidate) {
+    fn candidate(host: &dyn SecretHost, task_id: &str, node: &mut Candidate) -> bool {
         let redact = |text: &str| host.redact(task_id, text);
+        let reference = redact(&node.ref_id);
+        let role = redact(&node.role);
+        // Refs and actions are executable metadata. If redaction finds a
+        // collision, omit the candidate instead of manufacturing an invalid
+        // target that could address a different control.
+        if reference != node.ref_id || role != node.role {
+            return false;
+        }
+        node.available_actions
+            .retain(|action| redact(action) == *action);
         node.name = node.name.take().map(|text| redact(&text));
         node.description = node.description.take().map(|text| redact(&text));
-        for state in &mut node.states {
-            *state = redact(state);
-        }
+        node.states.retain(|state| redact(state) == *state);
         for path in &mut node.path {
             *path = redact(path);
         }
         if let Some(value) = &mut node.value {
-            redact_json(host, task_id, value);
+            super::redact_value(value, &redact);
         }
-        for child in &mut node.children {
-            candidate(host, task_id, child);
-        }
+        node.children
+            .retain_mut(|child| candidate(host, task_id, child));
+        true
     }
     let redact = |text: &str| host.redact(task_id, text);
     screen.app = redact(&screen.app);
@@ -485,30 +517,15 @@ fn redact_screen(host: &dyn SecretHost, task_id: &str, screen: &mut Screen) {
     for text in &mut screen.context {
         *text = redact(text);
     }
-    for node in screen
+    screen
+        .unexplored
+        .retain(|reference| redact(reference) == *reference);
+    screen
         .candidates
-        .iter_mut()
-        .chain(screen.text_nodes.iter_mut())
-    {
-        candidate(host, task_id, node);
-    }
-}
-
-fn redact_json(host: &dyn SecretHost, task_id: &str, value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::String(text) => *text = host.redact(task_id, text),
-        serde_json::Value::Array(values) => {
-            for value in values {
-                redact_json(host, task_id, value);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values_mut() {
-                redact_json(host, task_id, value);
-            }
-        }
-        _ => {}
-    }
+        .retain_mut(|node| candidate(host, task_id, node));
+    screen
+        .text_nodes
+        .retain_mut(|node| candidate(host, task_id, node));
 }
 
 #[cfg(test)]
@@ -516,9 +533,10 @@ mod redaction_tests {
     use std::sync::Arc;
 
     use serde_json::json;
+    use tinycomputer_bus::{DesktopError, DesktopResponse};
     use tinycomputer_core::surface::{Candidate, Screen};
 
-    use super::redact_screen;
+    use super::{redact_observation_error, redact_response, redact_screen};
     use crate::{SecretHost, SecretTypeRequest};
 
     struct Host;
@@ -530,6 +548,7 @@ mod redaction_tests {
 
         fn redact(&self, _task_id: &str, text: &str) -> String {
             text.replace("private-canary", "[hidden]")
+                .replace("123456789", "[hidden]")
         }
     }
 
@@ -540,32 +559,111 @@ mod redaction_tests {
             app: "browser".into(),
             window: Some("private-canary page".into()),
             surface: "window".into(),
-            candidates: vec![Candidate {
-                ref_id: "e1".into(),
-                role: "button".into(),
-                name: Some("Private-canary action".into()),
-                value: Some(json!("private-canary")),
-                path: vec!["private-canary parent".into()],
-                ..Candidate::default()
-            }],
+            candidates: vec![
+                Candidate {
+                    ref_id: "e1".into(),
+                    role: "button".into(),
+                    name: Some("private-canary action".into()),
+                    value: Some(
+                        json!({"private-canary": 123_456_789, "[hidden]": "private-canary"}),
+                    ),
+                    path: vec!["private-canary parent".into()],
+                    available_actions: vec!["Click".into(), "private-canary action".into()],
+                    bounds: Some(json!({"x": 123_456_789, "y": 2})),
+                    ..Candidate::default()
+                },
+                Candidate {
+                    ref_id: "private-canary-ref".into(),
+                    role: "button".into(),
+                    name: Some("Unsafe ref".into()),
+                    available_actions: vec!["Click".into()],
+                    ..Candidate::default()
+                },
+            ],
             context: vec!["Restored private-canary value".into()],
-            unexplored: Vec::new(),
+            unexplored: vec!["private-canary-ref".into(), "e2".into()],
             text_nodes: Vec::new(),
         };
 
         redact_screen(host.as_ref(), "task-1", &mut screen);
 
-        let serialized = format!(
-            "{} {:?} {:?} {:?} {:?}",
-            screen.app,
-            screen.window,
-            screen.context,
-            screen.candidates[0].name,
-            screen.candidates[0].value,
+        let candidate = &screen.candidates[0];
+        assert!(
+            candidate
+                .name
+                .as_deref()
+                .is_some_and(|name| !name.contains("private-canary"))
         );
-        assert!(!serialized.contains("private-canary"));
-        assert!(serialized.contains("[hidden]"));
+        assert!(candidate.value.as_ref().is_some_and(|value| {
+            value["[hidden]"] == "[hidden]" && value["[hidden]#2"] == "[hidden]"
+        }));
+        assert!(
+            candidate
+                .bounds
+                .as_ref()
+                .is_some_and(|bounds| bounds["x"] == 123_456_789)
+        );
+        assert_eq!(candidate.available_actions, ["Click"]);
+        assert!(
+            !screen
+                .candidates
+                .iter()
+                .any(|node| node.ref_id.contains("private-canary"))
+        );
+        assert_eq!(screen.unexplored, ["e2"]);
+        assert!(!screen.context[0].contains("private-canary"));
         assert_eq!(screen.candidates[0].ref_id, "e1");
+    }
+
+    #[test]
+    fn observation_errors_are_redacted_before_they_are_returned() {
+        let host = Host;
+        let error = Box::new(DesktopResponse::err(
+            "observe",
+            DesktopError::new("private-canary-code", "page contained private-canary"),
+        ));
+
+        let safe = redact_observation_error(&host, "task-1", error);
+        assert!(
+            safe.error
+                .as_ref()
+                .is_some_and(|error| error.code == "REDACTION_FAILED")
+        );
+    }
+
+    #[test]
+    fn response_redaction_covers_numeric_values_and_object_keys() {
+        let response = DesktopResponse::ok(
+            "snapshot",
+            json!({
+                "metadata": {"private-canary": "123456789", "[hidden]": 123_456_789},
+                "message": "private-canary",
+            }),
+        );
+
+        let safe = redact_response(&Host, "task-1", response);
+        assert!(safe.data.as_ref().is_some_and(|data| {
+            data["metadata"]["[hidden]"] == "[hidden]"
+                && data["metadata"]["[hidden]#2"] == "[hidden]"
+                && data["message"] == "[hidden]"
+        }));
+    }
+
+    #[test]
+    fn response_with_secret_in_an_operational_ref_fails_closed() {
+        let response = DesktopResponse::ok(
+            "snapshot",
+            json!({"target": {"ref_id": "private-canary-ref"}}),
+        );
+
+        let safe = redact_response(&Host, "task-1", response);
+
+        assert!(!safe.ok);
+        assert!(
+            safe.error
+                .as_ref()
+                .is_some_and(|error| error.code == "REDACTION_FAILED")
+        );
     }
 }
 
