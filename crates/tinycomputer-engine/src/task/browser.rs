@@ -598,7 +598,7 @@ mod redaction_tests {
         let candidate = &screen.candidates[0];
         assert_eq!(candidate.name.as_deref(), Some("[hidden] action"));
         assert_eq!(candidate.path, ["[hidden] parent"]);
-        assert!(candidate.states.is_empty());
+        assert_eq!(candidate.states, Vec::<String>::new());
         assert!(candidate.value.as_ref().is_some_and(|value| {
             value["[hidden]"] == "[hidden]" && value["[hidden]#2"] == "[hidden]"
         }));

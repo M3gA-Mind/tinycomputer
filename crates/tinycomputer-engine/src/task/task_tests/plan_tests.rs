@@ -385,7 +385,10 @@ async fn a_payment_checkpoint_consumes_prefix_handoff_without_planning() {
             .unwrap()
             .handoff_to_planner
     );
-    assert!(journaled(&script, "plan").is_empty());
+    assert_eq!(
+        journaled(&script, "plan"),
+        Vec::<(Option<TaskId>, serde_json::Value)>::new()
+    );
 }
 
 #[tokio::test]
@@ -420,8 +423,11 @@ async fn a_failed_prefix_does_not_handoff_to_planning() {
         settle(&tasks, &started.id).await.status,
         TaskStatus::Failed { .. }
     ));
-    assert!(script.requests.lock().unwrap().len() == 1);
-    assert!(journaled(&script, "plan").is_empty());
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+    assert_eq!(
+        journaled(&script, "plan"),
+        Vec::<(Option<TaskId>, serde_json::Value)>::new()
+    );
 }
 
 #[tokio::test]

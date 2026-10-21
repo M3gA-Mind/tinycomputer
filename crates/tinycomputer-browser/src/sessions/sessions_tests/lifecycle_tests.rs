@@ -69,7 +69,10 @@ async fn a_second_close_waits_for_the_browser_to_finish_closing() {
         .expect("second close follows the first")
         .unwrap()
         .unwrap();
-    assert!(browser.list_sessions().await.unwrap().is_empty());
+    assert_eq!(
+        browser.list_sessions().await.unwrap(),
+        Vec::<tinycomputer_bus::browser::SessionInfo>::new()
+    );
 }
 
 #[tokio::test]
