@@ -57,7 +57,9 @@ where
     if !validate_lease(&auth, &lease).await? {
         return Ok(());
     }
-    initialize_upstream(&mut client, &mut upstream, &request).await?;
+    if !initialize_upstream(&mut client, &mut upstream, &request, &auth, &lease).await? {
+        return Ok(());
+    }
     if request.connect || request.has_upgrade {
         tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     } else {

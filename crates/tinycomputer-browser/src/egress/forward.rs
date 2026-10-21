@@ -16,7 +16,9 @@ pub(super) async fn initialize_upstream(
     client: &mut TcpStream,
     upstream: &mut TcpStream,
     request: &ProxyRequest,
-) -> io::Result<()> {
+    auth: &Arc<dyn EgressAuthorizer>,
+    lease: &str,
+) -> io::Result<bool> {
     if request.connect {
         write_all_bounded(
             client,
@@ -25,14 +27,16 @@ pub(super) async fn initialize_upstream(
         )
         .await?;
         if request.bytes.len() > request.split {
-            return write_all_bounded(
+            return write_all_with_lease(
                 upstream,
                 &request.bytes[request.split..],
                 "browser CONNECT payload timed out",
+                auth,
+                lease,
             )
             .await;
         }
-        return Ok(());
+        return Ok(true);
     }
     let url = url::Url::parse(&request.uri)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid HTTP proxy URL"))?;
@@ -63,19 +67,26 @@ pub(super) async fn initialize_upstream(
     } else {
         forwarded.push_str("Connection: close\r\n\r\n");
     }
-    write_all_bounded(
+    if !write_all_with_lease(
         upstream,
         forwarded.as_bytes(),
         "browser upstream request timed out",
+        auth,
+        lease,
     )
-    .await?;
+    .await?
+    {
+        return Ok(false);
+    }
     if request.chunked {
-        Ok(())
+        Ok(true)
     } else {
-        write_all_bounded(
+        write_all_with_lease(
             upstream,
             &request.bytes[request.split..],
             "browser upstream body timed out",
+            auth,
+            lease,
         )
         .await
     }
@@ -213,4 +224,25 @@ pub(super) async fn write_all_bounded<W: tokio::io::AsyncWrite + Unpin>(
     tokio::time::timeout(Duration::from_secs(5), stream.write_all(bytes))
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, message))?
+}
+
+pub(super) async fn write_all_with_lease<W: tokio::io::AsyncWrite + Unpin>(
+    stream: &mut W,
+    bytes: &[u8],
+    message: &'static str,
+    auth: &Arc<dyn EgressAuthorizer>,
+    lease: &str,
+) -> io::Result<bool> {
+    let write = write_all_bounded(stream, bytes, message);
+    tokio::pin!(write);
+    let mut validations = validation_interval();
+    loop {
+        tokio::select! {
+            biased;
+            _ = validations.tick() => {
+                if !validate_lease(auth, lease).await? { return Ok(false); }
+            },
+            result = &mut write => { result?; return Ok(true); },
+        }
+    }
 }

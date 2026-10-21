@@ -95,3 +95,33 @@ async fn validates_lease_while_response_write_is_blocked() {
     assert!(task.await.unwrap().is_ok());
     assert_eq!(validation_count.0.load(Ordering::SeqCst), 2);
 }
+
+#[tokio::test(start_paused = true)]
+async fn stops_initial_upstream_write_when_lease_is_revoked() {
+    let authorizer = Arc::new(RevokingAuthorizer(AtomicUsize::new(0)));
+    let validation_count = Arc::clone(&authorizer);
+    let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
+    let task = tokio::spawn(async move {
+        super::super::forward::write_all_with_lease(
+            &mut BlockedWriter,
+            b"request headers",
+            "browser upstream request timed out",
+            &authorizer,
+            "lease",
+        )
+        .await
+    });
+
+    tokio::task::yield_now().await;
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 0);
+
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 1);
+    assert!(!task.is_finished());
+
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(!task.await.unwrap().unwrap());
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 2);
+}
