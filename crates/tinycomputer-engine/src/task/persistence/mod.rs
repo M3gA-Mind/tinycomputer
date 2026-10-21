@@ -10,7 +10,7 @@ use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::interpret::Resume;
 use super::publish::{needs_input, publish};
-use super::store::{Cell, Spent, State};
+use super::store::{Cell, State};
 use super::{MAX_TASKS, TaskCallBudget, Tasks};
 use crate::rescue::Rescuer;
 use crate::{UsageRecorder, shape::Shaper};
@@ -24,4 +24,3 @@ mod import;
 mod types;
 
 pub use error::PausedTaskError;
-pub(super) use types::{Envelope, PausedTask};

@@ -1,5 +1,6 @@
 //! Encoding paused tasks and validating state before it leaves the controller.
 
+use super::types::{Envelope, PausedTask};
 use super::*;
 
 impl Tasks {

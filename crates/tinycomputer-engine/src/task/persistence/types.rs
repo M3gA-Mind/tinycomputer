@@ -11,7 +11,7 @@ use super::super::store::Spent;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Version and task data stored in a paused-task snapshot.
-pub struct Envelope {
+pub(super) struct Envelope {
     pub(super) version: u32,
     pub(super) task: PausedTask,
 }
@@ -19,7 +19,7 @@ pub struct Envelope {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 /// Serializable task state required to continue a paused task.
-pub struct PausedTask {
+pub(super) struct PausedTask {
     pub(super) id: TaskId,
     pub(super) view: TaskView,
     pub(super) flow: Flow,

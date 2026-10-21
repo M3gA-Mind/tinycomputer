@@ -1,6 +1,7 @@
 //! Decoding paused tasks and restoring them into a controller.
 
 use super::export::{resumable, validate_pause};
+use super::types::{Envelope, PausedTask};
 use super::*;
 
 impl Tasks {
