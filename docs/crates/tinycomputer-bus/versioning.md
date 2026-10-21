@@ -45,15 +45,15 @@ Two conditions, both necessary:
    relies on changed shape or disappeared, so a mismatched major is refused
    outright, in either direction.
 2. **The module must be at least as new, minor-wise, as the host.** A host
-   built against `(2, 21)` expects at least the members and fields that
-   existed at `(2, 21)`. A module reporting `(2, 11)` might be missing one of
-   them, so it is rejected. A module reporting `(2, 20)` has everything the
+   built against `(2, 25)` expects at least the members and fields that
+   existed at `(2, 25)`. A module reporting `(2, 11)` might be missing one of
+   them, so it is rejected. A module reporting `(2, 24)` has everything the
    host expected before the `TraceSinkHost` callbacks were added, so it is
    rejected by a 2.25 host.
 
 ```rust,ignore
 assert!(is_compatible(CONTRACT_VERSION));   // (2, 25), the exact version this crate ships
-assert!(is_compatible((2, 25)));            // a newer, still-compatible module
+assert!(is_compatible((2, 26)));            // a newer, still-compatible module
 assert!(!is_compatible((2, 11)));            // an older module, missing something
 assert!(!is_compatible((2, 24)));            // predates the required TraceSinkHost callbacks
 assert!(!is_compatible((1, 10)));           // a different major, all bets off
