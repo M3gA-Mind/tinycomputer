@@ -1,6 +1,9 @@
 //! Failure cases for bounded chunked request framing.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use super::chunked::forward_chunked_request_body;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 async fn forward(input: &[u8]) -> std::io::Result<Vec<u8>> {
     let (mut client_reader, client_writer) = tokio::io::duplex(input.len().max(1));
@@ -14,13 +17,11 @@ async fn forward(input: &[u8]) -> std::io::Result<Vec<u8>> {
     });
     let result = forward_chunked_request_body(&mut client_reader, &mut upstream_writer, &[]).await;
     if result.is_ok() {
-        use tokio::io::AsyncWriteExt as _;
         upstream_writer.shutdown().await?;
     }
     drop(client_reader);
     drop(upstream_writer);
     let mut output = Vec::new();
-    use tokio::io::AsyncReadExt as _;
     upstream_reader.read_to_end(&mut output).await?;
     write.await.expect("client writer task should finish")?;
     result.map(|()| output)
