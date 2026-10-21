@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use tinycomputer_bus::agent::{TaskId, TaskStatus, TaskView};
 use tinycomputer_bus::Flow;
+use tinycomputer_bus::agent::{TaskId, TaskStatus, TaskView};
 use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::interpret::Resume;
