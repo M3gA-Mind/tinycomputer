@@ -94,7 +94,7 @@ Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
 
-Trace and report persistence (2.21): when module configuration sets
+Trace and report persistence (2.25): when module configuration sets
 `trace_sink` to an object containing the unique callback `destination`, the
 module calls the confidential `ai.tinyhumans.tinycomputer.TraceSinkHost`
 interface. `Append` receives each complete sanitized agent-desktop trace event

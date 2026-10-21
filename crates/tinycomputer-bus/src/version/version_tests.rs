@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 24));
+    assert_eq!(CONTRACT_VERSION, (2, 25));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 24)));
+    assert!(is_compatible((2, 25)));
     assert!(is_compatible((2, 97)));
     // 2.24 adds same-task flow-to-planner handoff to StartTask.
     // 2.22 adds optional host-held secret handles to StartTask and RunFlow.
@@ -40,8 +40,9 @@ fn a_newer_minor_on_the_module_side_binds() {
     // host serves it, which a 2.18 module does not call, so its approvals
     // would never reach the host's policy.
     // 2.20 adds SessionOptions identity fields for browser launches.
-    // 2.21 adds TraceSinkHost so desktop events and task reports can be
+    // 2.25 adds TraceSinkHost so desktop events and task reports can be
     // committed by the host without using a module-local trace file.
+    assert!(!is_compatible((2, 24)));
     assert!(!is_compatible((2, 23)));
     assert!(!is_compatible((2, 22)));
     assert!(!is_compatible((2, 18)));
