@@ -260,8 +260,8 @@ async fn verify_report_sink(
         );
     }
     capture.fail_reports.store(true, Ordering::SeqCst);
-    let failed: AgentResponse<tinycomputer_bus::agent::TaskReport> = proxy
-        .call_confidential(
+    let failed = proxy
+        .call_confidential::<AgentResponse<tinycomputer_bus::agent::TaskReport>>(
             names::methods::TASK_REPORT,
             (TaskReportRequest {
                 id: task_id,
