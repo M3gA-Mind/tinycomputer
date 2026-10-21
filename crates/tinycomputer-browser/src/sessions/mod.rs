@@ -342,6 +342,8 @@ impl Browser {
             Reservation(&self.opening)
         };
         let id = SessionId::new(format!("s-{}", self.next()));
+        let mut action_context = action_context;
+        action_context.session_id = Some(id.to_string());
         let mut session = Session {
             engine: self.launcher.open(id.as_str()),
             info: SessionInfo {
@@ -427,6 +429,8 @@ impl Browser {
         let session = self.session(id)?;
         let mut session = session.lock().await;
         session.check(false).await?;
+        let mut action_context = action_context;
+        action_context.session_id = Some(id.to_string());
         session.action_context = action_context;
         Ok(())
     }

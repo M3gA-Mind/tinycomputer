@@ -89,6 +89,7 @@ fn secret_type_preflight_uses_gate_metadata_without_sending_text_to_the_page() {
     )
     .with_action_context(ActionContext {
         task_id: Some("task-secret".to_owned()),
+        session_id: None,
         payment_in_play: true,
     });
     let screen = surface.observe("browser", None, Depth::Full).unwrap();

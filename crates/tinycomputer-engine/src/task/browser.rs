@@ -101,6 +101,7 @@ impl BrowserRunner {
             )
             .with_action_context(ActionContext {
                 task_id: Some(task.0.clone()),
+                session_id: None,
                 payment_in_play: constraints.payment == PaymentMode::FillThenApprove,
             })
         };
@@ -274,6 +275,7 @@ impl BrowserRunner {
         let surface = self.surface(task, constraints);
         let context = ActionContext {
             task_id: Some(task.0.clone()),
+            session_id: None,
             payment_in_play: constraints.payment == PaymentMode::FillThenApprove,
         };
         let mut request = request;

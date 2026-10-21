@@ -310,10 +310,14 @@ async fn retained_browser_updates_payment_gate_context_without_reopening()
         .lock()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     assert!(contexts.iter().any(|context| {
-        context.task_id.as_deref() == Some(task.0.as_str()) && !context.payment_in_play
+        context.task_id.as_deref() == Some(task.0.as_str())
+            && context.session_id.as_deref() == Some(session.as_str())
+            && !context.payment_in_play
     }));
     assert!(contexts.iter().any(|context| {
-        context.task_id.as_deref() == Some(task.0.as_str()) && context.payment_in_play
+        context.task_id.as_deref() == Some(task.0.as_str())
+            && context.session_id.as_deref() == Some(session.as_str())
+            && context.payment_in_play
     }));
     runner.release(&task);
     Ok(())
