@@ -46,15 +46,16 @@ Two conditions, both necessary:
    outright, in either direction.
 2. **The module must be at least as new, minor-wise, as the host.** A host
    built against `(2, 26)` expects at least the members and fields that
-   existed at `(2, 26)`. A module reporting `(2, 25)` predates the combined
-   `TraceSinkHost` and `BrowserEgressHost` callback contract, so a 2.26 host
-   rejects it. A newer module with the same major is accepted.
+   existed at `(2, 26)`. A module reporting `(2, 25)` predates the
+   `TraceSinkHost` callback added in 2.26, so a 2.26 host rejects it. It does
+   include `BrowserEgressHost`, which was added in 2.20. A newer module with
+   the same major is accepted.
 
 ```rust,ignore
 assert!(is_compatible(CONTRACT_VERSION));   // (2, 26), the exact version this crate ships
 assert!(is_compatible((2, 27)));            // a newer, still-compatible module
 assert!(!is_compatible((2, 11)));            // an older module, missing something
-assert!(!is_compatible((2, 25)));            // predates TraceSinkHost and BrowserEgressHost
+assert!(!is_compatible((2, 25)));            // predates TraceSinkHost; BrowserEgressHost arrived in 2.20
 assert!(!is_compatible((1, 10)));           // a different major, all bets off
 ```
 

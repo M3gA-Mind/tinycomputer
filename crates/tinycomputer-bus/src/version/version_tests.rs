@@ -39,15 +39,13 @@ fn a_newer_minor_on_the_module_side_binds() {
     // 2.19 adds the ConsequenceHost host-callback interface (Review): a 2.19
     // host serves it, which a 2.18 module does not call, so its approvals
     // would never reach the host's policy.
-    // 2.20 adds SessionOptions identity fields for browser launches.
-    // 2.26 adds TraceSinkHost and BrowserEgressHost, so a 2.25 module
-    // lacks callbacks required by the host.
+    // 2.20 adds SessionOptions identity fields and BrowserEgressHost.
+    // 2.26 adds TraceSinkHost, so a 2.25 module lacks that callback.
     assert!(!is_compatible((2, 25)));
     assert!(!is_compatible((2, 24)));
     assert!(!is_compatible((2, 23)));
     assert!(!is_compatible((2, 22)));
     // BrowserEgressHost authorizes, consumes, and validates each browser dial.
-    // 2.20 adds SessionOptions' optional browser identity and fingerprint fields.
     assert!(!is_compatible((2, 24)));
     assert!(!is_compatible((2, 20)));
     assert!(!is_compatible((2, 19)));

@@ -89,7 +89,7 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
-Browser egress (2.26): a host may serve the optional
+Browser egress (2.20): a host may serve the optional
 `ai.tinyhumans.tinycomputer.BrowserEgressHost` interface
 (`tinycomputer_bus::browser_egress`) with `Authorize`, `Consume`, and
 `Validate`. Before a browser proxy request is dialed, the module asks the host
@@ -97,7 +97,7 @@ to authorize its actual destination and receives vetted socket addresses plus
 an opaque lease. It consumes a one-use grant for an exact address before
 dialing, and reauthorizes before trying another address if a connection fails.
 The lease is revalidated while uploads, tunnels, or responses remain active. A
-2.25 module cannot enforce these host decisions.
+2.19 module cannot enforce these host decisions.
 
 Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
