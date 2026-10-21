@@ -222,6 +222,7 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
             SessionOptions::default(),
             ActionContext {
                 task_id: Some("task-17".to_owned()),
+                session_id: Some("untrusted-session-id".to_owned()),
                 payment_in_play: true,
             },
         )
@@ -248,6 +249,8 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
         .find(|request| request.contains("destination_url: Some(\"https://shop.test/checkout\")"))
         .unwrap();
     assert!(navigation.contains("task_id: Some(\"task-17\")"));
+    assert!(navigation.contains(&format!("session_id: Some(\"{id}\")")));
+    assert!(!navigation.contains("untrusted-session-id"));
     assert!(navigation.contains("payment_in_play: true"));
     let fill = requests
         .iter()
@@ -306,6 +309,7 @@ async fn refused_order_click_never_reaches_the_page_and_reports_the_reason() {
             SessionOptions::default(),
             ActionContext {
                 task_id: Some("task-17".to_owned()),
+                session_id: None,
                 payment_in_play: true,
             },
         )

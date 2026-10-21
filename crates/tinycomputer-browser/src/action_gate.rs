@@ -10,6 +10,8 @@ use tinycomputer_bus::browser::{Action, ElementRef, Target};
 pub struct ActionContext {
     /// The task that is driving the page, when there is one.
     pub task_id: Option<String>,
+    /// The retained browser session driving this request, when it is open.
+    pub session_id: Option<String>,
     /// Whether payment handling is in play for the task.
     pub payment_in_play: bool,
 }
