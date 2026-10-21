@@ -1,10 +1,7 @@
 //! Redacting browser observations and responses that can contain host-held values.
 
-use std::sync::Arc;
-
-use tinycomputer_browser::BrowserSurface;
-use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation};
-use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface};
+use tinycomputer_bus::{DesktopError, DesktopResponse};
+use tinycomputer_core::surface::{Candidate, Screen};
 
 use crate::SecretHost;
 

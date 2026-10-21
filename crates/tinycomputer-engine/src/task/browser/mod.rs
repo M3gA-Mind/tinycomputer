@@ -14,7 +14,6 @@ use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
 mod redaction;
 use crate::SecretHost;
 use crate::{JevRuntime, UsageRecorder};
-#[cfg(test)]
 use redaction::{redact_observation_error, redact_response, redact_screen};
 
 /// Keeps known host-held values out of every model-facing screen and browser
@@ -110,7 +109,6 @@ impl Surface for SecretRedactingSurface {
         self.redact_response(self.inner.dismiss_cover(target))
     }
 }
-
 
 /// Runs task flows directly on one in-process browser surface per task.
 ///

@@ -3,9 +3,11 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use tinycomputer_bus::{DesktopError, DesktopResponse};
-use tinycomputer_core::surface::{Candidate, Screen, describe};
+use tinycomputer_browser::{Browser, BrowserSurface, SessionOptions};
+use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation};
+use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface, describe};
 
+use super::browser_tests::{BrowserScript, BrowserScriptEngine};
 use super::{redact_observation_error, redact_response, redact_screen};
 use crate::{SecretHost, SecretTypeRequest};
 
@@ -168,4 +170,33 @@ fn secret_shaped_bounds_are_dropped_before_model_description() {
         serde_json::to_string(&describe(&screen.candidates[1], true)).unwrap_or_default();
     assert!(!model_description.contains("private-canary"));
     assert!(!model_description.contains("123456789"));
+}
+
+#[test]
+fn secret_redacting_surface_wraps_browser_surface_operations() {
+    let runtime = tokio::runtime::Runtime::new().expect("create a Tokio runtime");
+    let browser = Arc::new(Browser::new(Arc::new(BrowserScriptEngine(
+        BrowserScript::default(),
+    ))));
+    let inner = BrowserSurface::new(browser, SessionOptions::default(), runtime.handle().clone());
+    let surface = super::SecretRedactingSurface {
+        inner,
+        host: Arc::new(Host),
+        task_id: "task-1".into(),
+    };
+    let target = Candidate::default();
+
+    assert!(surface.observe("browser", None, Depth::Full).is_err());
+    let _ = surface.execute(JevOperation::Done, Some(target.clone()), None);
+    let _ = surface.authorize_secret_type(&target);
+    let _ = surface.read_value(&target);
+    let _ = surface.paste("browser", &target, "private-canary");
+    let _ = surface.press("browser", "ENTER");
+    let _ = surface.launch("browser");
+    surface.settle();
+    surface.settle_briefly();
+    assert!(!surface.await_change(0));
+    let _ = surface.navigate("https://shop.example/");
+    let _ = surface.back("browser");
+    let _ = surface.dismiss_cover(&target);
 }

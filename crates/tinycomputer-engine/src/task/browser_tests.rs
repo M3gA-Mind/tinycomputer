@@ -134,7 +134,7 @@ async fn a_browser_action_refusal_keeps_its_reason_in_rescue_and_task_report()
 }
 
 #[derive(Debug, Clone, Default)]
-struct BrowserScript {
+pub(super) struct BrowserScript {
     commands: Arc<std::sync::Mutex<Vec<Value>>>,
     current_url: Arc<std::sync::Mutex<String>>,
     echo_secret: bool,
@@ -149,7 +149,7 @@ impl BrowserScript {
     }
 }
 
-struct BrowserScriptEngine(BrowserScript);
+pub(super) struct BrowserScriptEngine(pub(super) BrowserScript);
 
 impl Engine for BrowserScriptEngine {
     fn execute(&mut self, command: Value) -> Reply<'_> {
