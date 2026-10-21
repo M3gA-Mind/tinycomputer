@@ -6,14 +6,16 @@ mod reply;
 mod report;
 mod request;
 mod status;
+mod usage;
 
 pub use describe::{Capabilities, Example, MemberDoc, SurfaceAvailability};
 pub use models::{LanguageModelConfiguration, LanguageModelProvider};
 pub use reply::{AgentError, AgentResponse};
 pub use report::{Rescue, RescueOutcome, TaskReport};
 pub use request::{
-    AwaitTaskRequest, ContinueTaskRequest, PaymentMode, PlanTaskRequest, StartTaskRequest,
-    SurfaceKind, TaskBudget, TaskConstraints, TaskId, TaskOutput, TaskPlan, TaskRef,
-    TaskReportRequest,
+    AwaitTaskRequest, ContinueTaskRequest, PaymentMode, PlanTaskRequest, SecretHandle,
+    StartTaskRequest, SurfaceKind, TaskBudget, TaskConstraints, TaskId, TaskOutput, TaskPlan,
+    TaskRef, TaskReportRequest,
 };
 pub use status::{InputField, InputKind, StepView, TaskStatus, TaskView};
+pub use usage::{ModelUsage, TaskUsage};

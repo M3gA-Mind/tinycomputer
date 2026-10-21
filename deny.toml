@@ -50,7 +50,10 @@ deny = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# The lab's optional LLM author (`tinycomputer-examples`, feature `inference`)
-# takes `vendor/tinyinference`, which pins the organisation's own `tinytools`
-# by exact git revision. Nothing the shipped module links comes from here.
-allow-git = ["https://github.com/tinyhumansai/tinytools"]
+# TinyInference's optional provider graph pins the organisation's `tinytools`
+# by exact git revision and its storage drivers by release tag. The browser
+# module's agent-browser dependency is a path-pinned submodule.
+allow-git = [
+    "https://github.com/tinyhumansai/tinytools",
+    "https://github.com/tinyhumansai/tinystoragedrivers",
+]

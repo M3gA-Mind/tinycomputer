@@ -9,6 +9,7 @@ use serde_json::Value;
 use super::Flow;
 #[cfg(doc)]
 use super::{FlowRunResult, StepReport};
+use crate::agent::SecretHandle;
 
 /// One Jev decision loop.
 ///
@@ -175,6 +176,13 @@ pub struct RunFlowRequest {
     /// Every other variable is shared: its value may appear in step text and
     /// in [`RunFlowRequest::brief`].
     pub facts: BTreeSet<String>,
+    /// Host-only handles for named secret facts, resolved only when a field
+    /// is typed.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fact_handles: BTreeMap<String, SecretHandle>,
+    /// The task making this run, for host-side secret resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
     /// Whether `stop_before` steps may perform their irreversible action.
     pub allow_destructive: bool,
     /// Whether ordinary field values may leave the machine for Jev.
@@ -226,6 +234,8 @@ impl Default for RunFlowRequest {
             flow: Flow::default(),
             vars: BTreeMap::new(),
             facts: BTreeSet::new(),
+            fact_handles: BTreeMap::new(),
+            task_id: None,
             allow_destructive: false,
             include_values: false,
             max_actions: 60,

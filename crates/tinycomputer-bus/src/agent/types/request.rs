@@ -50,6 +50,11 @@ pub struct StartTaskRequest {
     pub task: Option<String>,
     /// A flow to run instead of planning one.
     pub flow: Option<Flow>,
+    /// After a supplied flow completes, continue the same task by planning
+    /// `task` from the current surface. The task id and browser session are
+    /// retained; the named start page is not reopened.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub handoff_to_planner: bool,
     /// Values the task may type, by name — traveller name, date of birth,
     /// email, phone, card number.
     ///
@@ -59,6 +64,11 @@ pub struct StartTaskRequest {
     /// and any value that is a card number — are templates: Jev and the
     /// planner only ever see `${name}`, and the value is typed locally.
     pub facts: BTreeMap<String, String>,
+    /// Opaque handles for secret facts whose values remain in the host.
+    /// The map key is the fact name used by the flow; the handle itself must
+    /// never be expanded into a model-facing string.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fact_handles: BTreeMap<String, SecretHandle>,
     /// Names among `facts` to keep secret on top of the ones recognised as
     /// sensitive. A name here that is not in `facts` is refused, so a typo
     /// cannot leave a value shared.
@@ -84,6 +94,30 @@ pub struct StartTaskRequest {
     /// the task neither reads nor writes site memory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub site: Option<String>,
+}
+
+/// Host-side reference to a secret fact. Only its opaque handle and safe
+/// display metadata cross the engine boundary.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretHandle {
+    /// Opaque identifier resolved by the host when the field is typed.
+    pub handle: String,
+    /// Safe mask shown in reports and model context.
+    pub mask: String,
+    /// Host-defined category, such as `payment_card`.
+    pub kind: String,
+}
+
+impl std::fmt::Debug for SecretHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SecretHandle")
+            .field("handle", &"[opaque]")
+            .field("mask", &self.mask)
+            .field("kind", &self.kind)
+            .finish()
+    }
 }
 
 /// What a finished task returns, beyond its raw records.
@@ -209,6 +243,11 @@ pub struct ContinueTaskRequest {
     /// Values for a `needs_input` pause, by the field names it listed. Added
     /// to the task's facts.
     pub inputs: BTreeMap<String, String>,
+    /// Opaque host handles for secret values the task asked for. The value
+    /// remains with the host and is resolved only when the task types it.
+    /// A name cannot be supplied in both `inputs` and `fact_handles`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub fact_handles: BTreeMap<String, SecretHandle>,
     /// The decision on a `needs_approval` pause, or `true` to go past a
     /// non-payment `checkpoint`.
     pub approve: Option<bool>,

@@ -109,6 +109,27 @@ file/session fallback, even when its host callback fails. Without the explicit
 configuration, existing desktop trace path and session behavior remain in
 effect. Hosts should upsert reports by task id because callers may request the
 same report more than once.
+
+Host-held secret facts (2.22): `StartTask` and `RunFlow` accept optional
+`fact_handles`, keyed by fact name. Each entry carries only the host's opaque
+handle, a safe mask, and a kind. These fields are confidential request data.
+They do not contain the secret value, and a module without a configured
+`SecretHost` refuses to type one. `RunFlow.task_id` gives the host the owning
+task context. Existing value facts and requests without handles keep their
+wire behavior.
+
+Continuation secret handles (2.23): `ContinueTask` accepts optional
+`fact_handles`, keyed by fact name, using the same opaque handle, mask, and kind
+shape as 2.22. A host can therefore supply a secret only when a paused task
+asks for it, without sending the value through the module. Modules without a
+configured `SecretHost` refuse to type these handles.
+
+Planner handoff (2.24): `StartTask` accepts optional `handoff_to_planner`.
+When true, the module runs the supplied flow as a prefix and hands the same
+task and retained browser page to the configured planner after the prefix
+completes. The field is refused when no module planner is configured; omitted
+or false keeps the existing start behavior.
+
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string
@@ -247,3 +268,14 @@ is a zero-argument terminal joined native cleanup barrier for the listener
 process and its readers; hosts must await success before ABI unload. Stop remains
 per-lease/reusable and retains ownership on native cleanup faults. Existing
 member arities and legacy poll JSON are unchanged. See [Globe replay](globe-replay.md).
+
+## Host model usage (2.21)
+
+Contract 2.21 adds optional `TaskView.usage` and `TaskReport.usage` objects.
+They summarize Jev, planner, rescue, and output model calls with provider-
+reported input, cached input, output tokens, and USD cost in nanodollars.
+Unknown measurements stay absent. `LanguageModelProvider.open_ai_compatible`
+identifies a host-owned compatible route in the non-secret model summary; the
+module's private TinyBus model configuration still accepts only its fixed
+provider endpoints. Rust embedding hosts may supply arbitrary model and Jev
+endpoints directly.

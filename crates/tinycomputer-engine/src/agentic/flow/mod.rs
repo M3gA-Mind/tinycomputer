@@ -62,6 +62,7 @@ mod memory;
 mod quorum;
 mod reflect;
 mod run;
+mod secret;
 mod steps;
 mod survey;
 mod validate;
@@ -78,6 +79,7 @@ use std::{
 };
 
 use serde_json::json;
+use tinycomputer_bus::agent::SecretHandle;
 use tinycomputer_bus::{
     Deliberation, DesktopError, DesktopResponse, FLOW_GUIDE, FlowActionRecord, FlowBrief, FlowLoop,
     FlowStopReason, FlowStrategy, GroundingHint, JevExchange, JevMetrics, JevTarget,
@@ -153,10 +155,20 @@ pub(super) async fn run_flow_with<B: AgentBackend + Sync>(
     runtime: &JevRuntime,
     request: RunFlowRequest,
 ) -> DesktopResponse {
+    run_flow_with_host(backend, runtime, request, None).await
+}
+
+pub(crate) async fn run_flow_with_host<B: AgentBackend + Sync>(
+    backend: B,
+    runtime: &JevRuntime,
+    request: RunFlowRequest,
+    secret_host: Option<std::sync::Arc<dyn crate::SecretHost>>,
+) -> DesktopResponse {
     let known = request
         .vars
         .keys()
         .chain(request.collected.keys())
+        .chain(request.fact_handles.keys())
         .cloned()
         .collect::<BTreeSet<_>>();
     let validation = validate::check(&request.flow, &known, &request.facts);
@@ -167,7 +179,7 @@ pub(super) async fn run_flow_with<B: AgentBackend + Sync>(
         );
     }
     let flow = request.flow.clone();
-    let mut run = FlowRun::new(backend, runtime, &request);
+    let mut run = FlowRun::new(backend, runtime, &request, secret_host);
     let stop = match run.start(&flow).await {
         Ok(()) => FlowStopReason::Completed,
         Err(Halt::Stop(stop)) => stop,
@@ -262,6 +274,11 @@ pub(super) struct FlowRun<'r, B> {
     votes: u32,
     /// The secret values, to mask every request with.
     secrets: Facts,
+    /// Opaque host handles, never substituted into flow text.
+    fact_handles: BTreeMap<String, SecretHandle>,
+    /// The host types handles and sanitizes its values from observations.
+    secret_host: Option<std::sync::Arc<dyn crate::SecretHost>>,
+    task_id: Option<String>,
     /// Every `stop_before` phrase the flow declares, gathered once up front
     /// so an ordinary step's destructive gate can recognize a control the
     /// flow has already named as irreversible, in its own words.
