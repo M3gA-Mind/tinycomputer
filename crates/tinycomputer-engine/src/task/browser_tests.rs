@@ -323,6 +323,7 @@ async fn runner_hooks_share_the_task_surface_and_release_its_session()
     let task = tinycomputer_bus::agent::TaskId::new("t-hooks");
     let constraints = TaskConstraints::default();
     runner.prepare(&task, &constraints).await;
+    assert!(runner.session_id(&task).is_some());
     runner
         .open_page(&task, "http://127.0.0.1:8765/index.html")
         .await;
@@ -337,6 +338,7 @@ async fn runner_hooks_share_the_task_surface_and_release_its_session()
     runner.journal(None, "test", &|| json!({"phase":"host"}));
     runner.journal(Some(&task), "test", &|| json!({"phase":"task"}));
     runner.release(&task);
+    assert!(runner.session_id(&task).is_none());
     assert!(runner.capture(&task).await.is_none());
     runner
         .open_page(

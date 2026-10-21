@@ -323,8 +323,10 @@ impl Tasks {
             return no_such_task(id);
         };
         if !cell.view.borrow().status.is_final() {
-            if let Some(worker) = cell.worker.lock().ok().and_then(|mut worker| worker.take()) {
-                worker.abort();
+            if let Ok(worker) = cell.worker.lock()
+                && let Some(worker) = worker.as_ref()
+            {
+                worker.abort.abort();
             }
             publish(&cell, TaskStatus::Cancelled, "The task was cancelled.");
         }
