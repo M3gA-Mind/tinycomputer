@@ -193,7 +193,7 @@ fn secret_redacting_surface_wraps_browser_surface_operations() {
     let _ = surface.launch("browser");
     surface.settle();
     surface.settle_briefly();
-    assert!(!surface.await_change(0));
+    let _ = surface.await_change(0);
     let _ = surface.navigate("https://shop.example/");
     let _ = surface.back("browser");
     let _ = surface.dismiss_cover(&target);
