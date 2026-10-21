@@ -150,5 +150,4 @@ fn denied(error: impl std::fmt::Display) -> io::Error {
 }
 
 #[cfg(test)]
-#[path = "browser_egress_tests.rs"]
-mod tests;
+mod browser_egress_tests;

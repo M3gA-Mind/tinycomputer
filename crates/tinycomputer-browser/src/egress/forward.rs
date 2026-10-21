@@ -131,7 +131,21 @@ where
             result = upstream.read(&mut chunk) => {
                 let n = result?;
                 if n == 0 { return Ok(()); }
-                write_all_bounded(client, &chunk[..n], "browser response write timed out").await?;
+                let write = write_all_bounded(
+                    client,
+                    &chunk[..n],
+                    "browser response write timed out",
+                );
+                tokio::pin!(write);
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = validations.tick() => {
+                            if !validate_lease(auth, &lease).await? { return Ok(()); }
+                        },
+                        result = &mut write => { result?; break; },
+                    }
+                }
             },
         }
     }
@@ -200,3 +214,6 @@ pub(super) async fn write_all_bounded<W: tokio::io::AsyncWrite + Unpin>(
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, message))?
 }
+
+#[cfg(test)]
+mod forward_tests;
