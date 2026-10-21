@@ -4,9 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use serde::{Deserialize, Serialize};
-use tinycomputer_bus::agent::{Rescue, TaskConstraints, TaskId, TaskStatus, TaskUsage, TaskView};
-use tinycomputer_bus::{Flow, GroundingHint, JevExchange, StepReport};
+use tinycomputer_bus::agent::{TaskId, TaskStatus, TaskView};
+use tinycomputer_bus::Flow;
 use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::interpret::Resume;
@@ -25,5 +24,4 @@ mod import;
 mod types;
 
 pub use error::PausedTaskError;
-pub(super) use export::{resumable, validate_pause};
 pub(super) use types::{Envelope, PausedTask};

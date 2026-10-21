@@ -1,9 +1,16 @@
 //! The versioned snapshot envelope and saved task state.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use tinycomputer_bus::agent::{Rescue, TaskConstraints, TaskId, TaskStatus, TaskUsage, TaskView};
+use tinycomputer_bus::{Flow, GroundingHint, JevExchange, StepReport};
+
+use super::super::interpret::Resume;
+use super::super::store::Spent;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Version and task data stored in a paused-task snapshot.
 pub struct Envelope {
     pub(super) version: u32,
     pub(super) task: PausedTask,
@@ -11,6 +18,7 @@ pub struct Envelope {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Serializable task state required to continue a paused task.
 pub struct PausedTask {
     pub(super) id: TaskId,
     pub(super) view: TaskView,
