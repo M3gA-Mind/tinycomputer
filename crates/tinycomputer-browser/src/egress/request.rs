@@ -1,15 +1,16 @@
 //! Parses and validates browser proxy requests before a destination is authorized.
 
-use std::{io, time::Duration};
+use std::io;
 
-mod chunked;
+mod body;
+pub(super) use body::{buffered_body_len, has_valid_buffered_body, read_request_body};
 
 use base64::Engine as _;
-use tokio::{io::AsyncReadExt, net::TcpStream};
+use tokio::net::TcpStream;
 
 use super::{
     BrowserDialTarget,
-    forward::{constant_time_eq, refuse, write_all_bounded},
+    forward::{constant_time_eq, refuse},
 };
 
 pub(super) struct ProxyRequest {
@@ -223,67 +224,6 @@ fn has_proxy_auth(proxy_authorization: Option<&str>, password: &str) -> bool {
     proxy_authorization
         .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
 }
-pub(super) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {
-    if request.has_upgrade || request.connect || request.chunked {
-        return true;
-    }
-    let received = request.bytes.len().saturating_sub(request.split);
-    received <= request.body_len
-}
-
-pub(super) fn buffered_body_len(request: &ProxyRequest) -> usize {
-    if request.has_upgrade || request.connect || request.chunked {
-        0
-    } else {
-        request.bytes.len().saturating_sub(request.split)
-    }
-}
-
-pub(super) async fn read_request_body<C, U>(
-    client: &mut C,
-    upstream: &mut U,
-    request: &ProxyRequest,
-    mut received: usize,
-) -> io::Result<()>
-where
-    C: tokio::io::AsyncRead + Unpin,
-    U: tokio::io::AsyncWrite + Unpin,
-{
-    if request.has_upgrade || request.connect {
-        return Ok(());
-    }
-    if request.chunked {
-        return chunked::forward_chunked_request_body(
-            client,
-            upstream,
-            &request.bytes[request.split..],
-        )
-        .await;
-    }
-    let mut chunk = [0u8; 1024];
-    while received < request.body_len {
-        let n = tokio::time::timeout(Duration::from_secs(10), client.read(&mut chunk))
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "proxy body timed out"))??;
-        if n == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "browser request body ended early",
-            ));
-        }
-        let remaining = request.body_len - received;
-        if n > remaining {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "browser request body exceeded content length",
-            ));
-        }
-        write_all_bounded(upstream, &chunk[..n], "browser upstream body timed out").await?;
-        received += n;
-    }
-    Ok(())
-}
-
 pub(crate) fn parse_authority(
     value: &str,
     scheme: &str,
