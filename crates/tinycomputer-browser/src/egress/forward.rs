@@ -110,14 +110,14 @@ pub(super) async fn tunnel_with_lease(
     upstream: &mut TcpStream,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: String,
+    validations: &LeaseValidationClock,
 ) -> io::Result<()> {
     let relay = copy_bidirectional(client, upstream);
     tokio::pin!(relay);
-    let mut validations = validation_interval();
     loop {
         tokio::select! {
             biased;
-            _ = validations.tick() => {
+            _ = wait_for_validation(validations) => {
                 if !validate_lease(auth, &lease).await? { return Ok(()); }
             },
             result = &mut relay => { result?; return Ok(()); },
@@ -130,17 +130,17 @@ pub(super) async fn forward_response_with_lease<C, U>(
     upstream: &mut U,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: String,
+    validations: &LeaseValidationClock,
 ) -> io::Result<()>
 where
     C: tokio::io::AsyncWrite + Unpin,
     U: tokio::io::AsyncRead + Unpin,
 {
     let mut chunk = [0u8; 8192];
-    let mut validations = validation_interval();
     loop {
         tokio::select! {
             biased;
-            _ = validations.tick() => {
+            _ = wait_for_validation(validations) => {
                 if !validate_lease(auth, &lease).await? { return Ok(()); }
             },
             result = upstream.read(&mut chunk) => {
@@ -155,7 +155,7 @@ where
                 loop {
                     tokio::select! {
                         biased;
-                        _ = validations.tick() => {
+                        _ = wait_for_validation(validations) => {
                             if !validate_lease(auth, &lease).await? { return Ok(()); }
                         },
                         result = &mut write => { result?; break; },
@@ -172,7 +172,7 @@ pub(super) async fn forward_request_body_with_lease<C, U>(
     request: &ProxyRequest,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
-    validations: &mut tokio::time::Interval,
+    validations: &LeaseValidationClock,
 ) -> io::Result<bool>
 where
     C: tokio::io::AsyncRead + Unpin,
@@ -183,7 +183,7 @@ where
     loop {
         tokio::select! {
             biased;
-            _ = validations.tick() => {
+            _ = wait_for_validation(validations) => {
                 if !validate_lease(auth, lease).await? { return Ok(false); }
             },
             result = &mut body => { result?; return Ok(true); },
@@ -191,11 +191,17 @@ where
     }
 }
 
-pub(super) fn validation_interval() -> tokio::time::Interval {
+pub(super) type LeaseValidationClock = Arc<tokio::sync::Mutex<tokio::time::Interval>>;
+
+pub(super) fn validation_interval() -> LeaseValidationClock {
     let period = Duration::from_secs(1);
     let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    interval
+    Arc::new(tokio::sync::Mutex::new(interval))
+}
+
+async fn wait_for_validation(validations: &LeaseValidationClock) {
+    validations.lock().await.tick().await;
 }
 
 pub(super) async fn validate_lease(
@@ -236,14 +242,14 @@ pub(super) async fn write_all_with_lease<W: tokio::io::AsyncWrite + Unpin>(
     message: &'static str,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
-    validations: &mut tokio::time::Interval,
+    validations: &LeaseValidationClock,
 ) -> io::Result<bool> {
     let write = write_all_bounded(stream, bytes, message);
     tokio::pin!(write);
     loop {
         tokio::select! {
             biased;
-            _ = validations.tick() => {
+            _ = wait_for_validation(validations) => {
                 if !validate_lease(auth, lease).await? { return Ok(false); }
             },
             result = &mut write => { result?; return Ok(true); },

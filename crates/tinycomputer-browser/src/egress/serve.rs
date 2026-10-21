@@ -64,14 +64,14 @@ where
         &request,
         &auth,
         &lease,
-        &mut validations,
+        &validations,
     )
     .await?
     {
         return Ok(());
     }
     if request.connect || request.has_upgrade {
-        tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
+        tunnel_with_lease(&mut client, &mut upstream, &auth, lease, &validations).await?;
     } else {
         let (mut client_reader, mut client_writer) = client.into_split();
         let (mut upstream_reader, mut upstream_writer) = upstream.into_split();
@@ -80,6 +80,7 @@ where
             &mut upstream_reader,
             &auth,
             lease.clone(),
+            &validations,
         );
         tokio::pin!(response);
         tokio::select! {
@@ -90,7 +91,7 @@ where
                 &request,
                 &auth,
                 &lease,
-                &mut validations,
+                &validations,
             ) => {
                 if upload? {
                     response.await?;

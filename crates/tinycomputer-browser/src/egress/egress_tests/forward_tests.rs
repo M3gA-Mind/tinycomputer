@@ -71,6 +71,7 @@ async fn validates_lease_while_response_write_is_blocked() {
     let authorizer = Arc::new(RevokingAuthorizer(AtomicUsize::new(0)));
     let validation_count = Arc::clone(&authorizer);
     let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
+    let validations = super::super::forward::validation_interval();
     let task = tokio::spawn(async move {
         let mut upstream = upstream;
         super::super::forward::forward_response_with_lease(
@@ -78,6 +79,7 @@ async fn validates_lease_while_response_write_is_blocked() {
             &mut upstream,
             &authorizer,
             "lease".to_owned(),
+            &validations,
         )
         .await
     });
@@ -101,7 +103,7 @@ async fn stops_initial_upstream_write_when_lease_is_revoked() {
     let authorizer = Arc::new(RevokingAuthorizer(AtomicUsize::new(0)));
     let validation_count = Arc::clone(&authorizer);
     let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
-    let mut validations = super::super::forward::validation_interval();
+    let validations = super::super::forward::validation_interval();
     let task = tokio::spawn(async move {
         super::super::forward::write_all_with_lease(
             &mut BlockedWriter,
@@ -109,7 +111,7 @@ async fn stops_initial_upstream_write_when_lease_is_revoked() {
             "browser upstream request timed out",
             &authorizer,
             "lease",
-            &mut validations,
+            &validations,
         )
         .await
     });
@@ -133,7 +135,7 @@ async fn request_write_phases_share_the_lease_validation_interval() {
     let authorizer = Arc::new(RevokingAuthorizer(AtomicUsize::new(0)));
     let validation_count = Arc::clone(&authorizer);
     let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
-    let mut validations = super::super::forward::validation_interval();
+    let validations = super::super::forward::validation_interval();
     let (mut writer, _reader) = tokio::io::duplex(32);
 
     assert!(
@@ -143,7 +145,7 @@ async fn request_write_phases_share_the_lease_validation_interval() {
             "browser upstream request timed out",
             &authorizer,
             "lease",
-            &mut validations,
+            &validations,
         )
         .await
         .unwrap()
@@ -157,7 +159,7 @@ async fn request_write_phases_share_the_lease_validation_interval() {
             "browser upstream body timed out",
             &authorizer,
             "lease",
-            &mut validations,
+            &validations,
         )
         .await
     });
@@ -171,5 +173,53 @@ async fn request_write_phases_share_the_lease_validation_interval() {
     tokio::time::advance(Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
     assert!(!task.await.unwrap().unwrap());
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn response_forwarding_keeps_the_request_lease_validation_schedule() {
+    let authorizer = Arc::new(RevokingAuthorizer(AtomicUsize::new(0)));
+    let validation_count = Arc::clone(&authorizer);
+    let authorizer: Arc<dyn EgressAuthorizer> = authorizer;
+    let validations = super::super::forward::validation_interval();
+    let (mut upstream_writer, upstream) = tokio::io::duplex(32);
+    upstream_writer.write_all(b"response").await.unwrap();
+    drop(upstream_writer);
+
+    assert!(
+        super::super::forward::write_all_with_lease(
+            &mut tokio::io::sink(),
+            b"request headers",
+            "browser upstream request timed out",
+            &authorizer,
+            "lease",
+            &validations,
+        )
+        .await
+        .unwrap()
+    );
+    tokio::time::advance(Duration::from_millis(900)).await;
+
+    let task = tokio::spawn(async move {
+        let mut upstream = upstream;
+        super::super::forward::forward_response_with_lease(
+            &mut BlockedWriter,
+            &mut upstream,
+            &authorizer,
+            "lease".to_owned(),
+            &validations,
+        )
+        .await
+    });
+    tokio::task::yield_now().await;
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 0);
+
+    tokio::time::advance(Duration::from_millis(100)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(validation_count.0.load(Ordering::SeqCst), 1);
+
+    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(task.await.unwrap().is_ok());
     assert_eq!(validation_count.0.load(Ordering::SeqCst), 2);
 }
