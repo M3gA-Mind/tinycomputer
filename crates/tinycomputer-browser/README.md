@@ -30,5 +30,20 @@ through `SessionOptions::endpoint` instead of launching one. Closing an
 attached session only disconnects. See `docs/technical/architecture.md` for how the
 surface compares with the desktop's.
 
-Tests that launch Chromium run in the Docker lab (`docs/technical/docker-lab.md`), never
-on the host.
+When the compiled TinyComputer module receives a host-private `browser.egress`
+scope, it selects `EnforcedAgentBrowser`: every session must be explicitly
+launched by TinyComputer, attaches and caller launch overrides are refused,
+and the process uses an authenticated per-session loopback proxy. The proxy
+asks the host callback for TinySecurity's one-use, generation-bound dial
+authorization and dials only the returned socket address. It periodically
+validates active leases, including TLS CONNECT and WebSocket streams. HTTPS
+contents remain opaque to the proxy and require TinySecurity's explicit
+`OpaqueBrowserTraffic` classification. See
+[`configuration.md`](../../docs/crates/tinycomputer/configuration.md#browser)
+for the host contract and its privacy behavior.
+
+The Chromium egress fixture tests are ignored in the default suite because
+they need an installed browser; run them explicitly with
+`cargo test -p tinycomputer-browser --features agent-browser chromium_ -- --ignored`.
+They use local fixtures only. Other browser integration tests run in the Docker
+lab (`docs/technical/docker-lab.md`).

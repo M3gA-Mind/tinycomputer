@@ -36,7 +36,7 @@ tinycomputer-cursor = { workspace = true }
 url = { workspace = true }
 # Per-session locks held across engine calls; `rt` for the runtime handle a
 # blocking surface call runs the async browser on.
-tokio = { workspace = true, features = ["sync", "rt", "time"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "net", "io-util"] }
 # Whether the process a Chrome profile lock names is alive.
 sysinfo = { workspace = true }
 

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use tinybus::{Error as TinyBusError, Result as TinyBusResult};
-use tinycomputer_browser::{AgentBrowser, Browser};
+use tinycomputer_browser::{AgentBrowser, Browser, EnforcedAgentBrowser};
 use tinycomputer_bus::agent::{
     AgentResponse, ContinueTaskRequest, StartTaskRequest, SurfaceAvailability, SurfaceKind,
     TaskStatus, TaskView,
@@ -13,6 +13,7 @@ use tinycomputer_bus::{DesktopResponse, JevConfig};
 use tinycomputer_engine as agentic;
 
 use super::DesktopService;
+use crate::tinybus_module::browser_egress::BusAuthorizer;
 use crate::tinybus_module::config::{BrowserDefaults, cursor_config};
 use crate::tinybus_module::consequence_gate::{ConsequenceLink, ConsequencePort};
 use crate::tinybus_module::runner::WorkspaceRunner;
@@ -25,8 +26,27 @@ impl DesktopService {
     /// # Errors
     ///
     /// Propagates whatever [`Desktop::from_config`] rejects.
+    #[cfg(test)]
     pub(crate) fn from_config(config: &serde_json::Value) -> Result<Self> {
         Self::with_browser(config, Arc::new(Browser::new(Arc::new(AgentBrowser))))
+    }
+
+    /// Builds the service with the authenticated host callback available on
+    /// the module connection. A configured egress scope always selects the
+    /// enforced browser launcher.
+    pub(crate) fn from_config_with_connection(
+        config: &serde_json::Value,
+        connection: tinybus::Connection,
+    ) -> Result<Self> {
+        let defaults = BrowserDefaults::from_config(config)?;
+        let browser = if let Some(egress) = defaults.egress {
+            Arc::new(Browser::new(Arc::new(EnforcedAgentBrowser::new(Arc::new(
+                BusAuthorizer::new(connection, egress.policy_id, egress.generation),
+            )))))
+        } else {
+            Arc::new(Browser::new(Arc::new(AgentBrowser)))
+        };
+        Self::with_browser(config, browser)
     }
 
     /// Builds the service from the module configuration blob, opening browser
