@@ -138,8 +138,11 @@ impl Engine for Linked {
                 // BrowserManager is private in agent-browser, so its method cannot
                 // be named as a function item here.
                 .is_none_or(|browser| browser.has_process_exited());
+            let closing_exited_browser =
+                action.as_deref() == Some("close") && self.enforced_launch && browser_unavailable;
             if self.egress_authorizer.is_some()
                 && !launch
+                && !closing_exited_browser
                 && (!self.enforced_launch || browser_unavailable)
             {
                 self.enforced_launch = false;
