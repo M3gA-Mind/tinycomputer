@@ -56,7 +56,6 @@ mod reply;
 mod sessions;
 mod surface;
 
-#[cfg(feature = "agent-browser")]
 pub use action_gate::{
     ActionContext, ActionGate, ActionRequest, ActionTarget, ActionVerdict, AllowAllActions,
     ObservationKind,
