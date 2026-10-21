@@ -84,6 +84,14 @@ struct Script {
     recoveries: Mutex<Vec<FailedStepRecovery>>,
     /// The host's planless recovery response.
     plan_recovery: Mutex<Option<PlanRecoveryResult>>,
+    /// Reserve host model calls in tests that exercise the task-wide budget.
+    reserve_host_calls: Mutex<bool>,
+    /// Whether each scripted host reservation was accepted.
+    host_call_reservations: Mutex<Vec<bool>>,
+    /// Delay inside the host plan-recovery callback.
+    plan_recovery_delay: Mutex<std::time::Duration>,
+    /// Whether failed-step recovery remains pending until its budget timeout.
+    hang_recovery: Mutex<bool>,
     /// Planless recovery requests, including named-only facts.
     plan_requests: Mutex<Vec<PlanRecoveryRequest>>,
 }
@@ -108,13 +116,30 @@ impl FlowRunner for Script {
     }
 
     fn recover_failed_step(&self, request: FailedStepRecovery) -> FailedStepRecoveryFuture {
+        let reserve = *self.reserve_host_calls.lock().unwrap();
+        let reservation = reserve.then(|| request.host_budget.try_reserve_model_call());
+        if let Some(accepted) = reservation {
+            self.host_call_reservations.lock().unwrap().push(accepted);
+        }
+        let hang = *self.hang_recovery.lock().unwrap();
         self.recoveries.lock().unwrap().push(request);
-        let result = self.recovery.lock().unwrap().take().unwrap_or_else(|| {
+        let result = if reservation == Some(false) {
             FailedStepRecoveryResult::GiveUp {
-                reason: "no scripted recovery".to_owned(),
+                reason: "the task model-call budget is spent".to_owned(),
             }
-        });
-        Box::pin(async move { result })
+        } else {
+            self.recovery.lock().unwrap().take().unwrap_or_else(|| {
+                FailedStepRecoveryResult::GiveUp {
+                    reason: "no scripted recovery".to_owned(),
+                }
+            })
+        };
+        Box::pin(async move {
+            if hang {
+                std::future::pending::<FailedStepRecoveryResult>().await;
+            }
+            result
+        })
     }
 
     fn plan_recovery_enabled(&self) -> bool {
@@ -122,14 +147,28 @@ impl FlowRunner for Script {
     }
 
     fn recover_plan(&self, request: PlanRecoveryRequest) -> PlanRecoveryFuture {
+        let reserve = *self.reserve_host_calls.lock().unwrap();
+        let reservation = reserve.then(|| request.host_budget.try_reserve_model_call());
+        if let Some(accepted) = reservation {
+            self.host_call_reservations.lock().unwrap().push(accepted);
+        }
+        let delay = *self.plan_recovery_delay.lock().unwrap();
         self.plan_requests.lock().unwrap().push(request);
-        let result = self
-            .plan_recovery
-            .lock()
-            .unwrap()
-            .take()
-            .unwrap_or_else(|| PlanRecoveryResult::GiveUp("no scripted plan recovery".to_owned()));
-        Box::pin(async move { result })
+        let result = if reservation == Some(false) {
+            PlanRecoveryResult::GiveUp("the task model-call budget is spent".to_owned())
+        } else {
+            self.plan_recovery
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or_else(|| {
+                    PlanRecoveryResult::GiveUp("no scripted plan recovery".to_owned())
+                })
+        };
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            result
+        })
     }
 
     fn visible_text(&self, _task: &TaskId) -> super::TextFuture {

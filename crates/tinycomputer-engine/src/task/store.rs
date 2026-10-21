@@ -19,7 +19,7 @@ use super::drive::{drive, plan_then_drive};
 use super::errors::too_many;
 use super::interpret::Resume;
 use super::publish::{next_calls, publish};
-use super::{MAX_TASKS, Tasks};
+use super::{MAX_TASKS, TaskCallBudget, Tasks};
 use crate::UsageRecorder;
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
@@ -85,6 +85,8 @@ pub(super) struct State {
     /// human intervention that splits a task into several runs still cannot
     /// exceed its declared budget by starting each run with a fresh one.
     pub(super) spent: Spent,
+    /// Host model work is single-flight and closed after terminal task status.
+    pub(super) host_work: HostWorkState,
     /// Every rescue so far, in order.
     pub(super) rescues: Vec<Rescue>,
     /// The shape the caller wants the answer in, if any.
@@ -144,7 +146,7 @@ impl Tasks {
         let cell = Arc::new(Cell {
             view: watch::Sender::new(view),
             state: Mutex::new(State {
-                usage,
+                usage: usage.clone(),
                 flow: flow.clone(),
                 handoff_to_planner: request.handoff_to_planner,
                 goal: request.task.clone().unwrap_or_default(),
@@ -163,6 +165,7 @@ impl Tasks {
                 resume: None,
                 payment_checkpoint: PaymentCheckpointState::Unavailable,
                 spent: Spent::default(),
+                host_work: HostWorkState::Open,
                 rescues: Vec::new(),
                 output: request.output.clone(),
                 artifacts: Vec::new(),
@@ -174,6 +177,7 @@ impl Tasks {
             shaper: self.shaper.clone(),
             planner: self.planner.clone(),
         });
+        usage.set_task_call_budget(TaskCallBudget::for_cell(Arc::downgrade(&cell)));
         let mut tasks = self.cells.lock().ok()?;
         while tasks.len() >= MAX_TASKS {
             let oldest_final = tasks
@@ -362,6 +366,14 @@ pub(super) enum PaymentCheckpointState {
     /// The one host continuation was consumed.
     Transitioned,
     /// The checkpoint was cancelled before the host authorized it.
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HostWorkState {
+    Open,
+    Active,
+    PaymentActive,
     Closed,
 }
 

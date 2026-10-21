@@ -1,6 +1,7 @@
 //! Tests for planning a plain-language task before running it.
 
 use super::super::store::Run;
+use super::failed_at_step_two;
 use super::*;
 use crate::planner::{LanguageModel, Planner, Turn};
 use tinycomputer_bus::agent::SurfaceKind;
@@ -66,14 +67,13 @@ async fn a_plain_language_task_is_planned_then_run() {
         Ok(r#"{"app": "Mail", "steps": [{"enter": {"recipient": "${email}"}}]}"#),
     );
     assert!(tasks.planner_configured());
-    let started = tasks
-        .start(&StartTaskRequest {
-            task: Some("email Sam".to_owned()),
-            facts: BTreeMap::from([("email".to_owned(), "sam@example.com".to_owned())]),
-            ..StartTaskRequest::default()
-        })
-        .data
-        .unwrap();
+    let reply = tasks.start(&StartTaskRequest {
+        task: Some("email Sam".to_owned()),
+        facts: BTreeMap::from([("email".to_owned(), "sam@example.com".to_owned())]),
+        ..StartTaskRequest::default()
+    });
+    assert!(reply.ok, "{:?}", reply.error);
+    let started = reply.data.unwrap();
     assert_eq!(started.summary, "Planning the task.");
     assert!(matches!(
         settle(&tasks, &started.id).await.status,
@@ -635,6 +635,199 @@ async fn host_recovers_a_failed_planner_without_replacing_the_task() {
     ));
     assert_eq!(script.requests.lock().unwrap().len(), 1);
     assert_eq!(script.plan_requests.lock().unwrap()[0].task, started.id);
+}
+
+#[tokio::test]
+async fn plan_recovery_and_a_later_failed_step_share_one_host_call_budget() {
+    let plan = flow(json!({"app":"browser","steps":[
+        {"browse":"https://flights.test"},
+        "search for flights",
+        "open the cheapest result"
+    ]}));
+    let (tasks, script) = planned(vec![failed_at_step_two()], Err("planner failed"));
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(plan));
+    *script.reserve_host_calls.lock().unwrap() = true;
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("find the cheapest flight".to_owned()),
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_model_calls: Some(1),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Failed { .. }
+    ));
+    assert_eq!(
+        script.plan_requests.lock().unwrap()[0].remaining_model_calls,
+        1
+    );
+    assert_eq!(script.requests.lock().unwrap()[0].max_model_calls, 0);
+    let recovery = script.recoveries.lock().unwrap();
+    assert_eq!(recovery.len(), 1);
+    assert_eq!(recovery[0].remaining_model_calls, 0);
+    assert_eq!(
+        *script.host_call_reservations.lock().unwrap(),
+        [true, false]
+    );
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    assert_eq!(cell.state.lock().unwrap().spent.model_calls, 1);
+}
+
+#[tokio::test]
+async fn failed_native_handoff_charges_host_plan_elapsed_once() {
+    let prefix = flow(json!({"app":"browser","steps":["safe prefix"]}));
+    let (tasks, script) = planned(
+        vec![
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+        ],
+        Err("planner failed"),
+    );
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(flow(json!({
+        "app":"browser","steps":["host continuation"]
+    }))));
+    let delay = std::time::Duration::from_millis(40);
+    *script.plan_recovery_delay.lock().unwrap() = delay;
+    let max_elapsed_ms = 10_000;
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp".to_owned()),
+            flow: Some(prefix),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_elapsed_ms: Some(max_elapsed_ms),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+
+    let remaining_before_host = script.plan_requests.lock().unwrap()[0]
+        .remaining_ms
+        .unwrap();
+    let spent_after_host = tasks
+        .cells
+        .lock()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .state
+        .lock()
+        .unwrap()
+        .spent
+        .elapsed_ms;
+    let already_spent = max_elapsed_ms.saturating_sub(remaining_before_host);
+    let host_elapsed = spent_after_host.saturating_sub(already_spent);
+    assert!(
+        (u64::try_from(delay.as_millis()).unwrap()..=100).contains(&host_elapsed),
+        "host plan elapsed must be charged once after the native PlanningDebit, got {host_elapsed} ms"
+    );
+}
+
+#[tokio::test]
+async fn a_retained_plan_scope_cannot_reserve_after_its_guard_is_dropped() {
+    let (tasks, script) = controller(vec![finished_run(
+        FlowStopReason::StoppedBeforeDestructive,
+        vec![step(
+            "1",
+            "stop_before",
+            "pay now",
+            StepOutcome::Gated,
+            "found payment",
+        )],
+        &[],
+        Some("Pay now"),
+    )]);
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(flow(json!({
+        "app":"browser","steps":[{"stop_before":"pay now"}]
+    }))));
+    let reply = tasks.start(&StartTaskRequest {
+        task: Some("buy a lamp".to_owned()),
+        constraints: TaskConstraints {
+            payment: tinycomputer_bus::agent::PaymentMode::FillThenApprove,
+            surfaces: vec![SurfaceKind::Browser],
+            origins: vec![".shop.example".to_owned()],
+            ..TaskConstraints::default()
+        },
+        budget: tinycomputer_bus::agent::TaskBudget {
+            max_elapsed_ms: Some(1_000),
+            ..tinycomputer_bus::agent::TaskBudget::default()
+        },
+        ..StartTaskRequest::default()
+    });
+    assert!(reply.ok, "{:?}", reply.error);
+    let started = reply.data.unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::NeedsApproval { .. }
+    ));
+
+    let scope = script.plan_requests.lock().unwrap()[0].host_budget.clone();
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert_eq!(scope.remaining_ms(), Some(0));
+    assert!(!scope.try_reserve_model_call());
+}
+
+#[tokio::test]
+async fn a_host_scope_cannot_reserve_when_the_task_time_budget_is_exhausted() {
+    let (tasks, _) = controller(vec![finished_run(
+        FlowStopReason::StoppedBeforeDestructive,
+        vec![step(
+            "1",
+            "stop_before",
+            "sending the email",
+            StepOutcome::Gated,
+            "found Send",
+        )],
+        &[],
+        Some("Send"),
+    )]);
+    let max_elapsed_ms = 10_000;
+    let started = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(
+                json!({"app":"Mail","steps":[{"stop_before":"sending the email"}]}),
+            )),
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_elapsed_ms: Some(max_elapsed_ms),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::NeedsApproval { .. }
+    ));
+
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    let budget = cell.state.lock().unwrap().usage.task_call_budget().unwrap();
+    let work = budget
+        .begin_work()
+        .expect("a paused non-terminal task permits a host-work scope");
+    let scope = work.scope();
+    cell.state.lock().unwrap().spent.elapsed_ms = max_elapsed_ms;
+
+    assert_eq!(scope.remaining_ms(), Some(0));
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert!(!scope.try_reserve_model_call());
 }
 
 #[tokio::test]

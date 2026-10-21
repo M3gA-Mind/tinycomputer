@@ -49,83 +49,103 @@ pub(super) async fn rescued(
     if let Some(briefing) = fallback_briefing
         && exact_top_level_tail(&briefing)
     {
-        let (constraints, budget, spent) = {
-            let Ok(state) = cell.state.lock() else {
-                return Ok(failed_status(failed, reason, hint));
-            };
-            (state.constraints.clone(), state.budget, state.spent)
-        };
-        let remaining_actions = budget
-            .max_actions
-            .unwrap_or(120)
-            .saturating_sub(spent.actions);
-        let remaining_model_calls = budget
-            .max_model_calls
-            .unwrap_or(super::DEFAULT_MODEL_CALLS)
-            .saturating_sub(spent.model_calls);
-        let remaining_ms = budget
-            .max_elapsed_ms
-            .map(|max| max.saturating_sub(spent.elapsed_ms));
-        let request = FailedStepRecovery {
-            task: cell.view.borrow().id.clone(),
-            briefing: briefing.clone(),
-            constraints,
-            remaining_actions,
-            remaining_model_calls,
-            remaining_ms,
-        };
-        let timeout_ms = remaining_ms
-            .unwrap_or(RESCUE_TIMEOUT_MS)
-            .min(RESCUE_TIMEOUT_MS);
-        let recovered = tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            runner.recover_failed_step(request),
-        )
-        .await;
-        match recovered {
-            Ok(FailedStepRecoveryResult::Completed {
-                reason: recovery_reason,
-                actions,
-                model_calls: _,
-            }) => {
-                let tail = resumed(&briefing, Vec::new(), 0);
-                // A final failed step has no remaining Run. Letting an empty
-                // flow reach RunFlow would turn completion into a false failure.
-                if tail.steps.is_empty() {
-                    return Ok(failed_status(
-                        failed,
-                        reason,
-                        format!(
-                            "{hint}; host recovery completed the last step but no safe tail exists"
-                        ),
-                    ));
-                }
-                if let Ok(mut state) = cell.state.lock() {
-                    state.spent.actions = state.spent.actions.saturating_add(actions);
-                    state.rescues.push(Rescue {
-                        step: failed,
-                        failure: reason,
-                        reason: recovery_reason,
-                        steps: Vec::new(),
-                        covers: 0,
-                        outcome: RescueOutcome::Recovered,
-                    });
-                }
-                return Err(Run {
-                    flow: tail,
-                    allow_destructive: run.allow_destructive,
-                    rescue: None,
-                });
-            }
-            Ok(FailedStepRecoveryResult::GiveUp { reason: why }) => {
-                hint = format!("{hint}; host recovery gave up: {why}");
-            }
-            Err(_) => {
-                hint = format!("{hint}; host recovery took too long");
-            }
+        match recover_failed_step(cell, runner, run, &briefing, failed, reason.clone(), hint).await
+        {
+            Ok(recovered) => return Err(recovered),
+            Err(next_hint) => hint = next_hint,
         }
     }
     Ok(failed_status(failed, reason, hint))
+}
+
+async fn recover_failed_step(
+    cell: &Cell,
+    runner: &dyn FlowRunner,
+    run: &Run,
+    briefing: &Briefing,
+    failed: usize,
+    failure: String,
+    hint: String,
+) -> Result<Run, String> {
+    let (constraints, budget, spent, task_budget) = {
+        let state = cell.state.lock().map_err(|_| hint.clone())?;
+        let task_budget = state.usage.task_call_budget().ok_or_else(|| hint.clone())?;
+        (
+            state.constraints.clone(),
+            state.budget,
+            state.spent,
+            task_budget,
+        )
+    };
+    let Some(work) = task_budget.begin_work() else {
+        return Err(format!("{hint}; the task host-work budget is unavailable"));
+    };
+    let host_budget = work.scope();
+    let remaining_actions = budget
+        .max_actions
+        .unwrap_or(120)
+        .saturating_sub(spent.actions);
+    let remaining_model_calls = budget
+        .max_model_calls
+        .unwrap_or(super::DEFAULT_MODEL_CALLS)
+        .saturating_sub(spent.model_calls);
+    let remaining_ms = budget
+        .max_elapsed_ms
+        .map(|max| max.saturating_sub(spent.elapsed_ms));
+    let timeout_ms = host_budget
+        .remaining_ms()
+        .or(remaining_ms)
+        .unwrap_or(RESCUE_TIMEOUT_MS)
+        .min(RESCUE_TIMEOUT_MS);
+    let request = FailedStepRecovery {
+        task: cell.view.borrow().id.clone(),
+        briefing: briefing.clone(),
+        constraints,
+        remaining_actions,
+        remaining_model_calls,
+        remaining_ms,
+        host_budget,
+    };
+    let recovered = tokio::time::timeout(
+        Duration::from_millis(timeout_ms),
+        runner.recover_failed_step(request),
+    )
+    .await;
+    drop(work);
+    match recovered {
+        Ok(FailedStepRecoveryResult::Completed {
+            reason,
+            actions,
+            model_calls: _,
+        }) => {
+            let tail = resumed(briefing, Vec::new(), 0);
+            if tail.steps.is_empty() {
+                return Err(format!(
+                    "{hint}; host recovery completed the last step but no safe tail exists"
+                ));
+            }
+            if let Ok(mut state) = cell.state.lock() {
+                state.spent.actions = state.spent.actions.saturating_add(actions);
+                state.rescues.push(Rescue {
+                    step: failed,
+                    failure,
+                    reason,
+                    steps: Vec::new(),
+                    covers: 0,
+                    outcome: RescueOutcome::Recovered,
+                });
+            }
+            Ok(Run {
+                flow: tail,
+                allow_destructive: run.allow_destructive,
+                rescue: None,
+            })
+        }
+        Ok(FailedStepRecoveryResult::GiveUp { reason }) => {
+            Err(format!("{hint}; host recovery gave up: {reason}"))
+        }
+        Err(_) => Err(format!("{hint}; host recovery took too long")),
+    }
 }
 
 fn failed_status(failed: usize, reason: String, hint: String) -> TaskStatus {

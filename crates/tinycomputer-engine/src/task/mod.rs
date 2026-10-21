@@ -121,6 +121,7 @@ fn redact_value(value: &mut serde_json::Value, redact: &impl Fn(&str) -> String)
 }
 
 pub use browser::BrowserRunner;
+pub use budget::{HostWorkGuard, TaskBudgetScope, TaskCallBudget};
 pub use controller::{ContinuePaidAtShopRequest, ContinuePaymentRequest, Tasks};
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
@@ -160,6 +161,8 @@ pub struct FailedStepRecovery {
     pub remaining_model_calls: u32,
     /// Time left in the task budget, when bounded.
     pub remaining_ms: Option<u64>,
+    /// The shared task budget for host model calls and active recovery time.
+    pub host_budget: TaskBudgetScope,
 }
 
 /// What a host's bounded failed-step recovery did.
@@ -205,6 +208,8 @@ pub struct PlanRecoveryRequest {
     pub remaining_model_calls: u32,
     /// Time left in the task budget, when bounded.
     pub remaining_ms: Option<u64>,
+    /// The shared task budget for host model calls and active planning time.
+    pub host_budget: TaskBudgetScope,
 }
 
 /// A same-task plan the host derived, or why it could not derive one.

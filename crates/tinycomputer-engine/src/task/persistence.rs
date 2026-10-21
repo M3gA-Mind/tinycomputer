@@ -12,7 +12,7 @@ use tinycomputer_core::{Facts, SecretFactHandle};
 use super::interpret::Resume;
 use super::publish::{needs_input, publish};
 use super::store::{Cell, Spent, State};
-use super::{MAX_TASKS, Tasks};
+use super::{MAX_TASKS, TaskCallBudget, Tasks};
 use crate::rescue::Rescuer;
 use crate::{UsageRecorder, shape::Shaper};
 
@@ -415,10 +415,10 @@ fn build_cell(
 ) -> Arc<Cell> {
     let usage = Arc::new(UsageRecorder::from_snapshot(task.usage));
     task.view.usage = usage.snapshot();
-    Arc::new(Cell {
+    let cell = Arc::new(Cell {
         view: tokio::sync::watch::Sender::new(task.view.clone()),
         state: std::sync::Mutex::new(State {
-            usage,
+            usage: usage.clone(),
             flow: task.flow,
             handoff_to_planner: task.handoff_to_planner,
             goal: task.goal,
@@ -437,6 +437,7 @@ fn build_cell(
             resume: task.resume,
             payment_checkpoint: super::store::PaymentCheckpointState::Unavailable,
             spent: task.spent,
+            host_work: super::store::HostWorkState::Open,
             rescues: task.rescues,
             output: task.output,
             artifacts: task.artifacts,
@@ -447,7 +448,9 @@ fn build_cell(
         rescuer,
         shaper,
         planner,
-    })
+    });
+    usage.set_task_call_budget(TaskCallBudget::for_cell(Arc::downgrade(&cell)));
+    cell
 }
 
 fn resumable(status: &TaskStatus) -> bool {
