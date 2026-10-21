@@ -1,7 +1,7 @@
 //! Draft and validate a continuation from the current page.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tinycomputer_bus::agent::SurfaceKind;

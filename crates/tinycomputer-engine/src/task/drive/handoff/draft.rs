@@ -10,7 +10,7 @@ use super::super::finish::task_usage;
 use crate::task::FlowRunner;
 use crate::task::store::Cell;
 
-async fn draft_handoff(
+pub(super) async fn draft_handoff(
     cell: &Arc<Cell>,
     runner: &dyn FlowRunner,
     task: String,
