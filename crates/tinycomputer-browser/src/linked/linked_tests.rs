@@ -7,21 +7,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use serde_json::json;
-use std::{
-    io,
-    net::SocketAddr,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
+use std::{io, net::SocketAddr, sync::Arc};
 
+#[cfg(live_browser_tests)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(live_browser_tests)]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
-use super::{AgentBrowser, EnforcedAgentBrowser, Linked, ENGINE, enforce_launch, state_options};
+use super::{AgentBrowser, ENGINE, EnforcedAgentBrowser, Linked, enforce_launch, state_options};
 use crate::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
     engine::{Engine, Launcher},
@@ -123,7 +119,12 @@ async fn enforced_browser_rechecks_liveness_after_waiting_for_engine_lock() {
 
     let reply = pending.await.unwrap();
     assert_eq!(reply["success"], false);
-    assert!(reply["error"].as_str().unwrap().contains("live browser session"));
+    assert!(
+        reply["error"]
+            .as_str()
+            .unwrap()
+            .contains("live browser session")
+    );
 }
 
 #[tokio::test]
@@ -332,12 +333,14 @@ async fn live_chromium_websocket_never_reaches_a_denied_destination() {
     );
 }
 
+#[cfg(live_browser_tests)]
 #[derive(Debug)]
 struct RejectAllButFixture {
     address: SocketAddr,
     authorizations: Arc<AtomicUsize>,
 }
 
+#[cfg(live_browser_tests)]
 impl EgressAuthorizer for RejectAllButFixture {
     fn authorize(
         &self,
