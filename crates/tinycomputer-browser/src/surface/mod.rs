@@ -393,6 +393,15 @@ impl BrowserSurface {
             // subtree can be read beside sight, not two.
             _ => return None,
         }
+        // Shadow reads may refresh the browser's native refs, so map Sight
+        // controls only after the last such read, against the exact snapshot
+        // generation that will be used by the next action.
+        let snapshot = self
+            .block(self.browser.snapshot(&id, SnapshotRequest::default()))
+            .ok()?;
+        screen
+            .candidates
+            .retain_mut(|candidate| attach_unique_snapshot_ref(candidate, &snapshot.refs));
         self.keep_denoised(sight::denoised(result));
         Some(screen)
     }
@@ -459,6 +468,35 @@ impl BrowserSurface {
         });
         reply(command, outcome)
     }
+}
+
+/// Resolve every native ref against the final accessibility snapshot, since
+/// an intervening shadow read may have reassigned its `eN` identifiers. Sight
+/// selectors remain available for hosts that support them, but are replaced
+/// by a native ref only when the snapshot has one exact role/name match.
+fn attach_unique_snapshot_ref(
+    candidate: &mut tinycomputer_core::surface::Candidate,
+    refs: &[tinycomputer_bus::browser::ElementRef],
+) -> bool {
+    candidate
+        .children
+        .retain_mut(|child| attach_unique_snapshot_ref(child, refs));
+    let Some(name) = candidate.name.as_deref().filter(|name| !name.is_empty()) else {
+        return sight::is_seen(&candidate.ref_id);
+    };
+    let mut matches = refs
+        .iter()
+        .filter(|item| item.role == candidate.role && item.name.as_str() == name);
+    let Some(found) = matches.next() else {
+        // Sight refs are selector-backed and remain governed by the host's
+        // existing policy. Native refs must never survive a missing match.
+        return sight::is_seen(&candidate.ref_id);
+    };
+    if matches.next().is_some() {
+        return sight::is_seen(&candidate.ref_id);
+    }
+    candidate.ref_id.clone_from(&found.id);
+    true
 }
 
 #[cfg(test)]
