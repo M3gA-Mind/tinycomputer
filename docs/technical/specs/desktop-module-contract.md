@@ -96,13 +96,29 @@ Browser egress (2.25): a host may serve the optional
 to authorize its actual destination and receives vetted socket addresses plus
 an opaque lease. It consumes a one-use grant for an exact address before
 dialing, and reauthorizes before trying another address if a connection fails.
-The lease is revalidated while uploads, tunnels, or responses remain active. A 2.24
-module cannot enforce these host decisions.
+The lease is revalidated while uploads, tunnels, or responses remain active. A
+2.24 module cannot enforce these host decisions.
 
 Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
+
+Trace and report persistence (2.26): when module configuration sets
+`trace_sink` to an object containing the unique callback `destination`, the
+module calls the confidential `ai.tinyhumans.tinycomputer.TraceSinkHost`
+interface. `Append` receives each complete sanitized agent-desktop trace event
+in order. `StoreArtifact` receives desktop trace screenshots and reference maps
+as standard padded base64, capped at 8 MiB decoded, and returns their committed
+opaque references. `WriteReport` receives a task id and the full `TaskReport`
+whenever the caller requests `TaskReport`. The host acknowledges each write;
+trace failures follow `trace_strict`, while a report write failure returns a
+recoverable `TRACE_SINK_FAILED` agent response. Terminal Globe shutdown joins
+the trace worker before module unload. Sink mode has no local
+file/session fallback, even when its host callback fails. Without the explicit
+configuration, existing desktop trace path and session behavior remain in
+effect. Hosts should upsert reports by task id because callers may request the
+same report more than once.
 
 Host-held secret facts (2.22): `StartTask` and `RunFlow` accept optional
 `fact_handles`, keyed by fact name. Each entry carries only the host's opaque
@@ -208,7 +224,8 @@ or false keeps the existing start behavior.
 ### Configuration and concurrency
 
 - The module's configuration is a JSON object with optional `session_id` and
-  `trace_path` strings, `trace_strict` and `headed` booleans, and a `jev`
+  `trace_path` strings, `trace_strict` and `headed` booleans, an optional
+  `trace_sink` object containing the host-prepared unique callback destination, and a `jev`
   object containing provider configuration and its API key. `null` and `{}`
   yield desktop defaults with Jev disabled; invalid recognized fields fail
   before the served object is replaced.

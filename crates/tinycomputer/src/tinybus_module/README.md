@@ -54,7 +54,15 @@ against a scripted engine, so no browser is launched.
 
 The module takes its configuration from the loader as a JSON object, parsed into
 `Desktop` by `Desktop::from_config`: `session_id` and `trace_path` as strings,
-`trace_strict` and `headed` as booleans. `browser` sets how every browser
+`trace_strict` and `headed` as booleans. Setting `trace_sink` to an object with
+the unique `destination` supplied by `ModuleHost::prepare_host_callbacks` opts
+into the host's confidential `TraceSinkHost` interface for ordered desktop
+trace events, trace artifacts, and requested task reports; selected sink mode
+never writes local trace files. Artifact bytes use base64 and are capped at
+8 MiB decoded so the callback stays below TinyBus's frame limit. Leaving it
+absent or `false` retains the existing `trace_path` and session behavior.
+`true` without a callback
+destination is rejected. `browser` sets how every browser
 launches — `executable`, `user_agent`, `args`, a task's page
 `perception`, how a page `settle`s after an action, and whether to
 `prelaunch` a planned browser task's browser (a planned task also warms
@@ -79,7 +87,10 @@ of this module's own source, because reading them back out of the exported
 
 Integration tests use TinyBus's in-memory transport, and
 `crates/tinycomputer-examples/src/bin/verify_module.rs` loads a compiled `cdylib` through
-the real dynamic loader before a release archive is accepted.
+the real dynamic loader before a release archive is accepted. Its trace-sink
+fixture invokes the no-permission `Version` member, checks captured native trace
+records and confirms sink mode leaves the configured legacy trace path absent;
+it also verifies successful and failed confidential task-report writes.
 
 ## Native accessibility lifecycle
 
@@ -90,5 +101,6 @@ in the host. See the [contract](../../../tinycomputer-bus/src/accessibility/READ
 GlobeRead retains a bounded typed batch until acknowledgment. Native overflow or
 legacy destructive polling marks continuity loss, requiring activation reset.
 GlobeShutdown rejects new listener acquisition and awaits native child/pipe
-cleanup before returning. Stop failures retain
-ownership for retry; terminal shutdown must succeed before generic ABI unload.
+cleanup before returning. Stop failures retain ownership for retry; terminal
+shutdown joins native listeners and the trace sink worker before generic ABI
+unload.

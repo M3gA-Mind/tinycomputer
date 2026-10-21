@@ -276,3 +276,44 @@ fn the_cursor_is_configured_or_refused() {
     }
     assert!(DesktopService::from_config(&json!({"cursor": "off"})).is_ok());
 }
+
+#[test]
+fn trace_sink_requires_the_host_prepared_unique_destination() {
+    use crate::tinybus_module::config::trace_sink_destination;
+
+    assert!(trace_sink_destination(&json!({})).unwrap().is_none());
+    assert!(
+        trace_sink_destination(&json!({"trace_sink": false}))
+            .unwrap()
+            .is_none()
+    );
+    assert!(trace_sink_destination(&json!({"trace_sink": true})).is_err());
+    assert!(trace_sink_destination(&json!({"trace_sink": {}})).is_err());
+    assert!(
+        trace_sink_destination(&json!({
+            "trace_sink": {"destination": ":1.42", "scope": "caller-selected"}
+        }))
+        .is_err()
+    );
+    assert!(
+        trace_sink_destination(&json!({"trace_sink": {"destination": "org.example.Host"}}))
+            .is_err()
+    );
+    assert_eq!(
+        trace_sink_destination(&json!({"trace_sink": {"destination": ":1.42"}}))
+            .unwrap()
+            .unwrap()
+            .as_str(),
+        ":1.42"
+    );
+}
+
+#[test]
+fn connectionless_service_construction_rejects_trace_sink_configuration() {
+    let error = DesktopService::from_config(&json!({
+        "trace_sink": {"destination": ":1.42"}
+    }))
+    .expect_err("a host callback needs the module's bus connection");
+
+    assert!(error.to_string().contains("trace_sink"));
+}

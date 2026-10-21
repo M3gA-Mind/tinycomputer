@@ -25,6 +25,7 @@ mod consequence_gate;
 mod dispatch;
 mod runner;
 mod site_memory;
+mod trace_sink;
 
 use serde_json::Value;
 use tinybus::{Connection, Result as TinyBusResult};
@@ -95,6 +96,7 @@ tinybus_module::module_export_optional_static! {
     optional = [
         "ai.tinyhumans.tinycomputer.SiteMemoryHost",
         "ai.tinyhumans.tinycomputer.ConsequenceHost",
+        "ai.tinyhumans.tinycomputer.TraceSinkHost",
         "ai.tinyhumans.tinycomputer.BrowserEgressHost",
     ],
     lazy = false,

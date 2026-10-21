@@ -9,7 +9,7 @@ code, so this page exists mostly to keep them apart.
 ## `CONTRACT_VERSION`: does this host understand this module
 
 ```rust,ignore
-pub const CONTRACT_VERSION: (u32, u32) = (2, 25);
+pub const CONTRACT_VERSION: (u32, u32) = (2, 26);
 ```
 
 This describes the *vocabulary*: the member set and the payload shapes,
@@ -45,17 +45,17 @@ Two conditions, both necessary:
    relies on changed shape or disappeared, so a mismatched major is refused
    outright, in either direction.
 2. **The module must be at least as new, minor-wise, as the host.** A host
-   built against `(2, 24)` expects at least the members and fields that
-   existed at `(2, 24)`. A module reporting `(2, 23)` might be missing one of
-   them, so it is rejected. A module reporting `(2, 24)` is an exact match
-   and is accepted. A module reporting `(2, 25)` has everything the host
-   expects, plus something newer the host simply does not use yet, so it is
-   accepted.
+   built against `(2, 26)` expects at least the members and fields that
+   existed at `(2, 26)`. A module reporting `(2, 25)` predates the
+   `TraceSinkHost` callback added in 2.26, so a 2.26 host rejects it. It does
+   include `BrowserEgressHost`, which was added in 2.25. A newer module with
+   the same major is accepted.
 
 ```rust,ignore
-assert!(is_compatible(CONTRACT_VERSION));   // (2, 25), the exact version this crate ships
-assert!(is_compatible((2, 26)));            // a newer, still-compatible module
+assert!(is_compatible(CONTRACT_VERSION));   // (2, 26), the exact version this crate ships
+assert!(is_compatible((2, 27)));            // a newer, still-compatible module
 assert!(!is_compatible((2, 11)));            // an older module, missing something
+assert!(!is_compatible((2, 25)));            // predates TraceSinkHost; includes BrowserEgressHost from 2.25
 assert!(!is_compatible((1, 10)));           // a different major, all bets off
 ```
 
