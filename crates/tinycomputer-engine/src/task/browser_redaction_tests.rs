@@ -7,7 +7,7 @@ use tinycomputer_browser::{Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation};
 use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface, describe};
 
-use super::browser_tests::{BrowserScript, BrowserScriptEngine};
+use super::browser_tests::BrowserScript;
 use super::{redact_observation_error, redact_response, redact_screen};
 use crate::{SecretHost, SecretTypeRequest};
 
@@ -175,9 +175,7 @@ fn secret_shaped_bounds_are_dropped_before_model_description() {
 #[test]
 fn secret_redacting_surface_wraps_browser_surface_operations() {
     let runtime = tokio::runtime::Runtime::new().expect("create a Tokio runtime");
-    let browser = Arc::new(Browser::new(Arc::new(BrowserScriptEngine(
-        BrowserScript::default(),
-    ))));
+    let browser = Arc::new(Browser::new(Arc::new(BrowserScript::default())));
     let inner = BrowserSurface::new(browser, SessionOptions::default(), runtime.handle().clone());
     let surface = super::SecretRedactingSurface {
         inner,
