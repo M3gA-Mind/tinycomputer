@@ -186,10 +186,7 @@ impl BrowserSurface {
             self.hide_form_values
         );
         let data = self
-            .block(
-                self.browser
-                    .command(&id, json!({"action": "evaluate", "script": script})),
-            )
+            .block(self.browser.observe_target_check(&id, script))
             .map_err(|error| error.to_string())?;
         match data.get("result") {
             Some(cover) if cover.get("unread") == Some(&Value::Bool(true)) => {

@@ -313,10 +313,9 @@ impl Surface for BrowserSurface {
         let Some(id) = self.session() else {
             return true;
         };
-        let watching = self.browser.command(
-            &id,
-            json!({"action": "evaluate", "script": watch::change_script(ms)}),
-        );
+        let watching = self
+            .browser
+            .observe_page_stability(&id, watch::change_script(ms));
         self.block(async { tokio::time::timeout(watch::deadline(ms), watching).await })
             .ok()
             .and_then(Result::ok)
@@ -412,10 +411,9 @@ impl BrowserSurface {
     /// a deadline: a call sent while a page is being replaced can wait out
     /// the browser's own 30 s.
     fn await_still(&self, id: &SessionId) {
-        let still = self.browser.command(
-            id,
-            json!({"action": "evaluate", "script": watch::still_script()}),
-        );
+        let still = self
+            .browser
+            .observe_page_stability(id, watch::still_script());
         let _still =
             self.block(async { tokio::time::timeout(watch::deadline(SETTLE_MS), still).await });
     }

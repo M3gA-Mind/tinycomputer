@@ -17,10 +17,9 @@ pub(super) fn reply(command: &str, result: Result<Value>) -> DesktopResponse {
 /// name in `SCREAMING_SNAKE_CASE`, such as `STALE_REF`.
 /// Whether a click was refused because another element covers its target.
 pub(super) fn covered(reply: &DesktopResponse) -> bool {
-    reply
-        .error
-        .as_ref()
-        .is_some_and(|error| error.message.contains("is covered by"))
+    reply.error.as_ref().is_some_and(|error| {
+        error.code != "ACTION_REFUSED" && error.message.contains("is covered by")
+    })
 }
 
 pub(super) fn failure(command: &str, error: &Error) -> DesktopResponse {
@@ -37,6 +36,31 @@ pub(super) fn failure(command: &str, error: &Error) -> DesktopResponse {
         code.push(character.to_ascii_uppercase());
     }
     DesktopResponse::err(command, DesktopError::new(code, error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use tinycomputer_bus::{DesktopError, DesktopResponse};
+
+    use super::covered;
+
+    #[test]
+    fn a_host_policy_refusal_is_not_retried_as_a_cover() {
+        let refused = DesktopResponse::err(
+            "click",
+            DesktopError::new(
+                "ACTION_REFUSED",
+                "Refused: the target is covered by policy.",
+            ),
+        );
+        assert!(!covered(&refused));
+
+        let covered_by_page = DesktopResponse::err(
+            "click",
+            DesktopError::new("NOT_ACTIONABLE", "The element is covered by a banner."),
+        );
+        assert!(covered(&covered_by_page));
+    }
 }
 
 /// The refusal for text aimed at an element that does not take it.
