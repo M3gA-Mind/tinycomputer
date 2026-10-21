@@ -58,8 +58,10 @@ The module takes its configuration from the loader as a JSON object, parsed into
 the unique `destination` supplied by `ModuleHost::prepare_host_callbacks` opts
 into the host's confidential `TraceSinkHost` interface for ordered desktop
 trace events, trace artifacts, and requested task reports; selected sink mode
-never writes local trace files. Leaving it absent or `false` retains the
-existing `trace_path` and session behavior. `true` without a callback
+never writes local trace files. Artifact bytes use base64 and are capped at
+8 MiB decoded so the callback stays below TinyBus's frame limit. Leaving it
+absent or `false` retains the existing `trace_path` and session behavior.
+`true` without a callback
 destination is rejected. `browser` sets how every browser
 launches — `executable`, `user_agent`, `args`, a task's page
 `perception`, how a page `settle`s after an action, and whether to

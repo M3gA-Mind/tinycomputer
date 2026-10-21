@@ -15,6 +15,29 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+const MAX_ARTIFACT_BYTES: usize = 8 * 1024 * 1024;
+
+mod base64_bytes {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub(super) fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&STANDARD.encode(bytes))
+    }
+
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        STANDARD.decode(encoded).map_err(serde::de::Error::custom)
+    }
+}
+
 use crate::agent::TaskReport;
 
 /// The interface the host serves for trace and report persistence.
@@ -77,20 +100,26 @@ pub struct TraceArtifactLimits {
 }
 
 /// One trace artifact sent to the host. The bytes may contain screen content
-/// and therefore this member is confidential.
+/// and therefore this member is confidential. `bytes` is standard padded
+/// base64 on the wire and contains at most [`MAX_TRACE_ARTIFACT_BYTES`] decoded
+/// bytes, keeping the callback under `TinyBus`'s 16 MiB frame cap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceArtifact {
     /// Whether the bytes are a screenshot or a reference map.
     pub kind: TraceArtifactKind,
     /// Producer-generated name, scoped to the host's trace sink.
     pub name: String,
-    /// Artifact content.
+    /// Artifact content, encoded as standard padded base64 on the wire.
+    #[serde(with = "base64_bytes")]
     pub bytes: Vec<u8>,
     /// Remaining milliseconds in the engine's admission deadline.
     pub deadline_ms: u64,
     /// Limits the host must enforce atomically for this trace scope.
     pub limits: TraceArtifactLimits,
 }
+
+/// Maximum decoded artifact size accepted by the trace sink callback.
+pub const MAX_TRACE_ARTIFACT_BYTES: usize = MAX_ARTIFACT_BYTES;
 
 /// The host's committed opaque reference for an artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -38,6 +38,14 @@ fn an_expired_deadline_is_never_renewed() {
 }
 
 #[test]
+fn artifacts_over_the_transport_safe_limit_are_refused_before_queueing() {
+    let limit = tinycomputer_bus::trace_sink::MAX_TRACE_ARTIFACT_BYTES;
+
+    assert!(validate_artifact_size(limit).is_ok());
+    assert!(validate_artifact_size(limit + 1).is_err());
+}
+
+#[test]
 fn callback_timeout_is_capped_without_extending_the_operation_deadline() {
     let deadline = Instant::now() + CALL_TIMEOUT * 2;
     assert!(remaining_timeout(deadline).is_some());

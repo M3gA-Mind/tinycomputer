@@ -298,3 +298,13 @@ fn trace_sink_requires_the_host_prepared_unique_destination() {
         ":1.42"
     );
 }
+
+#[test]
+fn connectionless_service_construction_rejects_trace_sink_configuration() {
+    let error = DesktopService::from_config(&json!({
+        "trace_sink": {"destination": ":1.42"}
+    }))
+    .expect_err("a host callback needs the module's bus connection");
+
+    assert!(error.to_string().contains("trace_sink"));
+}

@@ -94,14 +94,15 @@ Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
 
-Trace and report persistence (2.20): when module configuration sets
+Trace and report persistence (2.21): when module configuration sets
 `trace_sink` to an object containing the unique callback `destination`, the
 module calls the confidential `ai.tinyhumans.tinycomputer.TraceSinkHost`
 interface. `Append` receives each complete sanitized agent-desktop trace event
 in order. `StoreArtifact` receives desktop trace screenshots and reference maps
-and returns their committed opaque references. `WriteReport` receives a task id
-and the full `TaskReport` whenever the caller requests `TaskReport`. The host
-acknowledges each write; trace failures follow `trace_strict`, while a report
+as standard padded base64, capped at 8 MiB decoded, and returns their committed
+opaque references. `WriteReport` receives a task id and the full `TaskReport`
+whenever the caller requests `TaskReport`. The host acknowledges each write;
+trace failures follow `trace_strict`, while a report
 write failure is returned to the report caller. Sink mode has no local
 file/session fallback, even when its host callback fails. Without the explicit
 configuration, existing desktop trace path and session behavior remain in

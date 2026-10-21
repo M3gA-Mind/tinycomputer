@@ -59,6 +59,12 @@ impl DesktopService {
     /// Propagates whatever [`Desktop::from_config`] rejects.
     #[cfg(test)]
     pub(crate) fn with_browser(config: &serde_json::Value, browser: Arc<Browser>) -> Result<Self> {
+        if trace_sink_destination(config)?.is_some() {
+            return Err(crate::Error::ConfigFieldType {
+                field: "trace_sink",
+                expected: "a module set up with its host callback connection",
+            });
+        }
         Self::with_browser_and_trace_sink(config, browser, None)
     }
 

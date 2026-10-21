@@ -26,6 +26,15 @@ use tinycomputer_desktop::{
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
+fn validate_artifact_size(size: usize) -> std::result::Result<(), TraceSinkError> {
+    if size > tinycomputer_bus::trace_sink::MAX_TRACE_ARTIFACT_BYTES {
+        return Err(TraceSinkError::Internal(
+            "trace artifact exceeds the 8 MiB bus limit".into(),
+        ));
+    }
+    Ok(())
+}
+
 enum Command {
     Append {
         record: serde_json::Value,
@@ -349,6 +358,7 @@ impl EngineTraceSink for TraceLink {
         artifact: TraceSinkArtifact<'_>,
         limits: TraceSinkArtifactLimits,
     ) -> std::result::Result<String, TraceSinkError> {
+        validate_artifact_size(artifact.bytes.len())?;
         if self.callback_active.load(Ordering::Acquire) {
             return Err(TraceSinkError::Internal(
                 "trace sink callback is busy".into(),

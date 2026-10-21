@@ -30,9 +30,11 @@ payload vocabulary has to be published as an ordinary library. This is it.
 | `agent`         | the task members' requests, views, reports, and `Capabilities`      |
 | `flow`          | the flow grammar `RunFlow` and `StartTask` carry                    |
 | `browser`       | the `Browser…` members' payloads, names, and error codes            |
+| `trace_sink`    | the optional `TraceSinkHost` callback names and payloads            |
 | `version`       | `CONTRACT_VERSION` and the bind rule a host applies to it           |
 
-Three dependencies, all pure Rust: `thiserror`, `serde`, and `serde_json`.
+Four dependencies, all pure Rust: `thiserror`, `serde`, `serde_json`, and
+`base64` for compact binary artifact payloads.
 
 ## This crate sits underneath `tinycomputer`
 
@@ -167,16 +169,18 @@ See the [Globe contract](src/accessibility/README.md).
 
 Reliable Globe callers require a released 2.12-compatible artifact with a verified digest.
 
-Contract 2.20 adds the optional confidential `TraceSinkHost` callback. A host
+Contract 2.21 adds the optional confidential `TraceSinkHost` callback. A host
 prepares one exact callback binding per loaded module and supplies its unique
 destination as `trace_sink.destination`. TinyComputer sends sanitized desktop trace events,
 trace artifacts, and requested task reports to `Append`, `StoreArtifact`, and
 `WriteReport`. Event delivery is ordered and acknowledged; strict trace mode
 propagates sink failures, best-effort mode keeps the existing warning behavior,
 and a selected sink never falls back to local trace files. Task report writes
-are acknowledged before the report returns. Artifact writes carry the existing
-engine limits and return an opaque host reference; the host enforces byte and
-count limits atomically and must reject storage it cannot provide. The
+are acknowledged before the report returns. Artifact bytes use standard padded
+base64 and are capped at 8 MiB decoded to keep callbacks within the TinyBus
+frame limit. Artifact writes carry the existing engine limits and return an
+opaque host reference; the host enforces byte and count limits atomically and
+must reject storage it cannot provide. The
 confidential module caller is the sole scope authority: hosts derive the user
 and storage scope from that trusted identity and ignore payload fields when
 choosing a scope. Sink callbacks must not call back into TinyComputer. The
