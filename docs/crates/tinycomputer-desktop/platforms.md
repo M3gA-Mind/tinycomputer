@@ -24,21 +24,22 @@ does not try to guess a fallback for an unknown platform. See
 | Platform | Status |
 |---|---|
 | macOS | Full accessibility backend. Every member works, subject to the permissions covered in [Permissions](permissions.md). |
-| Windows | Full accessibility backend, same as macOS. |
-| Linux | Builds, loads, and answers every call, but the backend implements no accessibility surfaces yet. Every observation there fails with `PLATFORM_NOT_SUPPORTED`, and the error lists which surfaces the backend does support: none, currently. |
+| Windows | Not yet supported. Builds, loads, and answers every call, but the backend implements no accessibility surfaces yet. Every observation there fails with `PLATFORM_NOT_SUPPORTED`, and the error lists which surfaces the backend does support: none, currently. |
+| Linux | Not yet supported, same as Windows. |
 
 This is not a limitation this crate adds; it is inherited directly from the
 vendored `agent-desktop` engine, and it will change as soon as the engine's
-Linux backend gains surfaces, with no change needed here. If you are trying
-to run tinycomputer's desktop automation on Linux today, expect
-`PLATFORM_NOT_SUPPORTED` on anything that touches an application's tree.
+Windows and Linux backends gain surfaces, with no change needed here. If you
+are trying to run tinycomputer's desktop automation on Windows or Linux today,
+expect `PLATFORM_NOT_SUPPORTED` on anything that touches an application's
+tree.
 
 ## Why this crate does not try to work around it
 
 The instruction that governs this whole crate applies here too: this
 repository is an adapter, not an engine. A wrong tree, a missing platform
 surface, or an unsupported operation on one platform is a bug (or, on
-Linux, a known gap) in `vendor/agent-desktop`, fixed there and picked up in
+Windows and Linux, a known gap) in `vendor/agent-desktop`, fixed there and picked up in
 this repository as a pinned dependency bump. Patching around it here would
 just mean the fix has to be redone the moment the vendored dependency
 catches up.

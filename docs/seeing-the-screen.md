@@ -44,8 +44,8 @@ setting to change.
 
 ### Platforms
 
-macOS and Windows are fully supported. Linux builds and loads, but the
-desktop engine has no Linux backend yet, so desktop reads answer
+macOS is fully supported. Windows and Linux build and load, but the
+desktop engine implements no Windows or Linux surfaces yet, so desktop reads answer
 `PLATFORM_NOT_SUPPORTED`. The browser works anywhere Chrome runs.
 
 ## On the web: sight

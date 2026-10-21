@@ -141,7 +141,7 @@ Every key is described in
 
 Desktop control needs Accessibility permission (and Screen Recording for
 screenshots). tinycomputer checks first and tells you what's missing. macOS
-and Windows are fully supported; on Linux the desktop side isn't available
+is fully supported; on Windows and Linux the desktop side isn't available
 yet, but the browser works anywhere Chrome runs.
 
 ## For developers
