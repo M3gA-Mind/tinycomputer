@@ -13,9 +13,7 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
     // Keep the port reserved with a bound, unlistened socket. Connect attempts
     // are refused, and another parallel test cannot claim the port meanwhile.
     let first_socket = TcpSocket::new_v4().unwrap();
-    first_socket
-        .bind("127.0.0.1:0".parse().unwrap())
-        .unwrap();
+    first_socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let first_address = first_socket.local_addr().unwrap();
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_address = destination.local_addr().unwrap();
