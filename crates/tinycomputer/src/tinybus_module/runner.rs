@@ -138,6 +138,29 @@ impl FlowRunner for WorkspaceRunner {
         ))
     }
 
+    fn page_origin(&self, task: &TaskId) -> tinycomputer_engine::PageOriginFuture {
+        let session = self.workspaces.lock().ok().and_then(|workspaces| {
+            workspaces
+                .get(task)
+                .and_then(|(_, browser)| browser.as_ref()?.session())
+        });
+        let Some(session) = session else {
+            return Box::pin(async { None });
+        };
+        let browser = self.browser.clone();
+        Box::pin(async move {
+            let page = browser
+                .snapshot(&session, tinycomputer_browser::SnapshotRequest::default())
+                .await
+                .ok()?;
+            let url = url::Url::parse(&page.url).ok()?;
+            if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+                return None;
+            }
+            Some(format!("{}/", url.origin().ascii_serialization()))
+        })
+    }
+
     fn visible_text(&self, task: &TaskId) -> TextFuture {
         let workspace = self.workspace(task, &TaskConstraints::default());
         Box::pin(async move {

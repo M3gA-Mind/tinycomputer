@@ -66,6 +66,10 @@ impl std::fmt::Debug for ObservedTarget {
 /// payload, typed text, fill values, or locator source text.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ActionObservation {
+    /// Task that owns the browser session, when task context was supplied.
+    pub task_id: Option<String>,
+    /// Browser session that performed the action.
+    pub session_id: String,
     /// The action that completed.
     pub action: ObservedAction,
     /// The page immediately before dispatch.
@@ -80,6 +84,8 @@ impl std::fmt::Debug for ActionObservation {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ActionObservation")
+            .field("task_id", &self.task_id)
+            .field("session_id", &self.session_id)
             .field("action", &self.action)
             .field("target", &self.target)
             .finish_non_exhaustive()

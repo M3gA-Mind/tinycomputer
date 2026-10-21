@@ -232,7 +232,13 @@ async fn observer_sees_only_successful_metadata_and_snapshot_uniqueness() {
     let browser = Browser::with_scratch(Arc::new(fake), super::scratch("action-observer"));
     browser.set_action_observer(Some(observer.clone()));
     let id = browser
-        .open_session(SessionOptions::default())
+        .open_session_with_context(
+            SessionOptions::default(),
+            ActionContext {
+                task_id: Some("task-a".to_owned()),
+                ..ActionContext::default()
+            },
+        )
         .await
         .unwrap()
         .id;
@@ -278,6 +284,16 @@ async fn observer_sees_only_successful_metadata_and_snapshot_uniqueness() {
         .unwrap();
     let observations = observer.0.lock().unwrap().clone();
     assert_eq!(observations.len(), 3);
+    assert!(
+        observations
+            .iter()
+            .all(|item| item.task_id.as_deref() == Some("task-a"))
+    );
+    assert!(
+        observations
+            .iter()
+            .all(|item| item.session_id == id.to_string())
+    );
     assert_eq!(observations[0].action, ObservedAction::Navigate);
     assert_eq!(observations[0].after_url, "https://shop.test/");
     assert_eq!(observations[1].action, ObservedAction::Click);

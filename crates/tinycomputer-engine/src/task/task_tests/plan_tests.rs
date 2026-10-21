@@ -243,7 +243,9 @@ async fn a_failed_native_handoff_spends_its_last_call_before_host_recovery() {
 async fn handoff_rejects_a_planner_flow_that_reopens_the_current_shop_homepage() {
     let (tasks, script) = planned(
         vec![finished_run(FlowStopReason::Completed, vec![], &[], None)],
-        Ok(r#"{"app":"browser","steps":[{"browse":"https://shop.example/"}]}"#),
+        Ok(
+            r#"{"app":"browser","steps":[{"if":{"condition":"the cart is open","then":[{"browse":"https://shop.example/"}]}}]}"#,
+        ),
     );
     let started = tasks
         .start(&StartTaskRequest {
@@ -263,6 +265,36 @@ async fn handoff_rejects_a_planner_flow_that_reopens_the_current_shop_homepage()
         TaskStatus::Failed { ref reason, .. } if reason.contains("reopen the current shop's start page")
     ));
     assert_eq!(script.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_handoff_treats_a_different_shop_port_as_a_different_origin() {
+    let (tasks, script) = planned(
+        vec![
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+        ],
+        Ok(r#"{"app":"browser","steps":[{"browse":"https://shop.example/"}]}"#),
+    );
+    // The retained page is hosted on a non-default HTTPS port.
+    *script.origin.lock().unwrap() = Some("https://shop.example:8443/checkout".to_owned());
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("continue the order".into()),
+            flow: Some(flow(json!({"app": "browser", "steps": ["safe prefix"]}))),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
 }
 
 #[tokio::test]

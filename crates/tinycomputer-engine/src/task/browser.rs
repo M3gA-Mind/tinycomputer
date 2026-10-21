@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use tinycomputer_browser::{ActionContext, Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::agent::{PaymentMode, TaskConstraints, TaskId};
-use tinycomputer_bus::browser::{ScreenshotRequest, SessionId};
+use tinycomputer_bus::browser::{ScreenshotRequest, SessionId, SnapshotRequest};
 use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation, RunFlowRequest};
 use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface};
 
@@ -136,18 +136,15 @@ impl FlowRunner for BrowserRunner {
         };
         let browser = self.browser.clone();
         Box::pin(async move {
-            let url = browser
-                .list_sessions()
+            let page = browser
+                .snapshot(&session, SnapshotRequest::default())
                 .await
-                .ok()?
-                .into_iter()
-                .find(|info| info.id == session)?
-                .url;
-            let url = url::Url::parse(&url).ok()?;
+                .ok()?;
+            let url = url::Url::parse(&page.url).ok()?;
             if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
                 return None;
             }
-            Some(format!("https://{}/", url.host_str()?))
+            Some(format!("{}/", url.origin().ascii_serialization()))
         })
     }
 

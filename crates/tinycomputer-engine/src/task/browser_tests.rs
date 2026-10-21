@@ -407,6 +407,36 @@ async fn runner_hooks_share_the_task_surface_and_release_its_session()
 }
 
 #[tokio::test]
+async fn handoff_origin_uses_the_live_page_url_and_keeps_its_port()
+-> Result<(), Box<dyn std::error::Error>> {
+    let script = BrowserScript::default();
+    let runner = BrowserRunner::new(Arc::new(Browser::new(Arc::new(script.clone()))), runtime()?);
+    let task = tinycomputer_bus::agent::TaskId::new("t-live-origin");
+    runner.prepare(&task, &TaskConstraints::default()).await;
+    runner
+        .open_page(&task, "https://shop.example:8443/checkout")
+        .await;
+    // Model an asynchronous redirect after the preceding action's cached
+    // SessionInfo was written.
+    *script
+        .current_url
+        .lock()
+        .map_err(|error| std::io::Error::other(error.to_string()))? =
+        "https://checkout.example:9443/confirm".to_owned();
+
+    let origin = runner.page_origin(&task).await;
+    assert_eq!(origin.as_deref(), Some("https://checkout.example:9443/"));
+    assert!(
+        script
+            .commands()
+            .iter()
+            .any(|command| command["action"] == "snapshot")
+    );
+    runner.release(&task);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_runner_with_a_secret_host_does_not_capture_unredacted_pixels()
 -> Result<(), Box<dyn std::error::Error>> {
     struct Host;

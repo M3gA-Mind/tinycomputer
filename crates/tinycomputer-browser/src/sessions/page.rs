@@ -96,6 +96,8 @@ impl Browser {
         session.info.title.clone_from(&page.title);
         if let Some(before_url) = current_url {
             self.observe_action(ActionObservation {
+                task_id: session.action_context.task_id.clone(),
+                session_id: session.info.id.to_string(),
                 action: ObservedAction::Navigate,
                 before_url,
                 after_url: page.url.clone(),
@@ -204,6 +206,8 @@ impl Browser {
             let outcome = session.outcome(value, None).await?;
             if let Some(before_url) = current_url {
                 self.observe_action(ActionObservation {
+                    task_id: session.action_context.task_id.clone(),
+                    session_id: session.info.id.to_string(),
                     action: observed_action(&action),
                     before_url,
                     after_url: outcome.page.url.clone(),
@@ -253,6 +257,8 @@ impl Browser {
         let outcome = session.outcome(value, matched).await?;
         if let Some(before_url) = current_url {
             self.observe_action(ActionObservation {
+                task_id: session.action_context.task_id.clone(),
+                session_id: session.info.id.to_string(),
                 action: observed_action(&action),
                 before_url,
                 after_url: outcome.page.url.clone(),

@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
+use tinycomputer_bus::FLOW_GUIDE;
 use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskId, TaskStatus};
-use tinycomputer_bus::{FLOW_GUIDE, FlowAction};
 
 use super::artifact::{capture, captured};
 use super::budget::{elapsed_budget_failed, run_request, stop_task};
@@ -559,18 +559,29 @@ fn reopens_origin(flow: &tinycomputer_bus::Flow, origin: &str) -> bool {
     if origin.scheme() != "https" || !origin.username().is_empty() || origin.password().is_some() {
         return true;
     }
-    flow.steps.iter().any(|step| {
-        let FlowAction::Browse(url) = step.action() else {
-            return false;
-        };
-        let Ok(url) = url::Url::parse(&url) else {
-            return false;
-        };
-        url.scheme() == "https"
-            && url.host_str() == origin.host_str()
-            && url.username().is_empty()
-            && url.password().is_none()
-            && is_front_page(url.path())
+    reopens_origin_in_steps(&flow.steps, &origin)
+}
+
+fn reopens_origin_in_steps(steps: &[tinycomputer_bus::FlowStep], origin: &url::Url) -> bool {
+    use tinycomputer_bus::FlowAction;
+    steps.iter().any(|step| match step.action() {
+        FlowAction::Browse(address) => {
+            let Ok(url) = url::Url::parse(&address) else {
+                return false;
+            };
+            url.scheme() == "https"
+                && url.host_str() == origin.host_str()
+                && url.port_or_known_default() == origin.port_or_known_default()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && is_front_page(url.path())
+        }
+        FlowAction::If(branch) => {
+            reopens_origin_in_steps(&branch.then, origin)
+                || reopens_origin_in_steps(&branch.otherwise, origin)
+        }
+        FlowAction::RepeatUntil(repeat) => reopens_origin_in_steps(&repeat.steps, origin),
+        _ => false,
     })
 }
 
