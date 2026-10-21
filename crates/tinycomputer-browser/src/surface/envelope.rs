@@ -38,6 +38,17 @@ pub(super) fn failure(command: &str, error: &Error) -> DesktopResponse {
     DesktopResponse::err(command, DesktopError::new(code, error.to_string()))
 }
 
+/// The refusal for text aimed at an element that does not take it.
+pub(super) fn not_a_text_field() -> DesktopResponse {
+    DesktopResponse::err(
+        "type-text",
+        DesktopError::new(
+            "NOT_A_TEXT_FIELD",
+            "the element does not take typed text: focusing it reaches no input, text area, or editable region",
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use tinycomputer_bus::{DesktopError, DesktopResponse};
@@ -61,15 +72,4 @@ mod tests {
         );
         assert!(covered(&covered_by_page));
     }
-}
-
-/// The refusal for text aimed at an element that does not take it.
-pub(super) fn not_a_text_field() -> DesktopResponse {
-    DesktopResponse::err(
-        "type-text",
-        DesktopError::new(
-            "NOT_A_TEXT_FIELD",
-            "the element does not take typed text: focusing it reaches no input, text area, or editable region",
-        ),
-    )
 }

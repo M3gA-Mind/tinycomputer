@@ -15,8 +15,10 @@ use crate::fake::{Fake, failure, ok};
 use crate::{ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser, ObservationKind};
 use crate::{ActionObservation, ActionObserver, ObservedAction};
 
+type GateObservation = (String, Option<ObservationKind>, Option<String>);
+
 #[derive(Default)]
-struct CaptureGate(std::sync::Mutex<Vec<(String, Option<ObservationKind>, Option<String>)>>);
+struct CaptureGate(std::sync::Mutex<Vec<GateObservation>>);
 
 impl ActionGate for CaptureGate {
     fn check(&self, request: &ActionRequest) -> ActionVerdict {
