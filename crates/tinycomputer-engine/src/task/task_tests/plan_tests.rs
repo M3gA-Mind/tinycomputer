@@ -1,6 +1,7 @@
 //! Tests for planning a plain-language task before running it.
 
 use super::super::store::Run;
+use super::failed_at_step_two;
 use super::*;
 use crate::planner::{LanguageModel, Planner, Turn};
 use tinycomputer_bus::agent::SurfaceKind;
@@ -635,6 +636,109 @@ async fn host_recovers_a_failed_planner_without_replacing_the_task() {
     ));
     assert_eq!(script.requests.lock().unwrap().len(), 1);
     assert_eq!(script.plan_requests.lock().unwrap()[0].task, started.id);
+}
+
+#[tokio::test]
+async fn plan_recovery_and_a_later_failed_step_share_one_host_call_budget() {
+    let plan = flow(json!({"app":"browser","steps":[
+        {"browse":"https://flights.test"},
+        "search for flights",
+        "open the cheapest result"
+    ]}));
+    let (tasks, script) = planned(vec![failed_at_step_two()], Err("planner failed"));
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(plan));
+    *script.reserve_host_calls.lock().unwrap() = true;
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("find the cheapest flight".to_owned()),
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_model_calls: Some(1),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Failed { .. }
+    ));
+    assert_eq!(
+        script.plan_requests.lock().unwrap()[0].remaining_model_calls,
+        1
+    );
+    assert_eq!(script.requests.lock().unwrap()[0].max_model_calls, 0);
+    let recovery = script.recoveries.lock().unwrap();
+    assert_eq!(recovery.len(), 1);
+    assert_eq!(recovery[0].remaining_model_calls, 0);
+    assert_eq!(
+        *script.host_call_reservations.lock().unwrap(),
+        [true, false]
+    );
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    assert_eq!(cell.state.lock().unwrap().spent.model_calls, 1);
+}
+
+#[tokio::test]
+async fn failed_native_handoff_charges_host_plan_elapsed_once() {
+    let prefix = flow(json!({"app":"browser","steps":["safe prefix"]}));
+    let (tasks, script) = planned(
+        vec![
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+        ],
+        Err("planner failed"),
+    );
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(flow(json!({
+        "app":"browser","steps":["host continuation"]
+    }))));
+    let delay = std::time::Duration::from_millis(40);
+    *script.plan_recovery_delay.lock().unwrap() = delay;
+    let max_elapsed_ms = 10_000;
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp".to_owned()),
+            flow: Some(prefix),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_elapsed_ms: Some(max_elapsed_ms),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+
+    let remaining_before_host = script.plan_requests.lock().unwrap()[0]
+        .remaining_ms
+        .unwrap();
+    let spent_after_host = tasks
+        .cells
+        .lock()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .state
+        .lock()
+        .unwrap()
+        .spent
+        .elapsed_ms;
+    let already_spent = max_elapsed_ms.saturating_sub(remaining_before_host);
+    let host_elapsed = spent_after_host.saturating_sub(already_spent);
+    assert!(
+        (u64::try_from(delay.as_millis()).unwrap()..=100).contains(&host_elapsed),
+        "host plan elapsed must be charged once after the native PlanningDebit, got {host_elapsed} ms"
+    );
 }
 
 #[tokio::test]

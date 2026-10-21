@@ -19,7 +19,7 @@ use super::drive::{drive, plan_then_drive};
 use super::errors::too_many;
 use super::interpret::Resume;
 use super::publish::{next_calls, publish};
-use super::{MAX_TASKS, Tasks};
+use super::{MAX_TASKS, TaskCallBudget, Tasks};
 use crate::UsageRecorder;
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
@@ -144,7 +144,7 @@ impl Tasks {
         let cell = Arc::new(Cell {
             view: watch::Sender::new(view),
             state: Mutex::new(State {
-                usage,
+                usage: usage.clone(),
                 flow: flow.clone(),
                 handoff_to_planner: request.handoff_to_planner,
                 goal: request.task.clone().unwrap_or_default(),
@@ -174,6 +174,7 @@ impl Tasks {
             shaper: self.shaper.clone(),
             planner: self.planner.clone(),
         });
+        usage.set_task_call_budget(TaskCallBudget::for_cell(Arc::downgrade(&cell)));
         let mut tasks = self.cells.lock().ok()?;
         while tasks.len() >= MAX_TASKS {
             let oldest_final = tasks

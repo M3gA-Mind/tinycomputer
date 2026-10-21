@@ -4,6 +4,8 @@ use std::sync::Mutex;
 
 use tinycomputer_bus::agent::{ModelUsage, TaskUsage};
 
+use crate::task::TaskCallBudget;
+
 /// The model role whose provider-reported usage is being recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelRole {
@@ -25,6 +27,7 @@ pub enum ModelRole {
 #[derive(Debug, Default)]
 pub struct UsageRecorder {
     usage: Mutex<TaskUsage>,
+    task_budget: Mutex<Option<TaskCallBudget>>,
 }
 
 impl UsageRecorder {
@@ -33,7 +36,26 @@ impl UsageRecorder {
     pub fn from_snapshot(snapshot: TaskUsage) -> Self {
         Self {
             usage: Mutex::new(snapshot),
+            task_budget: Mutex::new(None),
         }
+    }
+
+    /// The task's opaque host-call budget, when this recorder belongs to a
+    /// managed task. Hosts use it to reserve work that happens outside a
+    /// flow run, such as payment-field mapping.
+    #[must_use]
+    pub fn task_call_budget(&self) -> Option<TaskCallBudget> {
+        self.task_budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(super) fn set_task_call_budget(&self, budget: TaskCallBudget) {
+        *self
+            .task_budget
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(budget);
     }
 
     /// Records one model call for `role`, retaining only reported values.

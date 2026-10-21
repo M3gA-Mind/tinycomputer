@@ -2,6 +2,10 @@
 //! what the task has not spent, and ending a task whose time ran out.
 
 use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
+use std::time::Instant;
 
 use tinycomputer_bus::RunFlowRequest;
 use tinycomputer_bus::agent::{TaskConstraints, TaskStatus};
@@ -12,6 +16,159 @@ use super::names::fact_names;
 use super::publish::{publish, stopped_summary};
 use super::store::{Cell, Run};
 use super::{DEFAULT_MODEL_CALLS, DEFAULT_VOTES, FlowRunner};
+
+/// A handle to reserve host model calls against this task's Jev evaluation
+/// budget. Hosts must reserve before starting provider I/O; a reservation is
+/// not refunded when that I/O fails or is cancelled.
+#[derive(Clone)]
+pub struct TaskCallBudget {
+    cell: Weak<Cell>,
+}
+
+impl TaskCallBudget {
+    pub(super) fn for_cell(cell: Weak<Cell>) -> Self {
+        Self { cell }
+    }
+
+    /// Starts one host-work interval whose active time counts against the
+    /// task's elapsed budget until its last clone is dropped.
+    #[must_use]
+    pub fn begin_work(&self) -> HostWorkGuard {
+        HostWorkGuard {
+            inner: Arc::new(HostWork {
+                cell: self.cell.clone(),
+                started: Instant::now(),
+                charged: AtomicBool::new(false),
+            }),
+        }
+    }
+}
+
+impl fmt::Debug for TaskCallBudget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskCallBudget")
+            .finish_non_exhaustive()
+    }
+}
+
+/// One cloneable host-work interval, shared with the request passed to the
+/// host callback. It accounts elapsed time once, after the last clone drops.
+#[derive(Clone)]
+pub struct TaskBudgetScope {
+    inner: Arc<HostWork>,
+}
+
+/// Owns one host-work interval. The task is charged when this guard is dropped,
+/// even if a callback retained a clone of its [`TaskBudgetScope`].
+pub struct HostWorkGuard {
+    inner: Arc<HostWork>,
+}
+
+impl HostWorkGuard {
+    /// A cloneable view a host callback can retain and use for live checks.
+    #[must_use]
+    pub fn scope(&self) -> TaskBudgetScope {
+        TaskBudgetScope {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl fmt::Debug for HostWorkGuard {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HostWorkGuard")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for HostWorkGuard {
+    fn drop(&mut self) {
+        self.inner.charge();
+    }
+}
+
+impl TaskBudgetScope {
+    /// Reserves one task model call before the host starts a provider request.
+    /// The reservation remains spent if the request fails or is cancelled.
+    #[must_use]
+    pub fn try_reserve_model_call(&self) -> bool {
+        let Some(cell) = self.inner.cell.upgrade() else {
+            return false;
+        };
+        let Ok(mut state) = cell.state.lock() else {
+            return false;
+        };
+        let max = state.budget.max_model_calls.unwrap_or(DEFAULT_MODEL_CALLS);
+        if state.spent.model_calls >= max {
+            return false;
+        }
+        state.spent.model_calls = state.spent.model_calls.saturating_add(1);
+        true
+    }
+
+    /// The calls remaining at this instant, including other host reservations.
+    #[must_use]
+    pub fn remaining_model_calls(&self) -> u32 {
+        let Some(cell) = self.inner.cell.upgrade() else {
+            return 0;
+        };
+        let Ok(state) = cell.state.lock() else {
+            return 0;
+        };
+        state
+            .budget
+            .max_model_calls
+            .unwrap_or(DEFAULT_MODEL_CALLS)
+            .saturating_sub(state.spent.model_calls)
+    }
+
+    /// The task's remaining active time at this instant, including this host
+    /// work interval. `None` means the task has no elapsed-time cap.
+    #[must_use]
+    pub fn remaining_ms(&self) -> Option<u64> {
+        let cell = self.inner.cell.upgrade()?;
+        let state = cell.state.lock().ok()?;
+        state.budget.max_elapsed_ms.map(|max| {
+            max.saturating_sub(state.spent.elapsed_ms).saturating_sub(
+                u64::try_from(self.inner.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            )
+        })
+    }
+}
+
+impl fmt::Debug for TaskBudgetScope {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskBudgetScope")
+            .finish_non_exhaustive()
+    }
+}
+
+struct HostWork {
+    cell: Weak<Cell>,
+    started: Instant,
+    charged: AtomicBool,
+}
+
+impl HostWork {
+    fn charge(&self) {
+        if self.charged.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let Some(cell) = self.cell.upgrade() else {
+            return;
+        };
+        let Ok(mut state) = cell.state.lock() else {
+            return;
+        };
+        state.spent.elapsed_ms = state
+            .spent
+            .elapsed_ms
+            .saturating_add(u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX));
+    }
+}
 
 /// Builds the next `RunFlowRequest` for `run`, capped at what the task's
 /// budget has not already spent, along with the constraints to run it under

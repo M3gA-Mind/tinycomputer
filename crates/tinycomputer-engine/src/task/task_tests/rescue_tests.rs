@@ -184,6 +184,44 @@ async fn host_recovery_fails_closed_for_a_nested_failed_step() {
 }
 
 #[tokio::test]
+async fn a_cancelled_host_recovery_keeps_its_call_reservation_and_elapsed_time() {
+    let (tasks, script) = controller(vec![failed_at_step_two()]);
+    *script.reserve_host_calls.lock().unwrap() = true;
+    *script.hang_recovery.lock().unwrap() = true;
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(flights())),
+            task: Some("find the cheapest flight".to_owned()),
+            budget: TaskBudget {
+                max_model_calls: Some(1),
+                max_elapsed_ms: Some(40),
+                ..TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &view.id).await.status,
+        TaskStatus::Failed { .. }
+    ));
+    assert_eq!(*script.host_call_reservations.lock().unwrap(), [true]);
+    assert_eq!(
+        script.recoveries.lock().unwrap()[0].remaining_model_calls,
+        1
+    );
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    let state = cell.state.lock().unwrap();
+    assert_eq!(state.spent.model_calls, 1);
+    assert!(
+        (20..=100).contains(&state.spent.elapsed_ms),
+        "cancelled host work should charge its active interval once, got {} ms",
+        state.spent.elapsed_ms
+    );
+}
+
+#[tokio::test]
 async fn a_failed_step_is_rescued_and_the_task_finishes() {
     let (tasks, script, model) = rescued(
         vec![
