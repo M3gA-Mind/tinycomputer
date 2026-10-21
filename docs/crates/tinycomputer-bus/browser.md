@@ -68,6 +68,17 @@ field has a documented default so the common case is
 | `download_dir` | created by the module, never removed | must be an absolute path |
 | `allowed_origins` | none (any origin) | pages only: a navigation outside the list is refused before any request is made, and a page a session is taken to outside it is left and reported; `*` admits any public host; the files a page loads are never checked |
 | `default_timeout_ms` | `30_000` | for operations that do not carry their own deadline |
+| `timezone` | browser's own | IANA timezone the page reports (`Asia/Tokyo`) |
+| `locale` | browser's own | BCP 47 locale the page reports (`ja-JP`) |
+| `accept_language` | browser's own | the `Accept-Language` header (`ja-JP,ja`), which does not follow `locale` |
+| `user_agent_metadata` | none | client hints (`sec-ch-ua*`, `navigator.userAgentData`) to go with `user_agent`: without them a browser with an overridden user agent sends none |
+| `screen` | browser's own | what `screen.width`, `screen.height` and `devicePixelRatio` report; its `device_scale_factor` replaces the viewport's |
+| `init_scripts` | none | source run in every page and frame before the page's own scripts |
+| `stealth` | `false` | never makes the protocol call (`Runtime.enable`) that tells a page a tool is attached; a stealth session captures no console output or page errors |
+
+The identity fields (`timezone` to `stealth`) are additive: a client that does
+not send them gets the defaults above. They apply to a browser the module
+launches, not to one it attaches to with `endpoint`.
 
 `SessionInfo` is what `OpenSession` and `ListSessions` report back:
 `id`, the actual `ws://` `endpoint` the module is driving (so an operator can

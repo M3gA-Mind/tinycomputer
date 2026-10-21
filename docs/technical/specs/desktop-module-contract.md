@@ -88,6 +88,11 @@ classification (`irreversible` or `payment`). The module calls it from
 serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
+
+Session identity (2.20): `SessionOptions` takes the optional `timezone`,
+`locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
+`stealth`. A client that sends none gets the defaults; a 2.19 module ignores
+them. They apply to a browser the module launches, not one it attaches to.
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string
