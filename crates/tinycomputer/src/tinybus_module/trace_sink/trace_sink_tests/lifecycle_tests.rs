@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_queued_event_is_rejected_without_a_late_host_write()
 -> Result<(), Box<dyn std::error::Error>> {
     let bus = tinybus::transport::memory::MemoryBus::new();

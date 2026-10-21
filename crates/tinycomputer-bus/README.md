@@ -169,7 +169,7 @@ See the [Globe contract](src/accessibility/README.md).
 
 Reliable Globe callers require a released 2.12-compatible artifact with a verified digest.
 
-Contract 2.21 adds the optional confidential `TraceSinkHost` callback. A host
+Contract 2.25 adds the optional confidential `TraceSinkHost` callback. A host
 prepares one exact callback binding per loaded module and supplies its unique
 destination as `trace_sink.destination`. TinyComputer sends sanitized desktop trace events,
 trace artifacts, and requested task reports to `Append`, `StoreArtifact`, and
