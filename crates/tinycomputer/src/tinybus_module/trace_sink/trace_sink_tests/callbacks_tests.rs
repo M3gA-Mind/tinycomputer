@@ -57,6 +57,60 @@ async fn callbacks_commit_events_artifacts_and_reports_over_the_bus()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn configured_service_routes_task_reports_to_the_confidential_host_callback()
+-> Result<(), Box<dyn std::error::Error>> {
+    use tinycomputer_bus::agent::{AgentResponse, StartTaskRequest, TaskReport, TaskReportRequest, TaskView};
+    use tinycomputer_bus::names;
+
+    let bus = tinybus::transport::memory::MemoryBus::new();
+    tinybus::broker::Broker::new().spawn(bus.clone());
+    let host_connection = Connection::connect(bus.connect().await?).await?;
+    let host = CompleteRecordingHost::default();
+    host_connection
+        .serve_at(trace_sink::OBJECT_PATH.try_into()?, host.clone())
+        .await?;
+    host_connection.request_name(trace_sink::INTERFACE).await?;
+    let module_connection = Connection::connect(bus.connect().await?).await?;
+    let config = serde_json::json!({
+        "trace_sink": {"destination": host_connection.unique_name().as_str()}
+    });
+    let service = crate::tinybus_module::DesktopService::from_config_with_connection(
+        &config,
+        &module_connection,
+    )?;
+
+    let started: AgentResponse<TaskView> = serde_json::from_value(
+        service
+            .call(
+                &names::methods::START_TASK.try_into()?,
+                (StartTaskRequest::new(serde_json::from_value(serde_json::json!({
+                    "flow": {"app": "Mail", "steps": ["start a new message"]}
+                }))?),),
+            )
+            .await?,
+    )?;
+    let task_id = started.data.ok_or("start task returned no view")?.id;
+    let report: AgentResponse<TaskReport> = serde_json::from_value(
+        service
+            .call(
+                &names::methods::TASK_REPORT.try_into()?,
+                (TaskReportRequest::new(task_id),),
+            )
+            .await?,
+    )?;
+
+    assert_eq!(report.error.as_ref().map(|error| error.code.as_str()), Some("TRACE_SINK_FAILED"));
+    assert!(
+        host.reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty(),
+        "the unattested test module must not deliver a confidential report"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejected_host_callbacks_return_errors_to_the_caller()
 -> Result<(), Box<dyn std::error::Error>> {
     let host = CompleteRecordingHost::default();

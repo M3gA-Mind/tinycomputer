@@ -26,9 +26,20 @@ fn sink_records_keep_their_wire_shapes() -> Result<(), serde_json::Error> {
         },
     };
     let wire = serde_json::to_value(artifact)?;
-    assert_eq!(wire["kind"], "ref_map");
-    assert_eq!(wire["bytes"], "AQI=");
-    assert_eq!(wire["limits"]["refmap_bytes"], 20);
+    assert_eq!(
+        wire,
+        serde_json::json!({
+            "kind": "ref_map",
+            "name": "snapshot.json",
+            "bytes": "AQI=",
+            "deadline_ms": 700,
+            "limits": {
+                "screenshot_bytes": 10,
+                "screenshot_count": 2,
+                "refmap_bytes": 20
+            }
+        })
+    );
     let decoded: TraceArtifact = serde_json::from_value(wire)?;
     assert_eq!(decoded.bytes, [1, 2]);
     Ok(())
