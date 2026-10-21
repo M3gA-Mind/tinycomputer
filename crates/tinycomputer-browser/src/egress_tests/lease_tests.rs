@@ -112,7 +112,7 @@ async fn a_revoked_lease_closes_a_large_request_upload() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     let mut response = Vec::new();
-    tokio::time::timeout(
+    let _ = tokio::time::timeout(
         std::time::Duration::from_secs(4),
         client.read_to_end(&mut response),
     )
