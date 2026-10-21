@@ -36,7 +36,6 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
         tokio::join!(TcpStream::connect(proxy_address), proxy_listener.accept());
     let mut client = client.unwrap();
     let (proxy_stream, _) = proxy_connection.unwrap();
-    let proxy_stream = proxy_stream.unwrap();
     let dial_attempts = Arc::new(AtomicUsize::new(0));
     let counted_attempts = Arc::clone(&dial_attempts);
     let service = tokio::spawn(serve_with_connector(
