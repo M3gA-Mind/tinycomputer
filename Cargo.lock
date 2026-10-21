@@ -2875,6 +2875,7 @@ dependencies = [
  "tinyinference-decisions",
  "tinyinference-llm",
  "tokio",
+ "url",
 ]
 
 [[package]]

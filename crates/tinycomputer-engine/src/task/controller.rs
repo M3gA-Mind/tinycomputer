@@ -217,8 +217,8 @@ impl Tasks {
                 ));
             }
         }
-        if let Some(refusal) = constraints_refusal(&request.constraints) {
-            return AgentResponse::err(refusal);
+        if let Some(error) = self.start_refusal(request) {
+            return AgentResponse::err(error);
         }
         let Some(flow) = request.flow.clone() else {
             if let (Some(task), Some(planner)) = (&request.task, &self.planner) {
@@ -272,6 +272,16 @@ impl Tasks {
             );
         }
         AgentResponse::ok(cell.current_view())
+    }
+
+    fn start_refusal(&self, request: &StartTaskRequest) -> Option<AgentError> {
+        constraints_refusal(&request.constraints).or_else(|| {
+            handoff_refusal(
+                request,
+                self.planner.is_some(),
+                self.runner.plan_recovery_enabled(),
+            )
+        })
     }
 
     /// Waits until the task is no longer running, or `timeout_ms` passes.
@@ -393,6 +403,7 @@ impl Tasks {
         state.constraints.payment = PaymentMode::FillThenApprove;
         state.payment_checkpoint = PaymentCheckpointState::Transitioned;
         state.resume = None;
+        state.handoff_to_planner = false;
         let (done, done_rx) = tokio::sync::watch::channel(false);
         let completion = WorkerCompletion::new(done);
         let runner = self.runner.clone();
@@ -471,6 +482,7 @@ impl Tasks {
         let surfaces = state.constraints.surfaces.clone();
         state.payment_checkpoint = PaymentCheckpointState::Transitioned;
         state.resume = None;
+        state.handoff_to_planner = false;
         let (done, done_rx) = tokio::sync::watch::channel(false);
         let completion = WorkerCompletion::new(done);
         let runner = self.runner.clone();
@@ -535,12 +547,16 @@ impl Tasks {
             ) {
                 state.payment_checkpoint = PaymentCheckpointState::Closed;
                 state.resume = None;
+                state.handoff_to_planner = false;
                 drop(state);
                 self.runner.release(id);
                 return AgentResponse::ok(cell.current_view());
             }
         }
         if !cell.view.borrow().status.is_final() {
+            if let Ok(mut state) = cell.state.lock() {
+                state.handoff_to_planner = false;
+            }
             if let Ok(worker) = cell.worker.lock()
                 && let Some(worker) = worker.as_ref()
             {
@@ -612,6 +628,33 @@ impl Tasks {
                 .collect(),
         )
     }
+}
+
+fn handoff_refusal(
+    request: &StartTaskRequest,
+    planner_configured: bool,
+    host_recovery_enabled: bool,
+) -> Option<AgentError> {
+    if !request.handoff_to_planner {
+        return None;
+    }
+    if request.flow.is_none()
+        || request
+            .task
+            .as_deref()
+            .is_none_or(|task| task.trim().is_empty())
+    {
+        return Some(AgentError::new(
+            "INVALID_REQUEST",
+            "planner handoff needs both a supplied flow and a non-empty task goal",
+            "pass `task`, `flow`, and `handoff_to_planner: true` together",
+            true,
+        ));
+    }
+    if !planner_configured && !host_recovery_enabled {
+        return Some(no_planner());
+    }
+    None
 }
 
 /// Why a task's constraints cannot start it, if they cannot: a payment form

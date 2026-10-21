@@ -1,6 +1,9 @@
 //! Tests for planning a plain-language task before running it.
 
+use super::super::store::Run;
 use super::*;
+use crate::planner::{LanguageModel, Planner, Turn};
+use tinycomputer_bus::agent::SurfaceKind;
 
 struct WarmUsageRunner(Arc<Script>);
 
@@ -48,6 +51,7 @@ impl crate::planner::LanguageModel for Fixed {
 
 fn planned(replies: Vec<DesktopResponse>, answer: Result<&str, &str>) -> (Tasks, Arc<Script>) {
     let (tasks, script) = controller(replies);
+    *script.origin.lock().unwrap() = Some("https://shop.example/".to_owned());
     let model = Arc::new(Fixed(answer.map(str::to_owned).map_err(str::to_owned)));
     (
         tasks.with_planner(crate::planner::Planner::new(model)),
@@ -100,6 +104,497 @@ async fn a_plain_language_task_is_planned_then_run() {
     assert_eq!(plans[0].1["calls"], 1);
     assert_eq!(plans[0].1["steps"], 1);
     assert!(plans[0].1["wall_ms"].is_u64());
+}
+
+#[tokio::test]
+async fn a_completed_prefix_hands_the_same_task_and_surface_to_the_planner() {
+    let prefix = flow(json!({
+        "app": "browser",
+        "steps": ["dismiss the cookie banner"]
+    }));
+    let (tasks, script) = planned(
+        vec![
+            finished_run(
+                FlowStopReason::Completed,
+                vec![step(
+                    "1",
+                    "do",
+                    "dismiss the cookie banner",
+                    StepOutcome::Done,
+                    "",
+                )],
+                &[],
+                None,
+            ),
+            finished_run(
+                FlowStopReason::Completed,
+                vec![step(
+                    "1",
+                    "do",
+                    "continue the requested purchase",
+                    StepOutcome::Done,
+                    "",
+                )],
+                &[],
+                None,
+            ),
+        ],
+        Ok(r#"{"app":"browser","steps":["continue the requested purchase"]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp from shop.example".to_owned()),
+            flow: Some(prefix.clone()),
+            handoff_to_planner: true,
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_model_calls: Some(1),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                origins: vec![".shop.example".to_owned()],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[1].max_model_calls, 0,
+        "the continuation planner call is charged to the same task budget"
+    );
+    assert_eq!(requests[0].flow, prefix);
+    assert_eq!(requests[1].flow.app, "browser");
+    assert!(
+        requests[1]
+            .flow
+            .steps
+            .iter()
+            .all(|step| !matches!(step.action(), tinycomputer_bus::FlowAction::Browse(_)))
+    );
+    assert_eq!(
+        script.task_ids.lock().unwrap().as_slice(),
+        [started.id.clone(), started.id.clone()],
+        "the prefix and planned task share one task id"
+    );
+    assert!(
+        script.opened.lock().unwrap().is_empty(),
+        "handoff does not reopen a page"
+    );
+    assert!(
+        script.prepared.lock().unwrap().is_empty(),
+        "handoff does not prepare a new session"
+    );
+    let report = tasks.report(&started.id).data.unwrap();
+    assert_eq!(
+        report.steps.len(),
+        2,
+        "both prefix and planner steps are reported"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_native_handoff_spends_its_last_call_before_host_recovery() {
+    let prefix = flow(json!({"app": "browser", "steps": ["safe prefix"]}));
+    let (tasks, script) = planned(
+        vec![finished_run(FlowStopReason::Completed, vec![], &[], None)],
+        Err("planner failed"),
+    );
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(flow(json!({
+        "app": "browser",
+        "steps": ["host continuation"]
+    }))));
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp".to_owned()),
+            flow: Some(prefix),
+            handoff_to_planner: true,
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_model_calls: Some(1),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Failed { .. }
+    ));
+    assert!(
+        script.plan_requests.lock().unwrap().is_empty(),
+        "the failed native call consumes the last budget unit before host recovery"
+    );
+}
+
+#[tokio::test]
+async fn handoff_rejects_a_planner_flow_that_reopens_the_current_shop_homepage() {
+    let (tasks, script) = planned(
+        vec![finished_run(FlowStopReason::Completed, vec![], &[], None)],
+        Ok(r#"{"app":"browser","steps":[{"browse":"https://shop.example/"}]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp from shop.example".into()),
+            flow: Some(flow(json!({"app": "browser", "steps": ["safe prefix"]}))),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Failed { ref reason, .. } if reason.contains("reopen the current shop's start page")
+    ));
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_paused_prefix_keeps_its_handoff_phase_across_export_and_import() {
+    let prefix = flow(json!({
+        "app": "browser",
+        "steps": [{"enter": {"email": "${email}"}}]
+    }));
+    let (tasks, _) = planned(
+        Vec::new(),
+        Ok(r#"{"app":"browser","steps":["read the current page"]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp from shop.example".to_owned()),
+            flow: Some(prefix),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                origins: vec![".shop.example".to_owned()],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(started.status, TaskStatus::NeedsInput { .. }));
+    let exported = tasks.export_paused_task(&started.id).unwrap();
+    let encoded: serde_json::Value = serde_json::from_slice(&exported).unwrap();
+    assert_eq!(encoded["task"]["handoff_to_planner"], true);
+
+    let (restored, script) = planned(
+        vec![
+            finished_run(
+                FlowStopReason::Completed,
+                vec![step("1", "enter", "email", StepOutcome::Done, "")],
+                &[],
+                None,
+            ),
+            finished_run(
+                FlowStopReason::Completed,
+                vec![step(
+                    "1",
+                    "do",
+                    "read the current page",
+                    StepOutcome::Done,
+                    "",
+                )],
+                &[],
+                None,
+            ),
+        ],
+        Ok(r#"{"app":"browser","steps":["read the current page"]}"#),
+    );
+    let imported = restored.import_paused_task(&exported).unwrap();
+    assert_eq!(imported.id, started.id);
+    assert!(
+        restored
+            .continue_task(ContinueTaskRequest {
+                id: imported.id.clone(),
+                inputs: BTreeMap::from([("email".to_owned(), "buyer@example.test".to_owned())]),
+                ..ContinueTaskRequest::default()
+            })
+            .ok
+    );
+    assert!(matches!(
+        settle(&restored, &imported.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    assert_eq!(
+        script.task_ids.lock().unwrap().as_slice(),
+        [imported.id.clone(), imported.id.clone()]
+    );
+}
+
+#[tokio::test]
+async fn a_payment_checkpoint_consumes_prefix_handoff_without_planning() {
+    let (tasks, script) = planned(
+        vec![finished_run(
+            FlowStopReason::StoppedBeforeDestructive,
+            vec![step(
+                "1",
+                "stop_before",
+                "Place order",
+                StepOutcome::Gated,
+                "payment control located",
+            )],
+            &[],
+            Some("Place order"),
+        )],
+        Ok(r#"{"app":"browser","steps":["read the receipt"]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp".to_owned()),
+            flow: Some(flow(
+                json!({"app": "browser", "steps": [{"stop_before": "Place order"}]}),
+            )),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                origins: vec![".shop.example".to_owned()],
+                payment: PaymentMode::StopAtPayment,
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Checkpoint { .. }
+    ));
+    assert!(
+        !tasks
+            .find(&started.id)
+            .unwrap()
+            .state
+            .lock()
+            .unwrap()
+            .handoff_to_planner
+    );
+    assert!(journaled(&script, "plan").is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_prefix_does_not_handoff_to_planning() {
+    let (tasks, script) = planned(
+        vec![finished_run(
+            FlowStopReason::StepFailed,
+            vec![step(
+                "1",
+                "do",
+                "dismiss the cookie banner",
+                StepOutcome::Failed,
+                "missing",
+            )],
+            &[],
+            None,
+        )],
+        Ok(r#"{"app":"browser","steps":["continue the requested purchase"]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp".to_owned()),
+            flow: Some(flow(
+                json!({"app": "browser", "steps": ["dismiss the cookie banner"]}),
+            )),
+            handoff_to_planner: true,
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Failed { .. }
+    ));
+    assert!(script.requests.lock().unwrap().len() == 1);
+    assert!(journaled(&script, "plan").is_empty());
+}
+
+#[tokio::test]
+async fn a_handoff_waits_until_every_queued_prefix_run_finishes() {
+    let prefix = flow(json!({"app": "browser", "steps": ["first safe recipe step"]}));
+    let tail = flow(json!({"app": "browser", "steps": ["remaining recipe steps"]}));
+    let (tasks, script) = planned(
+        vec![
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+        ],
+        Ok(r#"{"app":"browser","steps":["finish the purchase"]}"#),
+    );
+    let request = StartTaskRequest {
+        task: Some("buy a lamp from shop.example".into()),
+        flow: Some(prefix.clone()),
+        handoff_to_planner: true,
+        ..StartTaskRequest::default()
+    };
+    let cell = tasks
+        .register(&prefix, tinycomputer_core::Facts::default(), &request)
+        .unwrap();
+    let id = cell.view.borrow().id.clone();
+    tasks.spawn(
+        &cell,
+        vec![
+            Run {
+                flow: prefix.clone(),
+                allow_destructive: false,
+                rescue: None,
+            },
+            Run {
+                flow: tail.clone(),
+                allow_destructive: false,
+                rescue: None,
+            },
+        ],
+    );
+
+    assert!(matches!(
+        settle(&tasks, &id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].flow, prefix);
+    assert_eq!(requests[1].flow, tail);
+    assert_eq!(
+        script.task_ids.lock().unwrap().as_slice(),
+        [id.clone(), id.clone(), id.clone()],
+        "planner starts after the queued prefix tail on the same task"
+    );
+}
+
+#[tokio::test]
+async fn a_planner_question_continues_without_releasing_the_prefix_session() {
+    let (tasks, script) = planned(
+        vec![
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+            finished_run(FlowStopReason::Completed, vec![], &[], None),
+        ],
+        Ok(r#"{"app":"browser","steps":[{"enter":{"email":"${email}"}}]}"#),
+    );
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp from shop.example".into()),
+            flow: Some(flow(json!({"app": "browser", "steps": ["safe prefix"]}))),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    let paused = settle(&tasks, &started.id).await;
+    assert!(matches!(paused.status, TaskStatus::NeedsInput { .. }));
+    assert!(script.released.lock().unwrap().is_empty());
+    assert!(
+        tasks
+            .continue_task(ContinueTaskRequest {
+                id: started.id.clone(),
+                inputs: BTreeMap::from([("email".to_owned(), "buyer@example.test".to_owned())]),
+                ..ContinueTaskRequest::default()
+            })
+            .ok
+    );
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    assert_eq!(
+        script.task_ids.lock().unwrap().as_slice(),
+        [started.id.clone(), started.id.clone()],
+        "planner answer and flow remain in the same task"
+    );
+    assert_eq!(script.released.lock().unwrap().as_slice(), [started.id]);
+}
+
+struct CapturedPlan(Mutex<Vec<Vec<Turn>>>);
+
+impl LanguageModel for CapturedPlan {
+    fn complete(&self, turns: &[Turn]) -> crate::planner::Completion {
+        self.0.lock().unwrap().push(turns.to_vec());
+        Box::pin(async { Ok(r#"{"app":"browser","steps":["finish the purchase"]}"#.to_owned()) })
+    }
+}
+
+#[tokio::test]
+async fn handoff_planner_gets_safe_origin_and_prefix_context_without_page_text() {
+    let script = Arc::new(Script {
+        replies: Mutex::new(
+            vec![
+                finished_run(
+                    FlowStopReason::Completed,
+                    vec![step(
+                        "1",
+                        "do",
+                        "PRIVATE RAW STEP LABEL",
+                        StepOutcome::Done,
+                        "",
+                    )],
+                    &[],
+                    None,
+                ),
+                finished_run(FlowStopReason::Completed, vec![], &[], None),
+            ]
+            .into(),
+        ),
+        host_secret: Mutex::new(Some("private page marker".into())),
+        origin: Mutex::new(Some("https://shop.example/".into())),
+        screen: Mutex::new(vec!["cart on current page private page marker".into()]),
+        ..Script::default()
+    });
+    let model = Arc::new(CapturedPlan(Mutex::default()));
+    let tasks = Tasks::new(script.clone()).with_planner(Planner::new(model.clone()));
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("buy a lamp from shop.example".into()),
+            flow: Some(flow(json!({"app": "browser", "steps": ["safe prefix"]}))),
+            handoff_to_planner: true,
+            constraints: TaskConstraints {
+                surfaces: vec![SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    let prompt = model
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .flatten()
+        .map(|turn| turn.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        prompt.contains("Completed safe-prefix structure: 1 completed browser interaction step(s)")
+    );
+    assert!(prompt.contains("Do not repeat these steps"));
+    assert!(prompt.contains("https://shop.example/"));
+    assert!(prompt.contains("Do not open or browse to the shop start page again"));
+    assert!(!prompt.contains("private page marker"));
+    assert!(!prompt.contains("cart on current page"));
+    assert!(!prompt.contains("PRIVATE RAW STEP LABEL"));
 }
 
 #[tokio::test]
@@ -242,10 +737,15 @@ async fn a_plan_that_needs_values_asks_and_a_failed_plan_says_so() {
         })
         .data
         .unwrap();
-    assert!(matches!(
-        settle(&tasks, &started.id).await.status,
-        TaskStatus::Failed { ref reason, recoverable: true, .. } if reason == "the model is down"
-    ));
+    let status = settle(&tasks, &started.id).await.status;
+    assert!(
+        matches!(
+            &status,
+            TaskStatus::Failed { reason, recoverable: true, .. }
+                if reason.starts_with("the model is down; host planning recovery failed:")
+        ),
+        "{status:?}"
+    );
 }
 
 #[tokio::test]

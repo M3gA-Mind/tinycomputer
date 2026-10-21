@@ -23,6 +23,9 @@
 //! - [`ActionGate`] — an optional synchronous host policy called before typed
 //!   actions, raw commands, evaluations, and navigations. Requests expose
 //!   values to the trusted host callback; their `Debug` output omits values.
+//! - [`ActionObserver`] — an optional host callback after a successful typed
+//!   action or navigation. It receives only action kind, before/after URL, and
+//!   the fresh snapshot target metadata; no request payload or typed value.
 //! - `AgentBrowser` (feature `agent-browser`) — the [`Launcher`] for
 //!   agent-browser linked in-process.
 //! - [`Error`] — what can go wrong, as a taxonomy of what a caller should do
@@ -41,6 +44,7 @@ mod error;
 mod fake;
 #[cfg(feature = "agent-browser")]
 mod linked;
+mod observer;
 mod origins;
 mod outputs;
 mod profile_lock;
@@ -56,6 +60,7 @@ pub use engine::{Engine, Launcher, Reply};
 pub use error::{Error, Result};
 #[cfg(feature = "agent-browser")]
 pub use linked::AgentBrowser;
+pub use observer::{ActionObservation, ActionObserver, ObservedAction, ObservedTarget};
 pub use outputs::SWEEP_INTERVAL;
 pub use profile_lock::{claim_profile, in_use as profile_in_use, release as release_profile};
 pub use sessions::{Browser, MAX_SESSIONS};

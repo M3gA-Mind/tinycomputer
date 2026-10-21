@@ -16,7 +16,8 @@ use super::{MAX_TASKS, Tasks};
 use crate::rescue::Rescuer;
 use crate::{UsageRecorder, shape::Shaper};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
+const OLDEST_VERSION: u32 = 1;
 
 /// Why a paused task could not be saved or restored.
 #[derive(Debug)]
@@ -89,6 +90,8 @@ struct PausedTask {
     id: TaskId,
     view: TaskView,
     flow: Flow,
+    #[serde(default)]
+    handoff_to_planner: bool,
     goal: String,
     shared_facts: BTreeMap<String, String>,
     secret_handles: BTreeMap<String, tinycomputer_bus::agent::SecretHandle>,
@@ -181,6 +184,7 @@ impl Tasks {
             id: id.clone(),
             view,
             flow: state.flow.clone(),
+            handoff_to_planner: state.handoff_to_planner,
             goal: state.goal.clone(),
             shared_facts,
             secret_handles,
@@ -244,6 +248,7 @@ impl Tasks {
             return_after_input,
             self.rescuer.clone(),
             self.shaper.clone(),
+            self.planner.clone(),
         );
         let mut tasks = self
             .cells
@@ -285,7 +290,7 @@ fn decode(bytes: &[u8]) -> Result<PausedTask, PausedTaskError> {
         .and_then(serde_json::Value::as_u64)
         .and_then(|version| u32::try_from(version).ok())
         .ok_or_else(|| PausedTaskError::Invalid("missing integer version".to_owned()))?;
-    if version != VERSION {
+    if !(OLDEST_VERSION..=VERSION).contains(&version) {
         return Err(PausedTaskError::UnsupportedVersion(version));
     }
     Ok(serde_json::from_value::<Envelope>(value)?.task)
@@ -406,6 +411,7 @@ fn build_cell(
     return_after_input: Option<TaskStatus>,
     rescuer: Option<Rescuer>,
     shaper: Option<Shaper>,
+    planner: Option<crate::planner::Planner>,
 ) -> Arc<Cell> {
     let usage = Arc::new(UsageRecorder::from_snapshot(task.usage));
     task.view.usage = usage.snapshot();
@@ -414,6 +420,7 @@ fn build_cell(
         state: std::sync::Mutex::new(State {
             usage,
             flow: task.flow,
+            handoff_to_planner: task.handoff_to_planner,
             goal: task.goal,
             facts,
             omitted_secrets: task.omitted_secrets,
@@ -439,6 +446,7 @@ fn build_cell(
         worker: std::sync::Mutex::new(None),
         rescuer,
         shaper,
+        planner,
     })
 }
 

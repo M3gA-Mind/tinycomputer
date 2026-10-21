@@ -13,6 +13,7 @@ use super::open;
 use crate::error::Error;
 use crate::fake::{Fake, failure, ok};
 use crate::{ActionContext, ActionGate, ActionRequest, ActionVerdict, Browser};
+use crate::{ActionObservation, ActionObserver, ObservedAction};
 
 #[tokio::test]
 async fn navigation_reports_the_page_and_refusals_are_typed() {
@@ -54,6 +55,123 @@ impl ActionGate for RefuseNamedAction {
             ActionVerdict::Allow
         }
     }
+}
+
+#[derive(Default)]
+struct CaptureActionObserver(std::sync::Mutex<Vec<ActionObservation>>);
+
+impl ActionObserver for CaptureActionObserver {
+    fn observed(&self, action: ActionObservation) {
+        self.0.lock().unwrap().push(action);
+    }
+}
+
+fn observer_shop_fake(reject_click: Arc<AtomicBool>) -> Fake {
+    Fake::scripted(move |command| match command["action"].as_str() {
+        Some("url") => Some(ok(&json!({"url": "https://shop.test/"}))),
+        Some("navigate") => Some(ok(&json!({
+            "url": command["url"],
+            "title": "Shop"
+        }))),
+        Some("snapshot") => Some(ok(&json!({
+            "snapshot": "- button \"Add to cart\" [ref=e1]\n- button \"Add to cart\" [ref=e2]\n- textbox \"Email\" [ref=e3]",
+            "refs": {
+                "e1": {"role": "button", "name": "Add to cart"},
+                "e2": {"role": "button", "name": "Add to cart"},
+                "e3": {"role": "textbox", "name": "Email"}
+            }
+        }))),
+        Some("click") if reject_click.load(Ordering::SeqCst) => {
+            Some(failure("the scripted click failed"))
+        }
+        _ => None,
+    })
+}
+
+async fn click_reference(browser: &Browser, id: &tinycomputer_bus::browser::SessionId) {
+    browser
+        .perform(
+            id,
+            Action::Click {
+                target: Target::reference("e1"),
+                new_tab: false,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn observer_sees_only_successful_metadata_and_snapshot_uniqueness() {
+    let reject_click = Arc::new(AtomicBool::new(true));
+    let fake = observer_shop_fake(Arc::clone(&reject_click));
+    let observer = Arc::new(CaptureActionObserver::default());
+    let browser = Browser::with_scratch(Arc::new(fake), super::scratch("action-observer"));
+    browser.set_action_observer(Some(observer.clone()));
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/"))
+        .await
+        .unwrap();
+    browser
+        .snapshot(&id, SnapshotRequest::default())
+        .await
+        .unwrap();
+
+    assert!(
+        browser
+            .perform(
+                &id,
+                Action::Click {
+                    target: Target::reference("e1"),
+                    new_tab: false,
+                },
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        observer.0.lock().unwrap().len(),
+        1,
+        "failed dispatch is not observed"
+    );
+
+    reject_click.store(false, Ordering::SeqCst);
+    click_reference(&browser, &id).await;
+    browser
+        .perform(
+            &id,
+            Action::Type {
+                target: Some(Target::reference("e3")),
+                text: "private@example.test".to_owned(),
+                delay_ms: None,
+            },
+        )
+        .await
+        .unwrap();
+    let observations = observer.0.lock().unwrap().clone();
+    assert_eq!(observations.len(), 3);
+    assert_eq!(observations[0].action, ObservedAction::Navigate);
+    assert_eq!(observations[0].after_url, "https://shop.test/");
+    assert_eq!(observations[1].action, ObservedAction::Click);
+    let target = observations[1].target.as_ref().unwrap();
+    assert_eq!(target.reference.as_deref(), Some("e1"));
+    assert!(
+        !target.unique,
+        "the latest snapshot has two matching controls"
+    );
+    assert_eq!(observations[2].action, ObservedAction::Type);
+    assert!(
+        observations
+            .iter()
+            .all(|event| event.before_url != "private@example.test"
+                && event.after_url != "private@example.test")
+    );
+    browser.close_session(&id).await.unwrap();
 }
 
 struct RefuseUnknownCurrentUrl;

@@ -55,6 +55,8 @@ struct Script {
     host_secrets: Mutex<Vec<String>>,
     /// What the task's surface shows when asked.
     screen: Mutex<Vec<String>>,
+    /// The HTTPS origin of the still-open browser page.
+    origin: Mutex<Option<String>>,
     /// Tasks let go of, in order.
     released: Mutex<Vec<TaskId>>,
     /// The screenshot `capture` hands back, if any.
@@ -75,6 +77,7 @@ struct Script {
     host_secret: Mutex<Option<String>>,
     /// The pages loaded while tasks were planned, with their task.
     opened: Mutex<Vec<(TaskId, String)>>,
+    task_ids: Mutex<Vec<TaskId>>,
     /// The host's response to a failed-step recovery request.
     recovery: Mutex<Option<FailedStepRecoveryResult>>,
     /// Recovery requests, including their redacted task context.
@@ -88,10 +91,11 @@ struct Script {
 impl FlowRunner for Script {
     fn run(
         &self,
-        _task: &TaskId,
+        task: &TaskId,
         constraints: &TaskConstraints,
         request: RunFlowRequest,
     ) -> FlowFuture {
+        self.task_ids.lock().unwrap().push(task.clone());
         self.requests.lock().unwrap().push(request);
         self.constraints.lock().unwrap().push(constraints.clone());
         let reply = self.replies.lock().unwrap().pop_front();
@@ -131,6 +135,11 @@ impl FlowRunner for Script {
     fn visible_text(&self, _task: &TaskId) -> super::TextFuture {
         let texts = self.screen.lock().unwrap().clone();
         Box::pin(async move { texts })
+    }
+
+    fn page_origin(&self, _task: &TaskId) -> super::PageOriginFuture {
+        let origin = self.origin.lock().unwrap().clone();
+        Box::pin(async move { origin })
     }
 
     fn capture(&self, _task: &TaskId) -> super::CaptureFuture {

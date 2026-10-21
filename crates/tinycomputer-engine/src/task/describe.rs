@@ -71,6 +71,7 @@ fn start_task_input() -> Value {
         json!({
             "task": {"type": "string", "description": "the goal in plain language"},
             "flow": {"type": "object", "description": "a flow written from the guide"},
+            "handoff_to_planner": {"type": "boolean", "default": false, "description": "after a supplied flow finishes, plan the remaining task in the same browser session"},
             "facts": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},

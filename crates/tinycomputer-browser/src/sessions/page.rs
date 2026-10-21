@@ -14,6 +14,7 @@ use crate::deep;
 use crate::error::{Error, Result};
 use crate::outputs::within_cap;
 use crate::reply;
+use crate::{ActionObservation, ObservedAction, ObservedTarget};
 
 /// The fields of a raw command that can name a page to open or fetch.
 const URL_FIELDS: &[&str] = &["url", "url1", "url2"];
@@ -69,7 +70,7 @@ impl Browser {
         let current_url = session.action_url().await;
         self.check_action(&ActionRequest::raw(
             command.clone(),
-            current_url,
+            current_url.clone(),
             Some(request.url.clone()),
             &session.action_context,
             &session.refs,
@@ -93,6 +94,14 @@ impl Browser {
         let page = session.admit(page).await?;
         session.info.url.clone_from(&page.url);
         session.info.title.clone_from(&page.title);
+        if let Some(before_url) = current_url {
+            self.observe_action(ActionObservation {
+                action: ObservedAction::Navigate,
+                before_url,
+                after_url: page.url.clone(),
+                target: None,
+            });
+        }
         Ok(page)
     }
 
@@ -182,15 +191,26 @@ impl Browser {
             // action is never sent to a refused one.
             session.check_if_readable(false).await?;
             let current_url = session.action_url().await;
-            self.check_action(&ActionRequest::typed(
+            let request = ActionRequest::typed(
                 &action,
-                current_url,
+                current_url.clone(),
                 None,
                 &session.action_context,
                 &session.refs,
-            ))?;
+            );
+            let target = observed_target(request.target.as_ref(), &session.refs);
+            self.check_action(&request)?;
             let value = session.act_deep(number, &action).await?;
-            return session.outcome(value, None).await;
+            let outcome = session.outcome(value, None).await?;
+            if let Some(before_url) = current_url {
+                self.observe_action(ActionObservation {
+                    action: observed_action(&action),
+                    before_url,
+                    after_url: outcome.page.url.clone(),
+                    target,
+                });
+            }
+            return Ok(outcome);
         }
         let command = convert::action(&action, session.options.default_timeout_ms)?;
         let keys = keys_go_to(&action)?;
@@ -198,13 +218,15 @@ impl Browser {
         // a timer): an action is never sent to a refused one.
         session.check_if_readable(false).await?;
         let current_url = session.action_url().await;
-        self.check_action(&ActionRequest::typed(
+        let request = ActionRequest::typed(
             &action,
-            current_url,
+            current_url.clone(),
             None,
             &session.action_context,
             &session.refs,
-        ))?;
+        );
+        let target = observed_target(request.target.as_ref(), &session.refs);
+        self.check_action(&request)?;
         match keys {
             Keys::Checked(selector) => session.focus_only(&selector).await?,
             Keys::Blurred => session.blur().await?,
@@ -228,7 +250,16 @@ impl Browser {
             } => Some(format!("{:?} {:?}", value.by, value.value)),
             _ => None,
         };
-        session.outcome(value, matched).await
+        let outcome = session.outcome(value, matched).await?;
+        if let Some(before_url) = current_url {
+            self.observe_action(ActionObservation {
+                action: observed_action(&action),
+                before_url,
+                after_url: outcome.page.url.clone(),
+                target,
+            });
+        }
+        Ok(outcome)
     }
 
     /// Checks the configured action gate for a host-owned secret fill without
@@ -465,6 +496,56 @@ impl Browser {
         let (width, height) = reply::image_size(&bytes);
         self.lock_outputs()?
             .insert(bytes, request.format.media_type(), width, height)
+    }
+}
+
+fn observed_target(
+    target: Option<&crate::action_gate::ActionTarget>,
+    refs: &[tinycomputer_bus::browser::ElementRef],
+) -> Option<ObservedTarget> {
+    let target = target?;
+    let name = target.name.clone();
+    let reference = target.reference.clone();
+    let matches = refs
+        .iter()
+        .filter(|item| Some(item.role.as_str()) == target.role.as_deref())
+        .filter(|item| Some(item.name.as_str()) == target.name.as_deref())
+        .collect::<Vec<_>>();
+    let unique = target
+        .name
+        .as_deref()
+        .is_some_and(|name| !name.trim().is_empty())
+        && matches.len() == 1
+        && reference.as_deref() == Some(matches[0].id.as_str());
+    Some(ObservedTarget {
+        role: target.role.clone()?,
+        name,
+        reference,
+        unique,
+    })
+}
+
+fn observed_action(action: &Action) -> ObservedAction {
+    match action {
+        Action::Click { .. } => ObservedAction::Click,
+        Action::Fill { .. } => ObservedAction::Fill,
+        Action::Type { .. } => ObservedAction::Type,
+        Action::Select { .. } => ObservedAction::Select,
+        Action::Check { checked: true, .. } => ObservedAction::Check,
+        Action::Check { checked: false, .. } => ObservedAction::Uncheck,
+        Action::DoubleClick { .. } => ObservedAction::DoubleClick,
+        Action::Hover { .. } => ObservedAction::Hover,
+        Action::Focus { .. } => ObservedAction::Focus,
+        Action::Scroll { .. } => ObservedAction::Scroll,
+        Action::GetText { .. } | Action::GetAttribute { .. } | Action::IsVisible { .. } => {
+            ObservedAction::Read
+        }
+        Action::WaitFor { .. } => ObservedAction::Wait,
+        Action::Press { key, .. } if key.eq_ignore_ascii_case("escape") => {
+            ObservedAction::PressEscape
+        }
+        Action::Press { .. } => ObservedAction::Press,
+        Action::Back | Action::Forward | Action::Reload => ObservedAction::Other,
     }
 }
 

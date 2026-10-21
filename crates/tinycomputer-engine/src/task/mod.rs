@@ -133,6 +133,9 @@ pub type FlowFuture = Pin<Box<dyn Future<Output = DesktopResponse> + Send>>;
 /// The future [`FlowRunner::visible_text`] returns.
 pub type TextFuture = Pin<Box<dyn Future<Output = Vec<String>> + Send>>;
 
+/// The HTTPS origin of the browser page a running task currently holds.
+pub type PageOriginFuture = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
+
 /// The future [`FlowRunner::capture`] returns: a held screenshot, if the
 /// task's surface could take one.
 pub type CaptureFuture = Pin<Box<dyn Future<Output = Option<OutputRef>> + Send>>;
@@ -227,6 +230,13 @@ pub trait FlowRunner: Send + Sync + 'static {
         constraints: &TaskConstraints,
         request: RunFlowRequest,
     ) -> FlowFuture;
+
+    /// Returns only the current browser origin, with path, query and
+    /// fragment omitted. A same-task planner handoff uses this as location
+    /// context without reading page contents.
+    fn page_origin(&self, _task: &TaskId) -> PageOriginFuture {
+        Box::pin(async { None })
+    }
 
     /// Runs a task flow with its usage recorder attached to model calls.
     ///

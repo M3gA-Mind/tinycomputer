@@ -33,6 +33,7 @@ pub(super) struct Cell {
     pub(super) rescuer: Option<Rescuer>,
     /// Who turns what a finished task read into the shape it asked for.
     pub(super) shaper: Option<Shaper>,
+    pub(super) planner: Option<crate::planner::Planner>,
 }
 
 pub(super) struct WorkerSlot {
@@ -54,6 +55,9 @@ impl Cell {
 pub(super) struct State {
     pub(super) usage: Arc<UsageRecorder>,
     pub(super) flow: Flow,
+    /// Run the supplied prefix once, then plan the original goal against the
+    /// surface it left open.
+    pub(super) handoff_to_planner: bool,
     /// The task in the caller's words, for Jev's brief; empty when only a
     /// flow was given.
     pub(super) goal: String,
@@ -142,6 +146,7 @@ impl Tasks {
             state: Mutex::new(State {
                 usage,
                 flow: flow.clone(),
+                handoff_to_planner: request.handoff_to_planner,
                 goal: request.task.clone().unwrap_or_default(),
                 facts,
                 omitted_secrets: BTreeSet::new(),
@@ -167,6 +172,7 @@ impl Tasks {
             worker: Mutex::new(None),
             rescuer: self.rescuer.clone(),
             shaper: self.shaper.clone(),
+            planner: self.planner.clone(),
         });
         let mut tasks = self.cells.lock().ok()?;
         while tasks.len() >= MAX_TASKS {
