@@ -97,4 +97,3 @@ async fn rejected_host_callbacks_return_errors_to_the_caller()
     );
     Ok(())
 }
-

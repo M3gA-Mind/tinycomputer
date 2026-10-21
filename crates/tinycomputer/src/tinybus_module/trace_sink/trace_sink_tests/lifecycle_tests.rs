@@ -124,5 +124,3 @@ async fn shutdown_joins_an_active_host_callback_and_closes_admission()
     );
     Ok(())
 }
-
-#[derive(Clone)]

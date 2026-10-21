@@ -78,4 +78,3 @@ async fn an_already_expired_queued_event_is_rejected_without_a_host_write()
     assert!(host.0.lock().map_err(|error| error.to_string())?.is_empty());
     Ok(())
 }
-

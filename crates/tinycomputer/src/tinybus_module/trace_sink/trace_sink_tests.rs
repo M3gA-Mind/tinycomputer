@@ -118,6 +118,7 @@ impl RecordingHost {
     }
 }
 
+#[derive(Clone)]
 struct BlockingRecordingHost {
     events: Arc<Mutex<Vec<serde_json::Value>>>,
     started: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
