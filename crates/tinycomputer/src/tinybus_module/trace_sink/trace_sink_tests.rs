@@ -1,4 +1,5 @@
 //! Shared host fixtures for trace-sink callback and lifecycle tests.
+//! The cases cover the TinyBus transport, payloads, deadlines, and shutdown.
 
 #[path = "trace_sink_tests/callbacks_tests.rs"]
 mod callbacks_tests;
@@ -6,8 +7,6 @@ mod callbacks_tests;
 mod deadline_tests;
 #[path = "trace_sink_tests/lifecycle_tests.rs"]
 mod lifecycle_tests;
-
-//! Tests for the TinyBus trace-sink callback transport and payloads.
 
 use super::*;
 use std::sync::Mutex;
