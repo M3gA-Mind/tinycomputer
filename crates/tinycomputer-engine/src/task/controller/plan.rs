@@ -20,7 +20,7 @@ impl Tasks {
         // No task exists yet, so the plan journals to a run of its own.
         let drafting = started.elapsed();
         self.runner.journal(None, "plan", &|| {
-            super::timing::planned(&outcome, used, drafting, planner.configuration())
+            crate::task::timing::planned(&outcome, used, drafting, planner.configuration())
         });
         match outcome {
             Ok(plan) => AgentResponse::ok(plan),

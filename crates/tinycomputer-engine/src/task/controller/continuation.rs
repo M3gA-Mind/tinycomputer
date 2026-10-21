@@ -40,7 +40,7 @@ impl Tasks {
             .is_ok_and(|state| state.waiting_since.is_none());
         if let (Some(waited), true) = (waited, left) {
             self.runner.journal(Some(&id), "resume", &|| {
-                super::timing::resumed(paused, waited)
+                crate::task::timing::resumed(paused, waited)
             });
         }
         reply
@@ -245,7 +245,9 @@ fn payment_task_text(context: &str, goal: &str) -> String {
     )
 }
 
-fn payment_budget(cell: &Arc<Cell>) -> Option<(super::TaskBudgetScope, super::HostWorkGuard)> {
+fn payment_budget(
+    cell: &Arc<Cell>,
+) -> Option<(crate::task::TaskBudgetScope, crate::task::HostWorkGuard)> {
     let task_budget = cell.state.lock().ok()?.usage.task_call_budget()?;
     let work = task_budget.begin_payment_work()?;
     let budget = work.scope();
