@@ -117,7 +117,7 @@ pub(super) async fn tunnel_with_lease(
     loop {
         tokio::select! {
             biased;
-            _ = wait_for_validation(validations) => {
+            () = wait_for_validation(validations) => {
                 if !validate_lease(auth, &lease).await? { return Ok(()); }
             },
             result = &mut relay => { result?; return Ok(()); },
@@ -140,7 +140,7 @@ where
     loop {
         tokio::select! {
             biased;
-            _ = wait_for_validation(validations) => {
+            () = wait_for_validation(validations) => {
                 if !validate_lease(auth, &lease).await? { return Ok(()); }
             },
             result = upstream.read(&mut chunk) => {
@@ -155,7 +155,7 @@ where
                 loop {
                     tokio::select! {
                         biased;
-                        _ = wait_for_validation(validations) => {
+                        () = wait_for_validation(validations) => {
                             if !validate_lease(auth, &lease).await? { return Ok(()); }
                         },
                         result = &mut write => { result?; break; },
@@ -183,7 +183,7 @@ where
     loop {
         tokio::select! {
             biased;
-            _ = wait_for_validation(validations) => {
+            () = wait_for_validation(validations) => {
                 if !validate_lease(auth, lease).await? { return Ok(false); }
             },
             result = &mut body => { result?; return Ok(true); },
@@ -249,7 +249,7 @@ pub(super) async fn write_all_with_lease<W: tokio::io::AsyncWrite + Unpin>(
     loop {
         tokio::select! {
             biased;
-            _ = wait_for_validation(validations) => {
+            () = wait_for_validation(validations) => {
                 if !validate_lease(auth, lease).await? { return Ok(false); }
             },
             result = &mut write => { result?; return Ok(true); },
