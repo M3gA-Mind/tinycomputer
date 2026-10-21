@@ -7,9 +7,10 @@ use tokio::net::TcpStream;
 use super::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
     forward::{
-        forward_response_with_lease, initialize_upstream, refuse, tunnel_with_lease, validate_lease,
+        forward_request_body_with_lease, forward_response_with_lease, initialize_upstream, refuse,
+        tunnel_with_lease, validate_lease,
     },
-    request::{buffered_body_len, has_valid_buffered_body, read_proxy_request, read_request_body},
+    request::{has_valid_buffered_body, read_proxy_request},
 };
 
 pub(super) async fn serve(
@@ -67,13 +68,17 @@ pub(super) async fn serve(
     if request.connect || request.has_upgrade {
         tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     } else {
-        read_request_body(
+        if !forward_request_body_with_lease(
             &mut client,
             &mut upstream,
             &request,
-            buffered_body_len(&request),
+            &auth,
+            &lease,
         )
-        .await?;
+        .await?
+        {
+            return Ok(());
+        }
         forward_response_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     }
     Ok(())

@@ -7,7 +7,10 @@ use tokio::{
     net::TcpStream,
 };
 
-use super::{EgressAuthorizer, request::ProxyRequest};
+use super::{
+    EgressAuthorizer,
+    request::{ProxyRequest, buffered_body_len, read_request_body},
+};
 
 pub(super) async fn initialize_upstream(
     client: &mut TcpStream,
@@ -122,6 +125,32 @@ pub(super) async fn forward_response_with_lease(
                 if n == 0 { return Ok(()); }
                 write_all_bounded(client, &chunk[..n], "browser response write timed out").await?;
             },
+        }
+    }
+}
+
+pub(super) async fn forward_request_body_with_lease(
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+    request: &ProxyRequest,
+    auth: &Arc<dyn EgressAuthorizer>,
+    lease: &str,
+) -> io::Result<bool> {
+    let body = read_request_body(
+        client,
+        upstream,
+        request,
+        buffered_body_len(request),
+    );
+    tokio::pin!(body);
+    let mut validations = validation_interval();
+    loop {
+        tokio::select! {
+            biased;
+            _ = validations.tick() => {
+                if !validate_lease(auth, lease).await? { return Ok(false); }
+            },
+            result = &mut body => { result?; return Ok(true); },
         }
     }
 }
