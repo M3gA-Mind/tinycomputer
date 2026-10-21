@@ -340,9 +340,10 @@ async fn forward_chunked_request_body(
                 offset += n;
                 n
             } else {
+                let read_length = remaining.min(chunk.len());
                 let n = tokio::time::timeout(
                     Duration::from_secs(10),
-                    client.read(&mut chunk[..remaining.min(chunk.len())]),
+                    client.read(&mut chunk[..read_length]),
                 )
                 .await
                 .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "proxy body timed out"))??;
