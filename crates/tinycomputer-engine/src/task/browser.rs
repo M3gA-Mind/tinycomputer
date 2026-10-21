@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tinycomputer_browser::{ActionContext, Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::agent::{PaymentMode, TaskConstraints, TaskId};
 use tinycomputer_bus::browser::{ScreenshotRequest, SessionId};
-use tinycomputer_bus::{DesktopResponse, RunFlowRequest};
+use tinycomputer_bus::{DesktopError, DesktopResponse, RunFlowRequest};
 use tinycomputer_core::surface::{Depth, Surface};
 
 use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
@@ -272,14 +272,25 @@ impl BrowserRunner {
     ) -> FlowFuture {
         let runtime = runtime.journaled_as(&format!("task-{task}"));
         let surface = self.surface(task, constraints);
+        let context = ActionContext {
+            task_id: Some(task.0.clone()),
+            payment_in_play: constraints.payment == PaymentMode::FillThenApprove,
+        };
         let mut request = request;
         request.task_id = Some(task.0.clone());
-        Box::pin(tinycomputer_engine_flow(
-            surface,
-            runtime,
-            request,
-            self.secret_host.clone(),
-        ))
+        let secret_host = self.secret_host.clone();
+        Box::pin(async move {
+            if surface.update_action_context(context).await.is_err() {
+                return DesktopResponse::err(
+                    "update-action-context",
+                    DesktopError::new(
+                        "ACTION_CONTEXT_FAILED",
+                        "the retained browser session could not update its host payment context",
+                    ),
+                );
+            }
+            tinycomputer_engine_flow(surface, runtime, request, secret_host).await
+        })
     }
 }
 
