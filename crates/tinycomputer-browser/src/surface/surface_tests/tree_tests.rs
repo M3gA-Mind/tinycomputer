@@ -128,6 +128,9 @@ fn private_tree_observations_hide_document_descendants_and_toggle_values() {
 - group
   - document [ref=e1]: {UNKNOWN}
     - text: {UNKNOWN} document body
+    - text "{UNKNOWN} named document body"
+    - generic "{UNKNOWN} ancestor label"
+      - button "{UNKNOWN} action" [ref=e5]
   - menuitemcheckbox [ref=e2]: {UNKNOWN}
     - text: {UNKNOWN} checkbox echo
   - menuitemradio [ref=e3]: {UNKNOWN}
@@ -165,6 +168,7 @@ fn private_tree_observations_hide_document_descendants_and_toggle_values() {
     assert_eq!(private.candidates[2].role, "menuitemradio");
     assert_eq!(private.candidates[2].value, None);
     assert!(private.candidates[3].value.is_none());
+    assert!(private.candidates.iter().all(|node| node.ref_id != "e5"));
     assert!(private.candidates[0].description.is_none());
     assert!(private.text_nodes.iter().all(|node| {
         node.value
@@ -181,6 +185,16 @@ fn private_tree_observations_hide_document_descendants_and_toggle_values() {
             .text_nodes
             .iter()
             .any(|node| node.value.as_ref() == Some(&json!(format!("{UNKNOWN} document body"))))
+    );
+    assert!(
+        public
+            .text_nodes
+            .iter()
+            .any(|node| node.name.as_deref() == Some(&format!("{UNKNOWN} named document body")))
+    );
+    assert!(
+        public.candidates.iter().any(|node| node.ref_id == "e5"
+            && node.name.as_deref() == Some(&format!("{UNKNOWN} action")))
     );
     assert!(
         public

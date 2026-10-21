@@ -373,11 +373,15 @@ impl BrowserSurface {
     fn see(&self, root: Option<&str>) -> Option<Screen> {
         self.keep_denoised(Denoised::default());
         let id = self.ensure_session().ok()?;
+        let script = if self.hide_form_values {
+            sight::script_without_form_values(root)
+        } else {
+            sight::script(root)
+        };
         // The timer is made inside the runtime `block` enters, not before.
-        let reading = self.browser.command(
-            &id,
-            json!({"action": "evaluate", "script": sight::script(root)}),
-        );
+        let reading = self
+            .browser
+            .command(&id, json!({"action": "evaluate", "script": script}));
         let reply = self
             .block(async { tokio::time::timeout(READ_TIMEOUT, reading).await })
             .ok()?

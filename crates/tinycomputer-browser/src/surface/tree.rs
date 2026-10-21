@@ -216,32 +216,39 @@ fn screen_with_form_values(tree: &str, title: &str, include_form_values: bool) -
             "alertdialog" => "alert".clone_into(&mut surface),
             _ => {}
         }
-        let mut node = candidate(&line, path, order);
-        if !include_form_values && (inside_field || FIELD_ROLES.contains(&line.role.as_str())) {
-            node.value = None;
-        }
-        if line.reference().is_some() {
-            if !line.has("disabled") {
-                // A control with no name of its own — a list row whose
-                // `aria-labelledby` points nowhere — is named by what it
-                // shows. A text field — or a control holding a value — is not:
-                // what is inside it is its content, private unless values
-                // are shared.
-                if node.name.is_none()
-                    && node.value.is_none()
-                    && !TEXT_ENTRY_ROLES.contains(&line.role.as_str())
-                {
-                    unnamed.push((line.depth, candidates.len()));
+        if include_form_values || !inside_field {
+            let mut node = candidate(&line, path, order);
+            if !include_form_values && (inside_field || FIELD_ROLES.contains(&line.role.as_str())) {
+                node.value = None;
+                if inside_field && line.reference().is_none() {
+                    // Unreferenced descendants become text_nodes. Their tree
+                    // name can carry the same rich-field body as their value.
+                    node.name = None;
                 }
-                candidates.push(node);
             }
-        } else {
-            let is_field = FIELD_ROLES.contains(&line.role.as_str())
-                || VALUE_BEARING_ROLES.contains(&line.role.as_str());
-            if !inside_field && !is_field {
-                remember(&line, &mut context);
+            if line.reference().is_some() {
+                if !line.has("disabled") {
+                    // A control with no name of its own — a list row whose
+                    // `aria-labelledby` points nowhere — is named by what it
+                    // shows. A text field — or a control holding a value — is not:
+                    // what is inside it is its content, private unless values
+                    // are shared.
+                    if node.name.is_none()
+                        && node.value.is_none()
+                        && !TEXT_ENTRY_ROLES.contains(&line.role.as_str())
+                    {
+                        unnamed.push((line.depth, candidates.len()));
+                    }
+                    candidates.push(node);
+                }
+            } else {
+                let is_field = FIELD_ROLES.contains(&line.role.as_str())
+                    || VALUE_BEARING_ROLES.contains(&line.role.as_str());
+                if !inside_field && !is_field {
+                    remember(&line, &mut context);
+                }
+                text_nodes.push(node);
             }
-            text_nodes.push(node);
         }
         siblings.truncate(line.depth + 1);
         siblings.resize_with(line.depth + 1, Default::default);
