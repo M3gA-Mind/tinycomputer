@@ -54,7 +54,7 @@ where
     else {
         return refuse(&mut client).await;
     };
-    let mut validations = validation_interval();
+    let validations = validation_interval();
     if !validate_lease(&auth, &lease).await? {
         return Ok(());
     }
