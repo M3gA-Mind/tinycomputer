@@ -68,12 +68,32 @@ pub(super) async fn serve(
     if request.connect || request.has_upgrade {
         tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     } else {
-        if !forward_request_body_with_lease(&mut client, &mut upstream, &request, &auth, &lease)
-            .await?
-        {
-            return Ok(());
+        let (mut client_reader, mut client_writer) = client.into_split();
+        let (mut upstream_reader, mut upstream_writer) = upstream.into_split();
+        tokio::select! {
+            result = forward_response_with_lease(
+                &mut client_writer,
+                &mut upstream_reader,
+                &auth,
+                lease.clone(),
+            ) => result?,
+            upload = forward_request_body_with_lease(
+                &mut client_reader,
+                &mut upstream_writer,
+                &request,
+                &auth,
+                &lease,
+            ) => {
+                if upload? {
+                    forward_response_with_lease(
+                        &mut client_writer,
+                        &mut upstream_reader,
+                        &auth,
+                        lease,
+                    ).await?;
+                }
+            }
         }
-        forward_response_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     }
     Ok(())
 }

@@ -345,6 +345,68 @@ async fn approved_http_request_forwards_chunked_uploads() {
 }
 
 #[tokio::test]
+async fn an_early_upstream_rejection_is_forwarded_before_upload_completion() {
+    let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = destination.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = destination.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let n = socket.read(&mut chunk).await.unwrap();
+            assert_ne!(n, 0);
+            request.extend_from_slice(&chunk[..n]);
+        }
+        socket
+            .write_all(
+                b"HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+    });
+    let proxy = EgressProxy::bind(
+        Arc::new(FixtureAuthorizer {
+            address,
+            allow: true,
+            consumed: Arc::new(AtomicBool::new(false)),
+        }),
+        "early-rejection-session".into(),
+        FIXTURE_PASSWORD.into(),
+    )
+    .await
+    .unwrap();
+    let mut client = TcpStream::connect(proxy.url().replace("http://", ""))
+        .await
+        .unwrap();
+    client
+        .write_all(
+            format!(
+                "POST http://body.test:{}/upload HTTP/1.1\r\nHost: body.test:{}\r\nProxy-Authorization: {}\r\nContent-Length: 10485760\r\n\r\n",
+                address.port(),
+                address.port(),
+                proxy_authorization()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        client.read_to_end(&mut response),
+    )
+    .await
+    .expect("the early upstream response should reach the browser")
+    .unwrap();
+    assert!(
+        std::str::from_utf8(&response)
+            .unwrap()
+            .starts_with("HTTP/1.1 413")
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn duplicate_lengths_and_pipelined_authorities_are_refused_before_dial() {
     let destination = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     destination.set_nonblocking(true).unwrap();
