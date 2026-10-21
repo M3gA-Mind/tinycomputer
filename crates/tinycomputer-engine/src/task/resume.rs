@@ -54,9 +54,13 @@ impl Tasks {
             }
         };
         state.facts = state.facts.merged(&supplied);
-        let known = known_names(&state.flow, &state.facts);
+        let mut input_flow = state.flow.clone();
+        if let Some(Resume::Retry { steps, .. }) = &state.resume {
+            input_flow.steps.extend(steps.iter().cloned());
+        }
+        let known = known_names(&input_flow, &state.facts);
         let facts = fact_names(&state.facts);
-        let missing = crate::agentic::missing_inputs(&state.flow, &known, &facts);
+        let missing = crate::agentic::missing_inputs(&input_flow, &known, &facts);
         if !missing.is_empty() {
             drop(state);
             publish(

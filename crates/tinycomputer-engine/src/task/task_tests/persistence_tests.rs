@@ -371,6 +371,70 @@ async fn a_human_pause_keeps_its_retry_state_after_import() {
 }
 
 #[tokio::test]
+async fn partial_secret_reentry_keeps_a_human_pause_when_retry_still_needs_input() {
+    let (tasks, script) = controller(vec![failed_at_step_two()]);
+    *script.screen.lock().unwrap() = vec![
+        "Security check".to_owned(),
+        "Verify you are human".to_owned(),
+    ];
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(json!({
+                "app": "browser",
+                "steps": [
+                    {"browse": "https://flights.test"},
+                    {"enter": {"email": "${email}"}},
+                    {"enter": {"phone": "${phone}"}}
+                ]
+            }))),
+            facts: BTreeMap::from([
+                ("email".to_owned(), "a@example.test".to_owned()),
+                ("phone".to_owned(), "555-0100".to_owned()),
+            ]),
+            secret_facts: vec!["email".to_owned(), "phone".to_owned()],
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &view.id).await.status,
+        TaskStatus::NeedsHuman { .. }
+    ));
+    let encoded = tasks.export_paused_task(&view.id).unwrap();
+    drop(tasks);
+
+    // Preserve the saved retry step that needs phone, but make the exported
+    // current flow mention only email, matching a retry whose missing secret
+    // exists only in its pending continuation.
+    let mut snapshot: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    snapshot["task"]["flow"]["steps"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(2);
+    let (restored, _) = controller(Vec::new());
+    let imported = restored
+        .import_paused_task(&serde_json::to_vec(&snapshot).unwrap())
+        .unwrap();
+    assert!(matches!(imported.status, TaskStatus::NeedsInput { .. }));
+
+    let partial = restored.continue_task(ContinueTaskRequest {
+        id: imported.id.clone(),
+        inputs: BTreeMap::from([("email".to_owned(), "new@example.test".to_owned())]),
+        ..ContinueTaskRequest::default()
+    });
+    let TaskStatus::NeedsInput { fields } = partial.data.unwrap().status else {
+        panic!("the task must keep asking for the retry's missing phone secret");
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["phone"]
+    );
+}
+
+#[tokio::test]
 async fn process_local_screenshot_handles_are_dropped_from_snapshots() {
     let (tasks, _) = controller(vec![gated_for_persistence("Send", "sending the email")]);
     let view = start(
