@@ -136,6 +136,9 @@ pub struct BrowserSurface {
     platform: Platform,
     cursor: Arc<ScreenCursor>,
     perception: Perception,
+    /// Keep values from editable form controls out of every task observation.
+    /// The private `SecretHost` can type and verify them through the host APIs.
+    hide_form_values: bool,
     settle: Settle,
     denoised: Arc<Mutex<Denoised>>,
     /// Set once the surface is let go ([`BrowserSurface::close`]): it is
@@ -180,6 +183,7 @@ impl BrowserSurface {
             platform: Platform::current(),
             cursor: Arc::new(ScreenCursor::off()),
             perception: Perception::default(),
+            hide_form_values: false,
             settle: Settle::default(),
             denoised: Arc::new(Mutex::new(Denoised::default())),
             closed: Arc::new(AtomicBool::new(false)),
@@ -230,6 +234,15 @@ impl BrowserSurface {
     #[must_use]
     pub fn with_perception(mut self, perception: Perception) -> Self {
         self.perception = perception;
+        self
+    }
+
+    /// Hides values held by editable form controls from observations while
+    /// retaining their labels, roles, states, and refs. Host-side reads and
+    /// secret-fill verification continue to use the live control value.
+    #[must_use]
+    pub fn without_form_values(mut self) -> Self {
+        self.hide_form_values = true;
         self
     }
 
@@ -360,11 +373,15 @@ impl BrowserSurface {
     fn see(&self, root: Option<&str>) -> Option<Screen> {
         self.keep_denoised(Denoised::default());
         let id = self.ensure_session().ok()?;
+        let script = if self.hide_form_values {
+            sight::script_without_form_values(root)
+        } else {
+            sight::script(root)
+        };
         // The timer is made inside the runtime `block` enters, not before.
-        let reading = self.browser.command(
-            &id,
-            json!({"action": "evaluate", "script": sight::script(root)}),
-        );
+        let reading = self
+            .browser
+            .command(&id, json!({"action": "evaluate", "script": script}));
         let reply = self
             .block(async { tokio::time::timeout(READ_TIMEOUT, reading).await })
             .ok()?

@@ -92,6 +92,31 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
 }
 
 #[tokio::test]
+async fn a_paused_task_with_a_host_value_leak_fails_closed() {
+    let canary = "paused-profile-secret-canary";
+    let (tasks, script) = controller(Vec::new());
+    *script.host_secret.lock().unwrap() = Some(canary.to_owned());
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(json!({
+                "app": "browser",
+                "steps": [{"enter": {"email": "${email}"}}]
+            }))),
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(view.status, TaskStatus::NeedsInput { .. }));
+
+    let cell = tasks.find(&view.id).unwrap();
+    cell.state.lock().unwrap().goal = format!("restored form context: {canary}");
+    assert!(matches!(
+        tasks.export_paused_task(&view.id),
+        Err(crate::PausedTaskError::SecretValueInState)
+    ));
+}
+
+#[tokio::test]
 async fn an_approval_requiring_a_secret_asks_for_it_again_before_approval() {
     let (tasks, _) = controller(vec![gated_for_persistence("Send", "sending the email")]);
     let view = tasks
