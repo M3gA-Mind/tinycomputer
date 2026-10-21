@@ -52,7 +52,7 @@ fn desktop_error(error: &AppError) -> DesktopError {
     }
 }
 
-/// Restores the contract's snake_case spellings where the engine uses
+/// Restores the contract's `snake_case` spellings where the engine uses
 /// `SnapshotSurface::as_str()` values in structured output.
 fn normalize_surface_fields(value: &mut Value) {
     match value {
