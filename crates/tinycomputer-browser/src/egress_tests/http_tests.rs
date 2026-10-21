@@ -302,7 +302,7 @@ async fn approved_http_request_forwards_chunked_uploads() {
                 break;
             }
         }
-        assert!(request.windows(4).any(|window| window == b"4\r\ndata"));
+        assert!(request.windows(7).any(|window| window == b"4\r\ndata"));
         socket
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .await
