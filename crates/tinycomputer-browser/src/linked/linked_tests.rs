@@ -21,7 +21,7 @@ use tokio::{
     net::TcpListener,
 };
 
-use super::{AgentBrowser, EnforcedAgentBrowser, Linked, enforce_launch, state_options};
+use super::{AgentBrowser, EnforcedAgentBrowser, Linked, ENGINE, enforce_launch, state_options};
 use crate::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
     engine::{Engine, Launcher},
@@ -98,7 +98,36 @@ async fn a_closed_or_lost_browser_cannot_implicitly_launch_without_the_proxy() {
 }
 
 #[tokio::test]
-#[cfg(feature = "live-tests")]
+async fn enforced_browser_rechecks_liveness_after_waiting_for_engine_lock() {
+    let engine = Linked {
+        state: DaemonState::with_options(state_options("closed-after-lock")),
+        egress_authorizer: Some(Arc::new(RejectAll)),
+        proxy: None,
+        proxy_session_id: "private-session-id".into(),
+        enforced_launch: true,
+    };
+    let serialized = ENGINE.lock().await;
+    let pending = tokio::spawn(async move {
+        let mut engine = engine;
+        engine
+            .execute(json!({
+                "id":"navigate",
+                "action":"navigate",
+                "url":"http://public.example/"
+            }))
+            .await
+    });
+    tokio::task::yield_now().await;
+    assert!(!pending.is_finished(), "the call should wait for ENGINE");
+    drop(serialized);
+
+    let reply = pending.await.unwrap();
+    assert_eq!(reply["success"], false);
+    assert!(reply["error"].as_str().unwrap().contains("live browser session"));
+}
+
+#[tokio::test]
+#[cfg(live_browser_tests)]
 async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy() {
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
@@ -143,7 +172,7 @@ async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy(
 }
 
 #[tokio::test]
-#[cfg(feature = "live-tests")]
+#[cfg(live_browser_tests)]
 async fn live_chromium_subresource_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
@@ -198,7 +227,7 @@ async fn live_chromium_subresource_never_reaches_a_denied_destination() {
 }
 
 #[tokio::test]
-#[cfg(feature = "live-tests")]
+#[cfg(live_browser_tests)]
 async fn live_chromium_redirect_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
@@ -249,7 +278,7 @@ async fn live_chromium_redirect_never_reaches_a_denied_destination() {
 }
 
 #[tokio::test]
-#[cfg(feature = "live-tests")]
+#[cfg(live_browser_tests)]
 async fn live_chromium_websocket_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();

@@ -44,6 +44,6 @@ for the host contract and its privacy behavior.
 
 The Chromium egress fixture tests are excluded from the default suite because
 they need an installed browser; run them with
-`cargo test -p tinycomputer-browser --features 'agent-browser live-tests' live_`.
+`TINYCOMPUTER_LIVE_BROWSER_TESTS=1 cargo test -p tinycomputer-browser --features agent-browser live_`.
 They use local fixtures only. Other browser integration tests run in the Docker
 lab (`docs/technical/docker-lab.md`).

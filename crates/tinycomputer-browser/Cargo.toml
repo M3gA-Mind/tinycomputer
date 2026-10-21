@@ -48,8 +48,6 @@ agent-browser = { workspace = true, optional = true }
 default = []
 # Link agent-browser in-process and provide `AgentBrowser`, its `Launcher`.
 agent-browser = ["dep:agent-browser"]
-# Run browser egress integration tests against an installed Chromium.
-live-tests = []
 
 [dev-dependencies]
 tokio = { workspace = true }

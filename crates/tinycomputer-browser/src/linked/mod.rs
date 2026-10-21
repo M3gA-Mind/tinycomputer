@@ -84,27 +84,6 @@ impl Engine for Linked {
             .get("action")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        #[allow(clippy::redundant_closure_for_method_calls)]
-        let browser_unavailable = self
-            .state
-            .browser
-            .as_mut()
-            // BrowserManager is private in agent-browser, so its method cannot
-            // be named as a function item here.
-            .is_none_or(|browser| browser.has_process_exited());
-        if self.egress_authorizer.is_some()
-            && action.as_deref() != Some("launch")
-            && (!self.enforced_launch || browser_unavailable)
-        {
-            self.enforced_launch = false;
-            self.proxy.take();
-            return Box::pin(async move {
-                failure_reply(
-                    &command,
-                    "network policy requires an enforced launch with a live browser session",
-                )
-            });
-        }
         let launch = self.egress_authorizer.is_some() && action.as_deref() == Some("launch");
         Box::pin(async move {
             let command = if launch {
@@ -142,6 +121,25 @@ impl Engine for Linked {
                 command
             };
             let _serialized = ENGINE.lock().await;
+            #[allow(clippy::redundant_closure_for_method_calls)]
+            let browser_unavailable = self
+                .state
+                .browser
+                .as_mut()
+                // BrowserManager is private in agent-browser, so its method cannot
+                // be named as a function item here.
+                .is_none_or(|browser| browser.has_process_exited());
+            if self.egress_authorizer.is_some()
+                && !launch
+                && (!self.enforced_launch || browser_unavailable)
+            {
+                self.enforced_launch = false;
+                self.proxy.take();
+                return failure_reply(
+                    &command,
+                    "network policy requires an enforced launch with a live browser session",
+                );
+            }
             let reply = Box::pin(execute_command(&command, &mut self.state)).await;
             if launch && reply.get("success").and_then(Value::as_bool) == Some(true) {
                 self.enforced_launch = true;
