@@ -59,7 +59,10 @@ async fn callbacks_commit_events_artifacts_and_reports_over_the_bus()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_service_routes_task_reports_to_the_confidential_host_callback()
 -> Result<(), Box<dyn std::error::Error>> {
-    use tinycomputer_bus::agent::{AgentResponse, StartTaskRequest, TaskReport, TaskReportRequest, TaskView};
+    use tinybus::Interface;
+    use tinycomputer_bus::agent::{
+        AgentResponse, StartTaskRequest, TaskId, TaskReport, TaskReportRequest, TaskView,
+    };
     use tinycomputer_bus::names;
 
     let bus = tinybus::transport::memory::MemoryBus::new();
@@ -71,8 +74,11 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
         .await?;
     host_connection.request_name(trace_sink::INTERFACE).await?;
     let module_connection = Connection::connect(bus.connect().await?).await?;
+    let host_name = host_connection
+        .unique_name()
+        .ok_or("host connection has no unique name")?;
     let config = serde_json::json!({
-        "trace_sink": {"destination": host_connection.unique_name().as_str()}
+        "trace_sink": {"destination": host_name.as_str()}
     });
     let service = crate::tinybus_module::DesktopService::from_config_with_connection(
         &config,
@@ -83,9 +89,11 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
         service
             .call(
                 &names::methods::START_TASK.try_into()?,
-                (StartTaskRequest::new(serde_json::from_value(serde_json::json!({
-                    "flow": {"app": "Mail", "steps": ["start a new message"]}
-                }))?),),
+                (serde_json::from_value::<StartTaskRequest>(
+                    serde_json::json!({
+                        "flow": {"app": "Mail", "steps": ["start a new message"]}
+                    }),
+                )?,),
             )
             .await?,
     )?;
@@ -94,12 +102,15 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
         service
             .call(
                 &names::methods::TASK_REPORT.try_into()?,
-                (TaskReportRequest::new(task_id),),
+                (TaskReportRequest::new(TaskId::new(task_id.to_string())),),
             )
             .await?,
     )?;
 
-    assert_eq!(report.error.as_ref().map(|error| error.code.as_str()), Some("TRACE_SINK_FAILED"));
+    assert_eq!(
+        report.error.as_ref().map(|error| error.code.as_str()),
+        Some("TRACE_SINK_FAILED")
+    );
     assert!(
         host.reports
             .lock()
