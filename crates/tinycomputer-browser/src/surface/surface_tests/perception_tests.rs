@@ -49,6 +49,43 @@ fn sight_targets_map_to_unique_current_native_refs_only() {
         ],
     );
     assert_eq!(duplicate.ref_id, "seen:2");
+
+    let mut stale_shadow_ref = Candidate {
+        ref_id: "e2".to_owned(),
+        role: "button".to_owned(),
+        name: Some("Allow Selection".to_owned()),
+        ..Candidate::default()
+    };
+    assert!(!crate::surface::attach_unique_snapshot_ref(
+        &mut stale_shadow_ref,
+        &[ElementRef {
+            id: "e2".to_owned(),
+            role: "button".to_owned(),
+            name: "Different target".to_owned(),
+        }],
+    ));
+
+    let mut ambiguous_shadow_ref = Candidate {
+        ref_id: "e3".to_owned(),
+        role: "button".to_owned(),
+        name: Some("Continue".to_owned()),
+        ..Candidate::default()
+    };
+    assert!(!crate::surface::attach_unique_snapshot_ref(
+        &mut ambiguous_shadow_ref,
+        &[
+            ElementRef {
+                id: "e3".to_owned(),
+                role: "button".to_owned(),
+                name: "Continue".to_owned(),
+            },
+            ElementRef {
+                id: "e4".to_owned(),
+                role: "button".to_owned(),
+                name: "Continue".to_owned(),
+            },
+        ],
+    ));
 }
 
 /// A page read by sight: one field and one result link a card covers.

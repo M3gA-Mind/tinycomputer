@@ -399,9 +399,9 @@ impl BrowserSurface {
         let snapshot = self
             .block(self.browser.snapshot(&id, SnapshotRequest::default()))
             .ok()?;
-        for candidate in &mut screen.candidates {
-            attach_unique_snapshot_ref(candidate, &snapshot.refs);
-        }
+        screen
+            .candidates
+            .retain_mut(|candidate| attach_unique_snapshot_ref(candidate, &snapshot.refs));
         self.keep_denoised(sight::denoised(result));
         Some(screen)
     }
@@ -470,29 +470,33 @@ impl BrowserSurface {
     }
 }
 
-/// Replace a Sight-only selector with a native snapshot ref only when the
-/// current accessibility snapshot identifies exactly one control with the
-/// same role and accessible name. Unmatched and duplicate controls retain
-/// their Sight refs, which the host action gate will not treat as trusted.
+/// Resolve every native ref against the final accessibility snapshot, since
+/// an intervening shadow read may have reassigned its `eN` identifiers. Sight
+/// selectors remain available for hosts that support them, but are replaced
+/// by a native ref only when the snapshot has one exact role/name match.
 fn attach_unique_snapshot_ref(
     candidate: &mut tinycomputer_core::surface::Candidate,
     refs: &[tinycomputer_bus::browser::ElementRef],
-) {
-    if sight::is_seen(&candidate.ref_id)
-        && let Some(name) = candidate.name.as_deref()
-    {
-        let mut matches = refs
-            .iter()
-            .filter(|item| item.role == candidate.role && item.name.as_str() == name);
-        if let Some(found) = matches.next()
-            && matches.next().is_none()
-        {
-            candidate.ref_id.clone_from(&found.id);
-        }
+) -> bool {
+    candidate
+        .children
+        .retain_mut(|child| attach_unique_snapshot_ref(child, refs));
+    let Some(name) = candidate.name.as_deref().filter(|name| !name.is_empty()) else {
+        return sight::is_seen(&candidate.ref_id);
+    };
+    let mut matches = refs
+        .iter()
+        .filter(|item| item.role == candidate.role && item.name.as_str() == name);
+    let Some(found) = matches.next() else {
+        // Sight refs are selector-backed and remain governed by the host's
+        // existing policy. Native refs must never survive a missing match.
+        return sight::is_seen(&candidate.ref_id);
+    };
+    if matches.next().is_some() {
+        return sight::is_seen(&candidate.ref_id);
     }
-    for child in &mut candidate.children {
-        attach_unique_snapshot_ref(child, refs);
-    }
+    candidate.ref_id.clone_from(&found.id);
+    true
 }
 
 #[cfg(test)]
