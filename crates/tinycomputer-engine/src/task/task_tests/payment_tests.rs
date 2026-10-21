@@ -199,6 +199,77 @@ async fn payment_transition_rejects_non_card_and_colliding_handles_without_mutat
 }
 
 #[tokio::test]
+async fn paid_at_shop_continues_the_same_task_without_card_handles_or_payment_authority() {
+    let (tasks, script, started) =
+        payment_task(vec![payment_checkpoint(), payment_checkpoint()], false);
+    let tasks = tasks.with_planner(crate::planner::Planner::new(Arc::new(FixedPlan(
+        r#"{"app":"browser","steps":[{"read":{"what":"the confirmation page","into":"confirmation"}}]}"#.to_owned(),
+        script.planner_text.clone(),
+    ))));
+    let stopped = settle(&tasks, &started.id).await;
+    assert!(matches!(stopped.status, TaskStatus::Checkpoint { .. }));
+
+    let continued = tasks
+        .continue_paid_at_shop(&ContinuePaidAtShopRequest {
+            id: started.id.clone(),
+            checkout_context: "Checkout confirmation is loading".to_owned(),
+        })
+        .data
+        .unwrap();
+    assert_eq!(continued.id, started.id);
+    let resumed = settle(&tasks, &started.id).await;
+    assert!(
+        matches!(
+            resumed.status,
+            TaskStatus::Checkpoint {
+                continuable: false,
+                ..
+            }
+        ),
+        "{resumed:?}; planned={:?}",
+        script.planner_text.lock().unwrap()
+    );
+    assert_eq!(
+        script.constraints.lock().unwrap().last().unwrap().payment,
+        PaymentMode::StopAtPayment
+    );
+    let requests = script.requests.lock().unwrap();
+    assert!(requests.last().unwrap().fact_handles.is_empty());
+    assert!(requests.last().unwrap().facts.is_empty());
+}
+
+#[tokio::test]
+async fn paid_at_shop_transition_rejects_card_values_and_replays() {
+    let (tasks, script, started) =
+        payment_task(vec![payment_checkpoint(), payment_checkpoint()], false);
+    let tasks = tasks.with_planner(crate::planner::Planner::new(Arc::new(FixedPlan(
+        r#"{"app":"browser","steps":[{"read":{"what":"the confirmation page","into":"confirmation"}}]}"#.to_owned(),
+        script.planner_text.clone(),
+    ))));
+    settle(&tasks, &started.id).await;
+    let leaked = tasks.continue_paid_at_shop(&ContinuePaidAtShopRequest {
+        id: started.id.clone(),
+        checkout_context: "Card 4111 1111 1111 1111; order total $12.50".to_owned(),
+    });
+    assert_eq!(code(&leaked), "PAYMENT_TRANSITION_REFUSED");
+
+    tasks
+        .continue_paid_at_shop(&ContinuePaidAtShopRequest {
+            id: started.id.clone(),
+            checkout_context: "The payer paid; read the confirmation only".to_owned(),
+        })
+        .data
+        .unwrap();
+    settle(&tasks, &started.id).await;
+    let replay = tasks.continue_paid_at_shop(&ContinuePaidAtShopRequest {
+        id: started.id.clone(),
+        checkout_context: "read confirmation".to_owned(),
+    });
+    assert_eq!(code(&replay), "PAYMENT_TRANSITION_REFUSED");
+    assert_eq!(script.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn a_held_payment_replans_the_same_task_and_keeps_its_current_page() {
     let (tasks, script, started) = payment_task(
         vec![

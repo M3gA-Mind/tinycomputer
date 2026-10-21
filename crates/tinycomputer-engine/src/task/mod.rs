@@ -120,7 +120,7 @@ fn redact_value(value: &mut serde_json::Value, redact: &impl Fn(&str) -> String)
 }
 
 pub use browser::BrowserRunner;
-pub use controller::{ContinuePaymentRequest, Tasks};
+pub use controller::{ContinuePaidAtShopRequest, ContinuePaymentRequest, Tasks};
 pub use describe::capabilities;
 pub(crate) use names::input_kind;
 pub use persistence::PausedTaskError;
