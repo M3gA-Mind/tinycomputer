@@ -184,7 +184,7 @@ fn secret_redacting_surface_wraps_browser_surface_operations() {
     };
     let target = Candidate::default();
 
-    assert!(surface.observe("browser", None, Depth::Full).is_err());
+    assert!(surface.observe("browser", None, Depth::Full).is_ok());
     let _ = surface.execute(JevOperation::Done, Some(target.clone()), None);
     let _ = surface.authorize_secret_type(&target);
     let _ = surface.read_value(&target);
