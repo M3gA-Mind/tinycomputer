@@ -270,11 +270,16 @@ async fn a_response_chunk_survives_upload_completion_while_the_client_is_backpre
             assert_ne!(n, 0);
             request.extend_from_slice(&chunk[..n]);
         }
+        let request_body_start = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let mut request_body = request.split_off(request_body_start);
         let (mut reader, mut writer) = socket.into_split();
         let request_reader = tokio::spawn(async move {
-            let mut body = Vec::new();
-            reader.read_to_end(&mut body).await.unwrap();
-            body
+            reader.read_to_end(&mut request_body).await.unwrap();
+            request_body
         });
         writer
             .write_all(
