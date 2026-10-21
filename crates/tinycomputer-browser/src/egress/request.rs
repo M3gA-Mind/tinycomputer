@@ -5,7 +5,10 @@ use std::{io, net::SocketAddr, time::Duration};
 use base64::Engine as _;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
-use super::{BrowserDialTarget, forward::{refuse, write_all_bounded}};
+use super::{
+    BrowserDialTarget,
+    forward::{refuse, write_all_bounded},
+};
 
 struct ProxyRequest {
     pub(super) bytes: Vec<u8>,
@@ -208,7 +211,10 @@ fn has_proxy_auth(proxy_authorization: Option<&str>, password: &str) -> bool {
     proxy_authorization
         .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
 }
-pub(super) async fn read_request_body(client: &mut TcpStream, request: &mut ProxyRequest) -> io::Result<bool> {
+pub(super) async fn read_request_body(
+    client: &mut TcpStream,
+    request: &mut ProxyRequest,
+) -> io::Result<bool> {
     if request.has_upgrade || request.connect {
         return Ok(true);
     }

@@ -3,7 +3,10 @@
 use std::{io, sync::Arc, time::Duration};
 
 use base64::Engine as _;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional}, net::TcpStream};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional},
+    net::TcpStream,
+};
 
 use super::{EgressAuthorizer, request::ProxyRequest};
 
@@ -131,7 +134,10 @@ fn validation_interval() -> tokio::time::Interval {
     interval
 }
 
-pub(super) async fn validate_lease(auth: &Arc<dyn EgressAuthorizer>, lease: &str) -> io::Result<bool> {
+pub(super) async fn validate_lease(
+    auth: &Arc<dyn EgressAuthorizer>,
+    lease: &str,
+) -> io::Result<bool> {
     tokio::time::timeout(Duration::from_secs(2), auth.validate(lease.to_owned()))
         .await
         .map_err(|_| {

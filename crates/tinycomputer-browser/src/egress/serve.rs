@@ -6,7 +6,9 @@ use tokio::net::TcpStream;
 
 use super::{
     BrowserDialTarget, DialGrant, EgressAuthorizer,
-    forward::{forward_response_with_lease, initialize_upstream, refuse, tunnel_with_lease, validate_lease},
+    forward::{
+        forward_response_with_lease, initialize_upstream, refuse, tunnel_with_lease, validate_lease,
+    },
     request::{ProxyRequest, read_proxy_request, read_request_body},
 };
 

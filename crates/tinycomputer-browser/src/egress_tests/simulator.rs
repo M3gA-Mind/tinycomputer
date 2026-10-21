@@ -1,6 +1,7 @@
 //! Local authorizers and fixture helpers shared by egress tests.
 
 use crate::{BrowserDialTarget, DialGrant, EgressAuthorizer};
+use base64::Engine as _;
 use std::{
     io,
     net::SocketAddr,
@@ -9,7 +10,6 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
-use base64::Engine as _;
 
 pub(super) const FIXTURE_PASSWORD: &str = "fixture-proxy-secret";
 
