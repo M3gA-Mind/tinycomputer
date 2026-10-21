@@ -426,16 +426,28 @@ async fn import_rejects_unknown_versions_and_inconsistent_pending_state() {
     let view = start(&tasks, json!({"app": "Mail", "steps": ["${email}"]}), &[]);
     let encoded = tasks.export_paused_task(&view.id).unwrap();
     let mut unknown: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
-    unknown["version"] = json!(2);
+    unknown["version"] = json!(3);
     let (fresh, _) = controller(Vec::new());
     let unsupported = fresh
         .import_paused_task(&serde_json::to_vec(&unknown).unwrap())
         .unwrap_err();
     assert!(matches!(
         &unsupported,
-        crate::PausedTaskError::UnsupportedVersion(2)
+        crate::PausedTaskError::UnsupportedVersion(3)
     ));
-    assert!(unsupported.to_string().contains("version 2"));
+    assert!(unsupported.to_string().contains("version 3"));
+    let mut legacy: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    legacy["version"] = json!(1);
+    legacy["task"]
+        .as_object_mut()
+        .unwrap()
+        .remove("handoff_to_planner");
+    let (legacy_tasks, _) = controller(Vec::new());
+    assert!(
+        legacy_tasks
+            .import_paused_task(&serde_json::to_vec(&legacy).unwrap())
+            .is_ok()
+    );
     let malformed = fresh
         .import_paused_task(br#"{"version":1,"task":{}}"#)
         .unwrap_err();

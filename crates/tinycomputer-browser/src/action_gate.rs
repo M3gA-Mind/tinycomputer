@@ -25,6 +25,9 @@ pub struct ActionTarget {
     pub name: Option<String>,
     /// The snapshot ref used to identify the element, when known.
     pub reference: Option<String>,
+    /// Whether exactly one element in the latest snapshot has this role and
+    /// accessible name. Locators without a snapshot ref are never unique.
+    pub unique: bool,
 }
 
 /// Page content an engine caller is about to receive.
@@ -201,12 +204,14 @@ fn target_from_target(target: &Target, refs: &[ElementRef]) -> Option<ActionTarg
                 role: Some(value.value.clone()),
                 name: value.name.clone(),
                 reference: None,
+                unique: false,
             })
         }
         Target::Locator { value } => Some(ActionTarget {
             role: None,
             name: Some(value.value.clone()),
             reference: None,
+            unique: false,
         }),
     }
 }
@@ -219,6 +224,11 @@ fn resolve_reference(value: &str, refs: &[ElementRef]) -> Option<ActionTarget> {
             role: Some(item.role.clone()),
             name: Some(item.name.clone()),
             reference: Some(item.id.clone()),
+            unique: refs
+                .iter()
+                .filter(|candidate| candidate.role == item.role && candidate.name == item.name)
+                .count()
+                == 1,
         })
 }
 
@@ -240,8 +250,14 @@ mod tests {
     #[test]
     fn only_explicit_snapshot_refs_resolve_to_snapshot_metadata() {
         let refs = refs();
-        assert!(resolve_reference("@e1", &refs).is_some());
-        assert!(resolve_reference("e1", &refs).is_some());
+        assert_eq!(
+            resolve_reference("@e1", &refs).map(|target| target.unique),
+            Some(true)
+        );
+        assert_eq!(
+            resolve_reference("e1", &refs).map(|target| target.unique),
+            Some(true)
+        );
         assert!(
             action_target(
                 &Action::Click {
@@ -251,6 +267,24 @@ mod tests {
                 &refs,
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn duplicate_snapshot_targets_are_not_reported_as_unique() {
+        let mut refs = refs();
+        refs.push(ElementRef {
+            id: "e2".to_owned(),
+            role: "button".to_owned(),
+            name: "Place order".to_owned(),
+        });
+        assert_eq!(
+            resolve_reference("e1", &refs).map(|target| target.unique),
+            Some(false)
+        );
+        assert_eq!(
+            resolve_reference("e2", &refs).map(|target| target.unique),
+            Some(false)
         );
     }
 

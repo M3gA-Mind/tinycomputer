@@ -202,6 +202,7 @@ async fn describe_schemas_name_every_request_field() {
     };
 
     let start = StartTaskRequest {
+        handoff_to_planner: true,
         output: Some(tinycomputer_bus::agent::TaskOutput::default()),
         fact_handles: std::collections::BTreeMap::from([(
             "card number".to_owned(),
@@ -216,6 +217,10 @@ async fn describe_schemas_name_every_request_field() {
     let start = serde_json::to_value(start).unwrap();
     let start_schema = schema("StartTask");
     assert_eq!(documented(&start_schema), fields(&start));
+    assert_eq!(
+        start_schema["properties"]["handoff_to_planner"]["default"],
+        false
+    );
     // The host's own settings are no model's to set, so they are not offered.
     let offered = fields(&start["constraints"])
         .into_iter()

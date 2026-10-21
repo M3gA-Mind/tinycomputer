@@ -130,6 +130,27 @@ impl FlowRunner for BrowserRunner {
         self.run_with_runtime(task, constraints, request, &self.runtime)
     }
 
+    fn page_origin(&self, task: &TaskId) -> super::PageOriginFuture {
+        let Some(session) = self.session_id(task) else {
+            return Box::pin(async { None });
+        };
+        let browser = self.browser.clone();
+        Box::pin(async move {
+            let url = browser
+                .list_sessions()
+                .await
+                .ok()?
+                .into_iter()
+                .find(|info| info.id == session)?
+                .url;
+            let url = url::Url::parse(&url).ok()?;
+            if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+                return None;
+            }
+            Some(format!("https://{}/", url.host_str()?))
+        })
+    }
+
     fn run_with_usage(
         &self,
         task: &TaskId,

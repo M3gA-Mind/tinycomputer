@@ -2,11 +2,11 @@
 //! flows in order, interpreting where each stopped, and finishing it.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
-use tinycomputer_bus::FLOW_GUIDE;
 use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskId, TaskStatus};
+use tinycomputer_bus::{FLOW_GUIDE, FlowAction};
 
 use super::artifact::{capture, captured};
 use super::budget::{elapsed_budget_failed, run_request, stop_task};
@@ -240,6 +240,402 @@ async fn prepare_page(
     }
 }
 
+/// Plans the rest of a task after a supplied flow prefix. The runner is not
+/// prepared or opened here: it still owns the page the prefix left current.
+async fn plan_handoff(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+) -> Result<Option<tinycomputer_bus::Flow>, String> {
+    let (task, surfaces, facts, planner) = {
+        let state = cell
+            .state
+            .lock()
+            .map_err(|_| "task state is unavailable".to_owned())?;
+        (
+            state.goal.clone(),
+            state.constraints.surfaces.clone(),
+            state.facts.clone(),
+            cell.planner.clone(),
+        )
+    };
+    if task.trim().is_empty() {
+        return Err("the handoff task text is empty".to_owned());
+    }
+    let (plan, origin) =
+        draft_from_current_page(cell, runner, task, surfaces, facts.clone(), planner).await?;
+    validate_handoff_plan(cell, plan, &facts, &origin)
+}
+
+async fn draft_from_current_page(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+    task: String,
+    surfaces: Vec<SurfaceKind>,
+    facts: tinycomputer_core::Facts,
+    planner: Option<crate::planner::Planner>,
+) -> Result<(tinycomputer_bus::agent::TaskPlan, String), String> {
+    let usage = task_usage(cell);
+    let before_calls = usage.snapshot().planner.calls;
+    let budget_left = {
+        let state = cell
+            .state
+            .lock()
+            .map_err(|_| "task state is unavailable".to_owned())?;
+        let calls_left = state
+            .budget
+            .max_model_calls
+            .unwrap_or(super::DEFAULT_MODEL_CALLS)
+            .saturating_sub(state.spent.model_calls);
+        let elapsed_left = state
+            .budget
+            .max_elapsed_ms
+            .map(|max| max.saturating_sub(state.spent.elapsed_ms));
+        if calls_left == 0 {
+            return Err(
+                "the task has no model calls remaining for continuation planning".to_owned(),
+            );
+        }
+        if elapsed_left == Some(0) {
+            return Err("the task has no time remaining for continuation planning".to_owned());
+        }
+        elapsed_left
+    };
+    // Drop also charges elapsed time and started planner calls if this future
+    // is cancelled while the model is still responding.
+    let mut debit = PlanningDebit::new(Arc::downgrade(cell), Arc::clone(&usage), before_calls);
+    let id = cell.view.borrow().id.clone();
+    let origin_future = runner.page_origin(&id);
+    let origin = if let Some(ms) = budget_left {
+        tokio::time::timeout(Duration::from_millis(ms), origin_future)
+            .await
+            .map_err(|_| "reading the current page exceeded the task time budget".to_owned())?
+    } else {
+        origin_future.await
+    }
+    .ok_or_else(|| "the current browser origin is unavailable".to_owned())?;
+    let planning_task = runner.redact(
+        &id,
+        &format!(
+            "{task}\n\n{}\nContinue this same task from the current page at {origin}. The current browser session is still open. Do not open or browse to the shop start page again, and do not repeat the completed prefix actions. Inspect the current page before choosing the next action.",
+            successful_prefix_summary(cell)
+        ),
+    );
+    let plan = run_handoff_planner(
+        cell,
+        runner,
+        HandoffDraft {
+            task: planning_task.clone(),
+            surfaces,
+            facts,
+            planner,
+            budget_left,
+        },
+        &mut debit,
+    )
+    .await?;
+    drop(debit);
+    ensure_handoff_budget(cell)?;
+    Ok((plan, origin))
+}
+
+fn successful_prefix_summary(cell: &Cell) -> String {
+    let Ok(state) = cell.state.lock() else {
+        return "The safe prefix completed; its action structure is unavailable.".to_owned();
+    };
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for report in &state.steps {
+        if !matches!(
+            report.outcome,
+            tinycomputer_bus::StepOutcome::Done | tinycomputer_bus::StepOutcome::AlreadyDone
+        ) {
+            continue;
+        }
+        let category = match report.kind.as_str() {
+            "browse" => "navigation",
+            "do" => "browser interaction",
+            "wait_for" => "page wait",
+            "verify" => "page check",
+            _ => continue,
+        };
+        *counts.entry(category).or_default() += 1;
+    }
+    if counts.is_empty() {
+        return "The safe recipe prefix completed; no successful replayable action classes were recorded.".to_owned();
+    }
+    let steps = counts
+        .into_iter()
+        .map(|(kind, count)| format!("{count} completed {kind} step(s)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Completed safe-prefix structure: {steps}. Do not repeat these steps.")
+}
+
+async fn run_handoff_planner(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+    draft: HandoffDraft,
+    debit: &mut PlanningDebit,
+) -> Result<tinycomputer_bus::agent::TaskPlan, String> {
+    let planning = draft_handoff(
+        cell,
+        runner,
+        draft.task.clone(),
+        draft.surfaces,
+        draft.facts,
+        draft.planner,
+    );
+    let result = if let Some(ms) = draft.budget_left {
+        let remaining = ms
+            .saturating_sub(u64::try_from(debit.started.elapsed().as_millis()).unwrap_or(u64::MAX));
+        tokio::time::timeout(Duration::from_millis(remaining), planning)
+            .await
+            .map_err(|_| "continuation planning exceeded the task time budget".to_owned())?
+    } else {
+        planning.await
+    };
+    match result {
+        Ok(plan) => Ok(plan),
+        Err(reason) if runner.plan_recovery_enabled() => {
+            debit.charge();
+            let remaining_calls = {
+                let state = cell
+                    .state
+                    .lock()
+                    .map_err(|_| "task state is unavailable".to_owned())?;
+                state
+                    .budget
+                    .max_model_calls
+                    .unwrap_or(super::DEFAULT_MODEL_CALLS)
+                    .saturating_sub(state.spent.model_calls)
+            };
+            if remaining_calls == 0 {
+                return Err(reason);
+            }
+            let flow =
+                super::plan_recovery::host_plan(cell, runner, draft.task, FLOW_GUIDE.to_owned())
+                    .await
+                    .map_err(|recovery| format!("{reason}; host recovery failed: {recovery}"))?;
+            Ok(tinycomputer_bus::agent::TaskPlan {
+                flow,
+                questions: Vec::new(),
+                notes: Vec::new(),
+            })
+        }
+        Err(reason) => Err(reason),
+    }
+}
+
+struct HandoffDraft {
+    task: String,
+    surfaces: Vec<SurfaceKind>,
+    facts: tinycomputer_core::Facts,
+    planner: Option<crate::planner::Planner>,
+    budget_left: Option<u64>,
+}
+
+fn ensure_handoff_budget(cell: &Cell) -> Result<(), String> {
+    let state = cell
+        .state
+        .lock()
+        .map_err(|_| "task state is unavailable".to_owned())?;
+    if state.spent.model_calls
+        > state
+            .budget
+            .max_model_calls
+            .unwrap_or(super::DEFAULT_MODEL_CALLS)
+    {
+        return Err("continuation planning exhausted the task model call budget".to_owned());
+    }
+    if state
+        .budget
+        .max_elapsed_ms
+        .is_some_and(|max| state.spent.elapsed_ms > max)
+    {
+        return Err("continuation planning exhausted the task time budget".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_handoff_plan(
+    cell: &Arc<Cell>,
+    plan: tinycomputer_bus::agent::TaskPlan,
+    facts: &tinycomputer_core::Facts,
+    origin: &str,
+) -> Result<Option<tinycomputer_bus::Flow>, String> {
+    let known = super::names::known_names(&plan.flow, facts);
+    let fact_names = super::names::fact_names(facts);
+    let errors = crate::agentic::check_flow(&plan.flow, &known, &fact_names)
+        .errors
+        .into_iter()
+        .filter(|error| !super::names::is_undefined(error))
+        .collect::<Vec<_>>();
+    if plan.flow.steps.is_empty() || !errors.is_empty() {
+        return Err(if plan.flow.steps.is_empty() {
+            "the planner returned an empty continuation".to_owned()
+        } else {
+            format!(
+                "the planner returned an invalid continuation: {}",
+                errors.join("; ")
+            )
+        });
+    }
+    if reopens_origin(&plan.flow, origin) {
+        return Err("the planner tried to reopen the current shop's start page".to_owned());
+    }
+    let missing = crate::agentic::missing_inputs(&plan.flow, &known, &fact_names);
+    let waiting = if plan.questions.is_empty() {
+        (!missing.is_empty()).then(|| super::publish::needs_input(&missing))
+    } else {
+        Some(TaskStatus::NeedsInput {
+            fields: plan.questions,
+        })
+    };
+    if let Ok(mut state) = cell.state.lock() {
+        state.flow = plan.flow.clone();
+    }
+    if let Some(status) = waiting {
+        publish(
+            cell,
+            status,
+            "The remaining task needs values before it can continue.",
+        );
+        return Ok(None);
+    }
+    Ok(Some(plan.flow))
+}
+
+struct PlanningDebit {
+    cell: Weak<Cell>,
+    usage: Arc<crate::UsageRecorder>,
+    planner_calls_before: u64,
+    started: Instant,
+    charged: bool,
+}
+
+impl PlanningDebit {
+    fn new(cell: Weak<Cell>, usage: Arc<crate::UsageRecorder>, planner_calls_before: u64) -> Self {
+        Self {
+            cell,
+            usage,
+            planner_calls_before,
+            started: Instant::now(),
+            charged: false,
+        }
+    }
+
+    fn charge(&mut self) {
+        if self.charged {
+            return;
+        }
+        self.charged = true;
+        let calls = self
+            .usage
+            .snapshot()
+            .planner
+            .calls
+            .saturating_sub(self.planner_calls_before);
+        let calls = u32::try_from(calls).unwrap_or(u32::MAX);
+        if let Some(cell) = self.cell.upgrade()
+            && let Ok(mut state) = cell.state.lock()
+        {
+            state.spent.model_calls = state.spent.model_calls.saturating_add(calls);
+            state.spent.elapsed_ms = state.spent.elapsed_ms.saturating_add(
+                u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            );
+        }
+    }
+}
+
+impl Drop for PlanningDebit {
+    fn drop(&mut self) {
+        self.charge();
+    }
+}
+
+fn reopens_origin(flow: &tinycomputer_bus::Flow, origin: &str) -> bool {
+    let Ok(origin) = url::Url::parse(origin) else {
+        return true;
+    };
+    if origin.scheme() != "https" || !origin.username().is_empty() || origin.password().is_some() {
+        return true;
+    }
+    flow.steps.iter().any(|step| {
+        let FlowAction::Browse(url) = step.action() else {
+            return false;
+        };
+        let Ok(url) = url::Url::parse(&url) else {
+            return false;
+        };
+        url.scheme() == "https"
+            && url.host_str() == origin.host_str()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && is_front_page(url.path())
+    })
+}
+
+fn is_front_page(path: &str) -> bool {
+    let segments = path
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty());
+    let segments = segments.collect::<Vec<_>>();
+    segments.len() <= 2
+        && segments.iter().all(|segment| {
+            let bytes = segment.as_bytes();
+            (bytes.len() == 2 && bytes.iter().all(u8::is_ascii_alphabetic))
+                || (bytes.len() == 5
+                    && bytes[..2].iter().all(u8::is_ascii_alphabetic)
+                    && matches!(bytes[2], b'-' | b'_')
+                    && bytes[3..].iter().all(u8::is_ascii_alphabetic))
+        })
+}
+
+async fn draft_handoff(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+    task: String,
+    surfaces: Vec<SurfaceKind>,
+    facts: tinycomputer_core::Facts,
+    planner: Option<crate::planner::Planner>,
+) -> Result<tinycomputer_bus::agent::TaskPlan, String> {
+    if let Some(planner) = planner {
+        let planner = planner.with_usage_recorder(task_usage(cell));
+        let started = Instant::now();
+        let names = facts
+            .names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let secrets = facts
+            .secret_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let (outcome, used) = planner
+            .plan_measured(&task, &names, &secrets, &surfaces)
+            .await;
+        let id = cell.view.borrow().id.clone();
+        runner.journal(Some(&id), "plan", &|| {
+            super::timing::planned(&outcome, used, started.elapsed(), planner.configuration())
+        });
+        match outcome {
+            Ok(plan) => Ok(plan),
+            Err(reason) => Err(reason),
+        }
+    } else if runner.plan_recovery_enabled() {
+        let flow =
+            super::plan_recovery::host_plan(cell, runner, task, FLOW_GUIDE.to_owned()).await?;
+        Ok(tinycomputer_bus::agent::TaskPlan {
+            flow,
+            questions: Vec::new(),
+            notes: Vec::new(),
+        })
+    } else {
+        Err("no planner or host plan-recovery hook is configured".to_owned())
+    }
+}
+
 /// Runs a task's flows in order until one stops it or all finish.
 ///
 /// A task's [`TaskBudget`] bounds the whole task, not one run of it: an
@@ -273,54 +669,29 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
         };
         let spent_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let (next, result) = run_outcome(&run.flow, &reply, constraints.payment);
+        let completed = result
+            .as_ref()
+            .is_some_and(|result| result.stop == tinycomputer_bus::FlowStopReason::Completed);
         let reached = result
             .as_ref()
             .map_or_else(Vec::new, |result| result.steps.clone());
-        let redacted = {
-            let Ok(mut state) = cell.state.lock() else {
-                return;
-            };
-            state.spent.elapsed_ms = state.spent.elapsed_ms.saturating_add(spent_ms);
-            if let Some(rescue) = run.rescue.and_then(|index| state.rescues.get_mut(index)) {
-                rescue.outcome = rescue_outcome(&reached, rescue.steps.len());
-            }
-            state.dialog_left_open = result
-                .as_ref()
-                .is_some_and(|result| result.dialog_left_open);
-            if let Some(result) = result {
-                state.spent.actions = state.spent.actions.saturating_add(result.actions);
-                state.spent.model_calls =
-                    state.spent.model_calls.saturating_add(result.metrics.calls);
-                state.finished += finished(&result.steps);
-                state.steps.extend(result.steps);
-                state.exchanges.extend(result.trace);
-                state.learned.extend(result.learned);
-                // A variable the flow declares is the caller's input unless
-                // a step writes it: a planner declares each read's variable
-                // up front, empty, while one the flow defines from the
-                // caller's values (`"recipient": "${email}"`) is expanded as
-                // the run starts, so a changed value alone tells nothing.
-                let written = written_names(&run.flow.steps);
-                for (name, value) in result.vars {
-                    let read = match run.flow.vars.get(&name) {
-                        None => true,
-                        Some(declared) => written.contains(&name) && *declared != value,
-                    };
-                    if read && state.facts.get(&name).is_none() {
-                        state.reads.insert(name, value);
-                    }
-                }
-            }
-            if let Next::Stop { resume, .. } = &next {
-                state.resume.clone_from(resume);
-                if state.payment_checkpoint == PaymentCheckpointState::Unavailable
-                    && matches!(resume, Some(super::interpret::Resume::PaymentCheckpoint))
-                {
-                    state.payment_checkpoint = PaymentCheckpointState::Available;
-                }
-            }
-            state.facts.clone()
+        let Some((handoff, redacted)) = record_run(
+            &cell,
+            &run,
+            &next,
+            result,
+            &reached,
+            spent_ms,
+            completed && runs.is_empty(),
+        ) else {
+            return;
         };
+        if handoff {
+            if !queue_handoff(&cell, runner.as_ref(), &mut runs).await {
+                return;
+            }
+            continue;
+        }
         if let Next::Stop { status, .. } = next {
             let status = human_wall(&cell, runner.as_ref(), *status).await;
             let status = match rescued(&cell, runner.as_ref(), &run, status, reached).await {
@@ -331,6 +702,13 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
                 }
             };
             let status = captured(&cell, runner.as_ref(), status).await;
+            if matches!(
+                status,
+                TaskStatus::Checkpoint { .. } | TaskStatus::Failed { .. } | TaskStatus::Cancelled
+            ) && let Ok(mut state) = cell.state.lock()
+            {
+                state.handoff_to_planner = false;
+            }
             let summary = redacted.redact(&stopped_summary(&status));
             let ended = matches!(
                 status,
@@ -344,6 +722,92 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
         }
     }
     finish(&cell, runner.as_ref()).await;
+}
+
+async fn queue_handoff(
+    cell: &Arc<Cell>,
+    runner: &dyn FlowRunner,
+    runs: &mut VecDeque<Run>,
+) -> bool {
+    match plan_handoff(cell, runner).await {
+        Ok(Some(flow)) => {
+            let allow = cell
+                .state
+                .lock()
+                .is_ok_and(|state| state.constraints.allow_destructive);
+            runs.push_front(Run {
+                flow,
+                allow_destructive: allow,
+                rescue: None,
+            });
+            true
+        }
+        Ok(None) => false,
+        Err(reason) => {
+            let id = cell.view.borrow().id.clone();
+            runner.release(&id);
+            let reason = runner.redact(&id, &reason);
+            publish(
+                cell,
+                TaskStatus::Failed {
+                    step: None,
+                    reason: reason.clone(),
+                    hint: "the recipe prefix ran, but the task could not be planned from the current page".to_owned(),
+                    recoverable: true,
+                },
+                &format!("Planning the remaining task failed: {reason}"),
+            );
+            false
+        }
+    }
+}
+
+fn record_run(
+    cell: &Cell,
+    run: &Run,
+    next: &Next,
+    result: Option<tinycomputer_bus::FlowRunResult>,
+    reached: &[tinycomputer_bus::StepReport],
+    spent_ms: u64,
+    handoff_ready: bool,
+) -> Option<(bool, tinycomputer_core::Facts)> {
+    let mut state = cell.state.lock().ok()?;
+    state.spent.elapsed_ms = state.spent.elapsed_ms.saturating_add(spent_ms);
+    if let Some(rescue) = run.rescue.and_then(|index| state.rescues.get_mut(index)) {
+        rescue.outcome = rescue_outcome(reached, rescue.steps.len());
+    }
+    if let Some(result) = result {
+        state.dialog_left_open = result.dialog_left_open;
+        state.spent.actions = state.spent.actions.saturating_add(result.actions);
+        state.spent.model_calls = state.spent.model_calls.saturating_add(result.metrics.calls);
+        state.finished += finished(&result.steps);
+        state.steps.extend(result.steps);
+        state.exchanges.extend(result.trace);
+        state.learned.extend(result.learned);
+        let written = written_names(&run.flow.steps);
+        for (name, value) in result.vars {
+            let read = match run.flow.vars.get(&name) {
+                None => true,
+                Some(declared) => written.contains(&name) && *declared != value,
+            };
+            if read && state.facts.get(&name).is_none() {
+                state.reads.insert(name, value);
+            }
+        }
+    }
+    let handoff = handoff_ready && state.handoff_to_planner;
+    if handoff {
+        state.handoff_to_planner = false;
+    }
+    if let Next::Stop { resume, .. } = next {
+        state.resume.clone_from(resume);
+        if state.payment_checkpoint == PaymentCheckpointState::Unavailable
+            && matches!(resume, Some(super::interpret::Resume::PaymentCheckpoint))
+        {
+            state.payment_checkpoint = PaymentCheckpointState::Available;
+        }
+    }
+    Some((handoff, state.facts.clone()))
 }
 
 /// Every run finished: the task is done, with what it read, shaped as its
