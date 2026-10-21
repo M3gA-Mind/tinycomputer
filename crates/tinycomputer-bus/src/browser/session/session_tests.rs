@@ -182,7 +182,7 @@ fn a_minimal_metadata_and_screen_fill_their_defaults() {
     assert_eq!(metadata.platform, "Windows");
     assert_eq!(metadata.platform_version, "");
     assert!(!metadata.mobile);
-    assert_eq!(options.screen.expect("screen").device_scale_factor, 1.0);
+    assert!((options.screen.expect("screen").device_scale_factor - 1.0).abs() <= f64::EPSILON);
 }
 
 #[test]
