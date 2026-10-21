@@ -270,7 +270,13 @@ async fn a_response_chunk_survives_upload_completion_while_the_client_is_backpre
             assert_ne!(n, 0);
             request.extend_from_slice(&chunk[..n]);
         }
-        socket
+        let (mut reader, mut writer) = socket.into_split();
+        let request_reader = tokio::spawn(async move {
+            let mut body = Vec::new();
+            reader.read_to_end(&mut body).await.unwrap();
+            body
+        });
+        writer
             .write_all(
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {RESPONSE_BODY_LENGTH}\r\nConnection: close\r\n\r\n"
@@ -280,7 +286,9 @@ async fn a_response_chunk_survives_upload_completion_while_the_client_is_backpre
             .await
             .unwrap();
         let body = vec![b'x'; RESPONSE_BODY_LENGTH];
-        socket.write_all(&body).await.unwrap();
+        writer.write_all(&body).await.unwrap();
+        writer.shutdown().await.unwrap();
+        request_reader.await.unwrap()
     });
     let proxy = EgressProxy::bind(
         Arc::new(FixtureAuthorizer {
@@ -327,5 +335,5 @@ async fn a_response_chunk_survives_upload_completion_while_the_client_is_backpre
             .iter()
             .all(|byte| *byte == b'x')
     );
-    server.await.unwrap();
+    assert_eq!(server.await.unwrap().len(), REQUEST_BODY_LENGTH);
 }
