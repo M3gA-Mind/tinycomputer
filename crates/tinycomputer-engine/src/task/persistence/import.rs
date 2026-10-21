@@ -213,9 +213,9 @@ fn build_cell(
             dialog_left_open: task.dialog_left_open,
             finished: task.finished,
             resume: task.resume,
-            payment_checkpoint: super::store::PaymentCheckpointState::Unavailable,
+            payment_checkpoint: crate::task::store::PaymentCheckpointState::Unavailable,
             spent: task.spent,
-            host_work: super::store::HostWorkState::Open,
+            host_work: crate::task::store::HostWorkState::Open,
             rescues: task.rescues,
             output: task.output,
             artifacts: task.artifacts,
@@ -238,8 +238,8 @@ fn missing_inputs(
     omitted_secrets: &BTreeSet<String>,
 ) -> Result<Vec<String>, PausedTaskError> {
     let missing_for = |flow: &Flow| {
-        let known = super::names::known_names(flow, facts);
-        let fact_names = super::names::fact_names(facts);
+        let known = crate::task::names::known_names(flow, facts);
+        let fact_names = crate::task::names::fact_names(facts);
         crate::agentic::missing_inputs(flow, &known, &fact_names)
     };
     let mut missing = missing_for(flow);

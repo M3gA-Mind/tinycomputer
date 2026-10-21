@@ -1,5 +1,7 @@
 //! Errors returned while saving and restoring paused tasks.
 
+use tinycomputer_bus::agent::TaskId;
+
 /// Why a paused task could not be saved or restored.
 #[derive(Debug)]
 pub enum PausedTaskError {

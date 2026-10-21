@@ -25,4 +25,5 @@ mod import;
 mod types;
 
 pub use error::PausedTaskError;
+pub(super) use export::{resumable, validate_pause};
 pub(super) use types::{Envelope, PausedTask};

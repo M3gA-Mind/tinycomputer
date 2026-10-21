@@ -115,7 +115,7 @@ impl Tasks {
     }
 }
 
-fn resumable(status: &TaskStatus) -> bool {
+pub(super) fn resumable(status: &TaskStatus) -> bool {
     matches!(
         status,
         TaskStatus::NeedsInput { .. }
@@ -124,7 +124,7 @@ fn resumable(status: &TaskStatus) -> bool {
     )
 }
 
-fn validate_pause(
+pub(super) fn validate_pause(
     status: &TaskStatus,
     resume: Option<&Resume>,
     return_after_input: Option<&TaskStatus>,

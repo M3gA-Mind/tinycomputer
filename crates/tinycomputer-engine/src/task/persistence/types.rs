@@ -4,38 +4,38 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Envelope {
-    version: u32,
-    task: PausedTask,
+pub struct Envelope {
+    pub(super) version: u32,
+    pub(super) task: PausedTask,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PausedTask {
-    id: TaskId,
-    view: TaskView,
-    flow: Flow,
+pub struct PausedTask {
+    pub(super) id: TaskId,
+    pub(super) view: TaskView,
+    pub(super) flow: Flow,
     #[serde(default)]
-    handoff_to_planner: bool,
-    goal: String,
-    shared_facts: BTreeMap<String, String>,
-    secret_handles: BTreeMap<String, tinycomputer_bus::agent::SecretHandle>,
-    omitted_secrets: BTreeSet<String>,
-    constraints: TaskConstraints,
-    budget: tinycomputer_bus::agent::TaskBudget,
-    memory: Vec<GroundingHint>,
-    trace: bool,
-    steps: Vec<StepReport>,
-    exchanges: Vec<JevExchange>,
-    learned: Vec<GroundingHint>,
-    reads: BTreeMap<String, String>,
-    dialog_left_open: bool,
-    finished: usize,
-    resume: Option<Resume>,
-    return_after_input: Option<TaskStatus>,
-    spent: Spent,
-    rescues: Vec<Rescue>,
-    output: Option<tinycomputer_bus::agent::TaskOutput>,
-    artifacts: Vec<tinycomputer_bus::browser::OutputRef>,
-    usage: TaskUsage,
+    pub(super) handoff_to_planner: bool,
+    pub(super) goal: String,
+    pub(super) shared_facts: BTreeMap<String, String>,
+    pub(super) secret_handles: BTreeMap<String, tinycomputer_bus::agent::SecretHandle>,
+    pub(super) omitted_secrets: BTreeSet<String>,
+    pub(super) constraints: TaskConstraints,
+    pub(super) budget: tinycomputer_bus::agent::TaskBudget,
+    pub(super) memory: Vec<GroundingHint>,
+    pub(super) trace: bool,
+    pub(super) steps: Vec<StepReport>,
+    pub(super) exchanges: Vec<JevExchange>,
+    pub(super) learned: Vec<GroundingHint>,
+    pub(super) reads: BTreeMap<String, String>,
+    pub(super) dialog_left_open: bool,
+    pub(super) finished: usize,
+    pub(super) resume: Option<Resume>,
+    pub(super) return_after_input: Option<TaskStatus>,
+    pub(super) spent: Spent,
+    pub(super) rescues: Vec<Rescue>,
+    pub(super) output: Option<tinycomputer_bus::agent::TaskOutput>,
+    pub(super) artifacts: Vec<tinycomputer_bus::browser::OutputRef>,
+    pub(super) usage: TaskUsage,
 }
