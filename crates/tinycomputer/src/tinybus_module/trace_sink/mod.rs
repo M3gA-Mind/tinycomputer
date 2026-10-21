@@ -53,11 +53,11 @@ enum Command {
 }
 
 /// The synchronous sink adapter, backed by a worker that owns the bus calls.
-#[derive(Clone)]
 pub(crate) struct TraceLink {
     connection: Connection,
     destination: tinybus::BusName,
-    worker: SyncSender<Command>,
+    worker: std::sync::Mutex<Option<SyncSender<Command>>>,
+    worker_thread: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     callback_active: Arc<AtomicBool>,
     confidential: bool,
 }
@@ -100,7 +100,7 @@ impl TraceLink {
             ));
         }
         let (sender, receiver) = mpsc::sync_channel(1);
-        std::thread::Builder::new()
+        let worker_thread = std::thread::Builder::new()
             .name("tinycomputer-trace-sink".into())
             .spawn(move || {
                 worker(
@@ -116,15 +116,55 @@ impl TraceLink {
         Ok(Arc::new(Self {
             connection,
             destination,
-            worker: sender,
+            worker: std::sync::Mutex::new(Some(sender)),
+            worker_thread: std::sync::Mutex::new(Some(worker_thread)),
             callback_active,
             confidential,
         }))
     }
 
+    pub(crate) fn shutdown(&self) -> TinyBusResult<()> {
+        let sender = self
+            .worker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        drop(sender);
+
+        let mut worker_thread = self
+            .worker_thread
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(worker_thread) = worker_thread.take() {
+            worker_thread
+                .join()
+                .map_err(|_| TinyBusError::failed("trace sink worker panicked during shutdown"))?;
+        }
+
+        let deadline = Instant::now() + CALL_TIMEOUT + Duration::from_secs(1);
+        while self.callback_active.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        if self.callback_active.load(Ordering::Acquire) {
+            return Err(TinyBusError::failed(
+                "trace sink callback did not finish during shutdown",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn write_report(&self, record: TaskReportRecord) -> TinyBusResult<()> {
-        let _guard = CallbackGuard::try_acquire(&self.callback_active)
-            .ok_or_else(|| TinyBusError::failed("trace sink callback is busy"))?;
+        let _guard = {
+            let worker = self
+                .worker
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if worker.is_none() {
+                return Err(TinyBusError::failed("trace sink worker stopped"));
+            }
+            CallbackGuard::try_acquire(&self.callback_active)
+                .ok_or_else(|| TinyBusError::failed("trace sink callback is busy"))?
+        };
         call_to_host::<SinkAck, _>(
             &self.proxy(CALL_TIMEOUT)?,
             trace_sink::methods::WRITE_REPORT,
@@ -300,6 +340,12 @@ impl Drop for CallbackGuard<'_> {
     }
 }
 
+impl Drop for TraceLink {
+    fn drop(&mut self) {
+        let _ = self.shutdown();
+    }
+}
+
 fn operation_deadline(deadline: TraceSinkDeadline) -> Option<Instant> {
     let remaining = deadline.remaining();
     (!remaining.is_zero())
@@ -336,21 +382,15 @@ impl EngineTraceSink for TraceLink {
         let timeout = remaining_timeout(deadline)
             .ok_or_else(|| TraceSinkError::Internal("trace sink deadline expired".into()))?;
         let (reply, result) = mpsc::sync_channel(1);
-        self.worker
-            .try_send(Command::Append {
+        send(
+            &self.worker,
+            Command::Append {
                 record: record.clone(),
                 deadline,
                 byte_budget,
                 reply,
-            })
-            .map_err(|error| match error {
-                TrySendError::Full(_) => {
-                    TraceSinkError::Internal("trace sink worker is busy".into())
-                }
-                TrySendError::Disconnected(_) => {
-                    TraceSinkError::Internal("trace sink worker stopped".into())
-                }
-            })?;
+            },
+        )?;
         receive(&result, timeout)
             .map_err(|_| TraceSinkError::Internal("trace sink acknowledgment timed out".into()))?
             .map_err(|()| TraceSinkError::Internal("trace sink rejected event".into()))
@@ -376,8 +416,9 @@ impl EngineTraceSink for TraceLink {
             EngineArtifactKind::Screenshot => TraceArtifactKind::Screenshot,
             EngineArtifactKind::RefMap => TraceArtifactKind::RefMap,
         };
-        self.worker
-            .try_send(Command::StoreArtifact {
+        send(
+            &self.worker,
+            Command::StoreArtifact {
                 kind,
                 name: artifact.name.to_owned(),
                 bytes: artifact.bytes.to_vec(),
@@ -388,21 +429,32 @@ impl EngineTraceSink for TraceLink {
                     refmap_bytes: limits.refmap_bytes,
                 },
                 reply,
-            })
-            .map_err(|error| match error {
-                TrySendError::Full(_) => {
-                    TraceSinkError::Internal("trace sink worker is busy".into())
-                }
-                TrySendError::Disconnected(_) => {
-                    TraceSinkError::Internal("trace sink worker stopped".into())
-                }
-            })?;
+            },
+        )?;
         receive(&result, timeout)
             .map_err(|_| {
                 TraceSinkError::Internal("trace artifact acknowledgment timed out".into())
             })?
             .map_err(|()| TraceSinkError::Internal("trace sink rejected artifact".into()))
     }
+}
+
+fn send(
+    worker: &std::sync::Mutex<Option<SyncSender<Command>>>,
+    command: Command,
+) -> std::result::Result<(), TraceSinkError> {
+    let worker = worker
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(worker) = worker.as_ref() else {
+        return Err(TraceSinkError::Internal("trace sink worker stopped".into()));
+    };
+    worker.try_send(command).map_err(|error| match error {
+        TrySendError::Full(_) => TraceSinkError::Internal("trace sink worker is busy".into()),
+        TrySendError::Disconnected(_) => {
+            TraceSinkError::Internal("trace sink worker stopped".into())
+        }
+    })
 }
 
 #[cfg(test)]

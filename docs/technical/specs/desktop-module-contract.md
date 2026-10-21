@@ -102,8 +102,9 @@ in order. `StoreArtifact` receives desktop trace screenshots and reference maps
 as standard padded base64, capped at 8 MiB decoded, and returns their committed
 opaque references. `WriteReport` receives a task id and the full `TaskReport`
 whenever the caller requests `TaskReport`. The host acknowledges each write;
-trace failures follow `trace_strict`, while a report
-write failure is returned to the report caller. Sink mode has no local
+trace failures follow `trace_strict`, while a report write failure returns a
+recoverable `TRACE_SINK_FAILED` agent response. Terminal Globe shutdown joins
+the trace worker before module unload. Sink mode has no local
 file/session fallback, even when its host callback fails. Without the explicit
 configuration, existing desktop trace path and session behavior remain in
 effect. Hosts should upsert reports by task id because callers may request the
