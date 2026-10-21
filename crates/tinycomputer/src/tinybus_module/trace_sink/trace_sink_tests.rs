@@ -1,7 +1,10 @@
 //! Shared host fixtures for trace-sink callback and lifecycle tests.
 
+#[path = "trace_sink_tests/callbacks_tests.rs"]
 mod callbacks_tests;
+#[path = "trace_sink_tests/deadline_tests.rs"]
 mod deadline_tests;
+#[path = "trace_sink_tests/lifecycle_tests.rs"]
 mod lifecycle_tests;
 
 use super::*;
