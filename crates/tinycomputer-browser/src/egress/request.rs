@@ -1,12 +1,12 @@
 //! Parses and validates browser proxy requests before a destination is authorized.
 
-use std::io;
+use std::{io, time::Duration};
 
 mod body;
 pub(super) use body::{buffered_body_len, has_valid_buffered_body, read_request_body};
 
 use base64::Engine as _;
-use tokio::net::TcpStream;
+use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use super::{
     BrowserDialTarget,

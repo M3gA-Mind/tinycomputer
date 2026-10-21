@@ -1,6 +1,6 @@
 //! Streams validated fixed-length and chunked request bodies with bounded memory.
 
-use std::io;
+use std::{io, time::Duration};
 
 use tokio::io::AsyncReadExt;
 
@@ -10,7 +10,7 @@ mod chunked;
 
 use super::ProxyRequest;
 
-pub(super) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {
+pub(in crate::egress) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {
     if request.has_upgrade || request.connect || request.chunked {
         return true;
     }
@@ -18,7 +18,7 @@ pub(super) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {
     received <= request.body_len
 }
 
-pub(super) fn buffered_body_len(request: &ProxyRequest) -> usize {
+pub(in crate::egress) fn buffered_body_len(request: &ProxyRequest) -> usize {
     if request.has_upgrade || request.connect || request.chunked {
         0
     } else {
@@ -26,7 +26,7 @@ pub(super) fn buffered_body_len(request: &ProxyRequest) -> usize {
     }
 }
 
-pub(super) async fn read_request_body<C, U>(
+pub(in crate::egress) async fn read_request_body<C, U>(
     client: &mut C,
     upstream: &mut U,
     request: &ProxyRequest,
