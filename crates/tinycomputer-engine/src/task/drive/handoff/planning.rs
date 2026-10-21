@@ -10,8 +10,10 @@ use super::finish::task_usage;
 use super::planner::{HandoffDraft, PlanningDebit, run_handoff_planner};
 use super::validation::{ensure_handoff_budget, validate_handoff_plan};
 use crate::task::FlowRunner;
-use crate::task::store::{Cell,};
+use crate::task::store::Cell;
 
+/// Plans the rest of a task after a supplied flow prefix. The runner is not
+/// prepared or opened here: it still owns the page the prefix left current.
 pub(in crate::task) async fn plan_handoff(
     cell: &Arc<Cell>,
     runner: &dyn FlowRunner,
@@ -142,4 +144,3 @@ fn successful_prefix_summary(cell: &Cell) -> String {
         .join(", ");
     format!("Completed safe-prefix structure: {steps}. Do not repeat these steps.")
 }
-

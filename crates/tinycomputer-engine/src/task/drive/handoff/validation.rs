@@ -160,4 +160,3 @@ fn is_front_page(path: &str) -> bool {
                     && bytes[3..].iter().all(u8::is_ascii_alphabetic))
         })
 }
-

@@ -114,4 +114,3 @@ impl Drop for PlanningDebit {
         self.charge();
     }
 }
-

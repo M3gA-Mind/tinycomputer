@@ -97,6 +97,3 @@ pub(in crate::task) async fn prepare_page(
         }
     }
 }
-
-/// Plans the rest of a task after a supplied flow prefix. The runner is not
-/// prepared or opened here: it still owns the page the prefix left current.
