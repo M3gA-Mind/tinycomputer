@@ -4,10 +4,9 @@
     reason = "test assertions require fixture operations to succeed"
 )]
 use super::*;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+#[cfg(not(target_os = "macos"))]
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, atomic::Ordering};
 use tinycomputer_bus::accessibility::PermissionState;
 
 use super::fixture::Fixture;

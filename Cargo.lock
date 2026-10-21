@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "tinyinference-core"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "httpdate",
@@ -2916,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "tinyinference-decisions"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "httpdate",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "tinyinference-llm"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "tinyinference-providers"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "rand 0.10.3",
