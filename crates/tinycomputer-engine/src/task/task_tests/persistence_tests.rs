@@ -46,7 +46,9 @@ async fn a_paused_task_round_trips_into_a_fresh_controller() {
     assert!(!serialized.contains("swordfish-secret"));
     let snapshot: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
     assert_eq!(
-        snapshot["task"]["constraints"]["browser_profile"].as_str(),
+        snapshot
+            .pointer("/task/constraints/browser_profile")
+            .and_then(serde_json::Value::as_str),
         Some(profile.as_str())
     );
 
