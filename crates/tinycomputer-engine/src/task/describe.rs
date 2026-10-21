@@ -193,11 +193,24 @@ fn members() -> Vec<MemberDoc> {
         ),
         member(
             methods::CONTINUE_TASK,
-            "Answers a paused task: inputs for needs_input, approve for needs_approval.",
+            "Answers a paused task: values or host-held secret handles for needs_input, approve for needs_approval.",
             object(
                 json!({
                     "id": {"type": "string"},
                     "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
+                    "fact_handles": {
+                        "type": "object",
+                        "description": "Host-held secret values by input name. Only opaque handles and safe masks cross the engine boundary.",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "handle": {"type": "string"},
+                                "mask": {"type": "string"},
+                                "kind": {"type": "string"}
+                            },
+                            "required": ["handle", "mask", "kind"]
+                        }
+                    },
                     "approve": {"type": "boolean"},
                     "answer": {"type": "string"}
                 }),

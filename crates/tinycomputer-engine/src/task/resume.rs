@@ -8,7 +8,7 @@ use tinycomputer_bus::agent::{
     AgentError, AgentResponse, ContinueTaskRequest, TaskStatus, TaskView,
 };
 use tinycomputer_bus::{Flow, FlowAction, FlowStep};
-use tinycomputer_core::Facts;
+use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::Tasks;
 use super::errors::poisoned;
@@ -27,7 +27,33 @@ impl Tasks {
             return poisoned();
         };
         // A supplied value is secret when its name says so, like any other.
-        state.facts = state.facts.merged(&Facts::new(request.inputs));
+        // Handles stay with the host; only their opaque references enter task
+        // state and the model-facing request.
+        let supplied = match Facts::with_handles(
+            request.inputs,
+            request.fact_handles.into_iter().map(|(name, handle)| {
+                (
+                    name,
+                    SecretFactHandle {
+                        handle: handle.handle,
+                        mask: handle.mask,
+                        kind: handle.kind,
+                    },
+                )
+            }),
+            std::iter::empty::<String>(),
+        ) {
+            Ok(facts) => facts,
+            Err(error) => {
+                return AgentResponse::err(AgentError::new(
+                    "INVALID_SECRET_FACT",
+                    error.to_string(),
+                    "provide each secret input as a non-empty host handle with a unique name",
+                    true,
+                ));
+            }
+        };
+        state.facts = state.facts.merged(&supplied);
         let known = known_names(&state.flow, &state.facts);
         let facts = fact_names(&state.facts);
         let missing = crate::agentic::missing_inputs(&state.flow, &known, &facts);
