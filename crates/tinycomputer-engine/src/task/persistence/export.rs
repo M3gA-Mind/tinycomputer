@@ -5,8 +5,11 @@ use std::collections::BTreeMap;
 use tinycomputer_bus::agent::{TaskId, TaskStatus};
 use tinycomputer_core::Facts;
 
+use super::super::Tasks;
+use super::PausedTaskError;
+use super::VERSION;
 use super::types::{Envelope, PausedTask};
-use super::{PausedTaskError, Resume, Tasks, VERSION};
+use crate::task::interpret::Resume;
 
 impl Tasks {
     /// Encodes a task paused for input, approval, or human help.

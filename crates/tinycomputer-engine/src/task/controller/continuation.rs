@@ -4,8 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use tinycomputer_bus::agent::{
-    AgentError, AgentResponse, ContinueTaskRequest, PaymentMode, SecretHandle, TaskStatus,
-    TaskView,
+    AgentError, AgentResponse, ContinueTaskRequest, PaymentMode, SecretHandle, TaskStatus, TaskView,
 };
 use tinycomputer_core::{Facts, SecretFactHandle};
 
