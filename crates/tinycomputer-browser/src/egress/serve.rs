@@ -29,7 +29,7 @@ pub(super) async fn serve(
     .await
 }
 
-pub(crate) async fn serve_with_connector<C, F>(
+pub(super) async fn serve_with_connector<C, F>(
     mut client: TcpStream,
     auth: Arc<dyn EgressAuthorizer>,
     session_id: String,
@@ -49,37 +49,9 @@ where
     let Some(first_grant) = authorize(&auth, &request.target).await else {
         return refuse(&mut client).await;
     };
-    let addresses = first_grant.addresses.clone();
-    let mut connected = None;
-    for (index, address) in addresses.into_iter().enumerate() {
-        // A consume call spends its one-use grant. Reauthorize every later
-        // candidate so a failed dial cannot reuse a spent authorization.
-        let grant = if index == 0 {
-            first_grant.clone()
-        } else {
-            match authorize(&auth, &request.target).await {
-                Some(grant) if grant.addresses.contains(&address) => grant,
-                _ => continue,
-            }
-        };
-        if !matches!(
-            tokio::time::timeout(
-                Duration::from_secs(5),
-                auth.consume(request.target.clone(), grant.clone(), address),
-            )
-            .await,
-            Ok(Ok(()))
-        ) {
-            return refuse(&mut client).await;
-        }
-        if let Ok(Ok(upstream)) =
-            tokio::time::timeout(Duration::from_secs(5), connect(address)).await
-        {
-            connected = Some((upstream, grant.lease));
-            break;
-        }
-    }
-    let Some((mut upstream, lease)) = connected else {
+    let Some((mut upstream, lease)) =
+        connect_approved_addresses(&auth, &request.target, first_grant, &mut connect).await
+    else {
         return refuse(&mut client).await;
     };
     if !validate_lease(&auth, &lease).await? {
@@ -114,6 +86,49 @@ where
         }
     }
     Ok(())
+}
+
+pub(crate) async fn connect_approved_addresses<C, F>(
+    auth: &Arc<dyn EgressAuthorizer>,
+    target: &BrowserDialTarget,
+    first_grant: DialGrant,
+    connect: &mut C,
+) -> Option<(TcpStream, String)>
+where
+    C: FnMut(SocketAddr) -> F,
+    F: Future<Output = io::Result<TcpStream>>,
+{
+    let addresses = first_grant.addresses.clone();
+    let mut connected = None;
+    for (index, address) in addresses.into_iter().enumerate() {
+        // A consume call spends its one-use grant. Reauthorize every later
+        // candidate so a failed dial cannot reuse a spent authorization.
+        let grant = if index == 0 {
+            first_grant.clone()
+        } else {
+            match authorize(auth, target).await {
+                Some(grant) if grant.addresses.contains(&address) => grant,
+                _ => continue,
+            }
+        };
+        if !matches!(
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                auth.consume(target.clone(), grant.clone(), address),
+            )
+            .await,
+            Ok(Ok(()))
+        ) {
+            return None;
+        }
+        if let Ok(Ok(upstream)) =
+            tokio::time::timeout(Duration::from_secs(5), connect(address)).await
+        {
+            connected = Some((upstream, grant.lease));
+            break;
+        }
+    }
+    connected
 }
 
 async fn authorize(

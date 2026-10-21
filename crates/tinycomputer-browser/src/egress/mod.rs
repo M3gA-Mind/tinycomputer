@@ -16,7 +16,7 @@ mod request;
 mod serve;
 
 #[cfg(test)]
-pub(crate) use serve::serve_with_connector;
+pub(crate) use serve::connect_approved_addresses;
 
 #[cfg(test)]
 mod egress_tests;
