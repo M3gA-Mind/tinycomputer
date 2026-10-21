@@ -89,7 +89,7 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
-Browser egress (2.20): a host may serve the optional
+Browser egress (2.25): a host may serve the optional
 `ai.tinyhumans.tinycomputer.BrowserEgressHost` interface
 (`tinycomputer_bus::browser_egress`) with `Authorize`, `Consume`, and
 `Validate`. Before a browser proxy request is dialed, the module asks the host
