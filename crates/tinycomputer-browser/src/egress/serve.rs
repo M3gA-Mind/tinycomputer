@@ -9,7 +9,7 @@ use super::{
     forward::{
         forward_response_with_lease, initialize_upstream, refuse, tunnel_with_lease, validate_lease,
     },
-    request::{read_proxy_request, read_request_body},
+    request::{buffered_body_len, has_valid_buffered_body, read_proxy_request, read_request_body},
 };
 
 pub(super) async fn serve(
@@ -22,7 +22,7 @@ pub(super) async fn serve(
     else {
         return Ok(());
     };
-    if !read_request_body(&mut client, &mut request).await? {
+    if !has_valid_buffered_body(&request) {
         return refuse(&mut client).await;
     }
     let Some(first_grant) = authorize(&auth, &request.target).await else {
@@ -68,6 +68,13 @@ pub(super) async fn serve(
     if request.connect || request.has_upgrade {
         tunnel_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     } else {
+        read_request_body(
+            &mut client,
+            &mut upstream,
+            &request,
+            buffered_body_len(&request),
+        )
+        .await?;
         forward_response_with_lease(&mut client, &mut upstream, &auth, lease).await?;
     }
     Ok(())

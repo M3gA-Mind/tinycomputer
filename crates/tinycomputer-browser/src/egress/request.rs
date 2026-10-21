@@ -161,7 +161,7 @@ fn parse_proxy_headers(
                 return None;
             }
             saw_content_length = true;
-            body_len = value.trim().parse().unwrap_or(usize::MAX);
+            body_len = value.trim().parse().ok()?;
         } else if name.eq_ignore_ascii_case("transfer-encoding")
             || name.eq_ignore_ascii_case("expect")
         {
@@ -192,7 +192,7 @@ fn parse_proxy_headers(
     if has_upgrade != connection_upgrade
         || !host_matches
         || (connect && body_len != 0)
-        || (!connect && (body_len > 1024 * 1024 || (has_upgrade && body_len != 0)))
+        || (!connect && has_upgrade && body_len != 0)
     {
         return None;
     }
@@ -211,31 +211,53 @@ fn has_proxy_auth(proxy_authorization: Option<&str>, password: &str) -> bool {
     proxy_authorization
         .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
 }
-pub(super) async fn read_request_body(
-    client: &mut TcpStream,
-    request: &mut ProxyRequest,
-) -> io::Result<bool> {
+pub(super) fn has_valid_buffered_body(request: &ProxyRequest) -> bool {
     if request.has_upgrade || request.connect {
-        return Ok(true);
+        return true;
     }
     let received = request.bytes.len().saturating_sub(request.split);
-    if received > request.body_len {
-        return Ok(false);
+    received <= request.body_len
+}
+
+pub(super) fn buffered_body_len(request: &ProxyRequest) -> usize {
+    if request.has_upgrade || request.connect {
+        0
+    } else {
+        request.bytes.len().saturating_sub(request.split)
+    }
+}
+
+pub(super) async fn read_request_body(
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+    request: &ProxyRequest,
+    mut received: usize,
+) -> io::Result<()> {
+    if request.has_upgrade || request.connect {
+        return Ok(());
     }
     let mut chunk = [0u8; 1024];
-    while request.bytes.len().saturating_sub(request.split) < request.body_len {
+    while received < request.body_len {
         let n = tokio::time::timeout(Duration::from_secs(10), client.read(&mut chunk))
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "proxy body timed out"))??;
         if n == 0 {
-            return Ok(false);
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "browser request body ended early",
+            ));
         }
-        request.bytes.extend_from_slice(&chunk[..n]);
-        if request.bytes.len() > request.split + request.body_len {
-            return Ok(false);
+        let remaining = request.body_len - received;
+        if n > remaining {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "browser request body exceeded content length",
+            ));
         }
+        write_all_bounded(upstream, &chunk[..n], "browser upstream body timed out").await?;
+        received += n;
     }
-    Ok(true)
+    Ok(())
 }
 pub(crate) fn parse_authority(
     value: &str,
