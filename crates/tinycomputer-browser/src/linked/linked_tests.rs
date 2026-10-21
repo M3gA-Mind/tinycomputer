@@ -107,6 +107,23 @@ async fn a_closed_or_lost_browser_cannot_implicitly_launch_without_the_proxy() {
 }
 
 #[tokio::test]
+async fn an_exited_enforced_browser_can_still_be_closed() {
+    let mut engine = Linked {
+        state: DaemonState::with_options(state_options("close-exited")),
+        egress_authorizer: Some(Arc::new(RejectAll)),
+        proxy: None,
+        proxy_session_id: "private-session-id".into(),
+        enforced_launch: true,
+    };
+
+    let reply = engine.execute(json!({"id":"close","action":"close"})).await;
+
+    assert_eq!(reply["success"], true);
+    assert!(!engine.enforced_launch);
+    assert!(engine.proxy.is_none());
+}
+
+#[tokio::test]
 async fn enforced_browser_refuses_process_side_reads_with_a_url() {
     let mut engine = Linked {
         state: DaemonState::with_options(state_options("process-read")),
