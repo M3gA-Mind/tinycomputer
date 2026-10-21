@@ -1,10 +1,12 @@
 //! Validate continuation plans and prevent reopening the shop start page.
 
+use std::sync::Arc;
+
 use crate::task::publish::publish;
 use crate::task::store::Cell;
 use tinycomputer_bus::agent::TaskStatus;
 
-fn ensure_handoff_budget(cell: &Cell) -> Result<(), String> {
+pub(super) fn ensure_handoff_budget(cell: &Cell) -> Result<(), String> {
     let state = cell
         .state
         .lock()
@@ -27,7 +29,7 @@ fn ensure_handoff_budget(cell: &Cell) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_handoff_plan(
+pub(super) fn validate_handoff_plan(
     cell: &Arc<Cell>,
     plan: tinycomputer_bus::agent::TaskPlan,
     facts: &tinycomputer_core::Facts,
@@ -73,42 +75,6 @@ fn validate_handoff_plan(
         return Ok(None);
     }
     Ok(Some(plan.flow))
-}
-
-struct PlanningDebit {
-    cell: Weak<Cell>,
-    started: Instant,
-    charged: bool,
-}
-
-impl PlanningDebit {
-    fn new(cell: Weak<Cell>) -> Self {
-        Self {
-            cell,
-            started: Instant::now(),
-            charged: false,
-        }
-    }
-
-    fn charge(&mut self) {
-        if self.charged {
-            return;
-        }
-        self.charged = true;
-        if let Some(cell) = self.cell.upgrade()
-            && let Ok(mut state) = cell.state.lock()
-        {
-            state.spent.elapsed_ms = state.spent.elapsed_ms.saturating_add(
-                u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
-            );
-        }
-    }
-}
-
-impl Drop for PlanningDebit {
-    fn drop(&mut self) {
-        self.charge();
-    }
 }
 
 fn reopens_origin(flow: &tinycomputer_bus::Flow, origin: &str) -> bool {
