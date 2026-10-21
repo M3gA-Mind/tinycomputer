@@ -1,3 +1,5 @@
+//! Tests for desktop trace-sink configuration and callback behavior.
+
 use super::*;
 use crate::{
     TraceSink, TraceSinkArtifact, TraceSinkArtifactLimits, TraceSinkDeadline, TraceSinkError,

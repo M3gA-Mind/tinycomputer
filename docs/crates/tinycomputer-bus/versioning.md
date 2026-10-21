@@ -9,7 +9,7 @@ code, so this page exists mostly to keep them apart.
 ## `CONTRACT_VERSION`: does this host understand this module
 
 ```rust,ignore
-pub const CONTRACT_VERSION: (u32, u32) = (2, 21);
+pub const CONTRACT_VERSION: (u32, u32) = (2, 25);
 ```
 
 This describes the *vocabulary*: the member set and the payload shapes,
@@ -48,13 +48,14 @@ Two conditions, both necessary:
    built against `(2, 21)` expects at least the members and fields that
    existed at `(2, 21)`. A module reporting `(2, 11)` might be missing one of
    them, so it is rejected. A module reporting `(2, 20)` has everything the
-   host expected before `TraceSinkHost` was added, so it is rejected by a
-   2.21 host.
+   host expected before the `TraceSinkHost` callbacks were added, so it is
+   rejected by a 2.25 host.
 
 ```rust,ignore
-assert!(is_compatible(CONTRACT_VERSION));   // (2, 21), the exact version this crate ships
-assert!(is_compatible((2, 21)));            // a newer, still-compatible module
+assert!(is_compatible(CONTRACT_VERSION));   // (2, 25), the exact version this crate ships
+assert!(is_compatible((2, 25)));            // a newer, still-compatible module
 assert!(!is_compatible((2, 11)));            // an older module, missing something
+assert!(!is_compatible((2, 24)));            // predates the required TraceSinkHost callbacks
 assert!(!is_compatible((1, 10)));           // a different major, all bets off
 ```
 

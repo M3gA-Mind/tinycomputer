@@ -7,6 +7,8 @@ mod deadline_tests;
 #[path = "trace_sink_tests/lifecycle_tests.rs"]
 mod lifecycle_tests;
 
+//! Tests for the TinyBus trace-sink callback transport and payloads.
+
 use super::*;
 use std::sync::Mutex;
 use tinycomputer_bus::agent::TaskReport;
