@@ -263,6 +263,41 @@ async fn gate_receives_task_page_destination_and_value_without_debugging_the_val
 }
 
 #[tokio::test]
+async fn updating_action_context_cannot_replace_the_actual_session_id() {
+    let fake = Fake::scripted(|_| None);
+    let gate = Arc::new(CaptureActionRequest::default());
+    let browser = Browser::with_scratch(Arc::new(fake), super::scratch("gate-context-update"))
+        .with_action_gate(gate.clone());
+    let id = browser
+        .open_session(SessionOptions::default())
+        .await
+        .unwrap()
+        .id;
+    browser
+        .update_action_context(
+            &id,
+            ActionContext {
+                task_id: Some("task-18".to_owned()),
+                session_id: Some("spoofed-session-id".to_owned()),
+                payment_in_play: true,
+            },
+        )
+        .await
+        .unwrap();
+    browser
+        .navigate(&id, NavigateRequest::new("https://shop.test/checkout"))
+        .await
+        .unwrap();
+    let requests = gate.0.lock().unwrap();
+    let navigation = requests
+        .iter()
+        .find(|request| request.contains("destination_url: Some(\"https://shop.test/checkout\")"))
+        .unwrap();
+    assert!(navigation.contains(&format!("session_id: Some(\"{id}\")")));
+    assert!(!navigation.contains("spoofed-session-id"));
+}
+
+#[tokio::test]
 async fn an_unknown_current_url_is_not_replaced_with_the_last_known_page() {
     let url_unavailable = Arc::new(AtomicBool::new(false));
     let unavailable_for_script = Arc::clone(&url_unavailable);
