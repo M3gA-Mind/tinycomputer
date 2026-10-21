@@ -121,6 +121,15 @@ impl Engine for Linked {
                 command
             };
             let _serialized = ENGINE.lock().await;
+            if self.egress_authorizer.is_some()
+                && action.as_deref() == Some("read")
+                && command.get("url").and_then(Value::as_str).is_some()
+            {
+                return failure_reply(
+                    &command,
+                    "network policy refuses process-side reads with a URL",
+                );
+            }
             #[allow(clippy::redundant_closure_for_method_calls)]
             let browser_unavailable = self
                 .state

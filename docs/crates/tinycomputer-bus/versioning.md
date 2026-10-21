@@ -53,7 +53,7 @@ Two conditions, both necessary:
 
 ```rust,ignore
 assert!(is_compatible(CONTRACT_VERSION));   // (2, 21), the exact version this crate ships
-assert!(is_compatible((2, 21)));            // a newer, still-compatible module
+assert!(is_compatible((2, 22)));            // a newer, still-compatible module
 assert!(!is_compatible((2, 11)));            // an older module, missing something
 assert!(!is_compatible((1, 10)));           // a different major, all bets off
 ```
