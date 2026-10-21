@@ -1,9 +1,187 @@
 use super::*;
 use std::sync::Mutex;
-use tinycomputer_bus::trace_sink::TraceEvent;
+use tinycomputer_bus::agent::TaskReport;
+use tinycomputer_bus::trace_sink::{TaskReportRecord, TraceEvent};
 
 #[derive(Clone, Default)]
 struct RecordingHost(Arc<Mutex<Vec<serde_json::Value>>>);
+
+#[derive(Clone, Default)]
+struct CompleteRecordingHost {
+    events: Arc<Mutex<Vec<serde_json::Value>>>,
+    artifacts: Arc<Mutex<Vec<TraceArtifact>>>,
+    reports: Arc<Mutex<Vec<TaskReportRecord>>>,
+    reject: Arc<AtomicBool>,
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinycomputer.TraceSinkHost")]
+impl CompleteRecordingHost {
+    async fn append(&self, event: TraceEvent) -> TinyBusResult<SinkAck> {
+        tokio::task::yield_now().await;
+        if self.reject.load(Ordering::Acquire) {
+            return Err(TinyBusError::failed("host rejected event"));
+        }
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event.record);
+        Ok(SinkAck {})
+    }
+
+    async fn store_artifact(&self, artifact: TraceArtifact) -> TinyBusResult<TraceArtifactRef> {
+        tokio::task::yield_now().await;
+        if self.reject.load(Ordering::Acquire) {
+            return Err(TinyBusError::failed("host rejected artifact"));
+        }
+        self.artifacts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(artifact);
+        Ok(TraceArtifactRef {
+            reference: "trace-artifact-1".into(),
+        })
+    }
+
+    async fn write_report(&self, report: TaskReportRecord) -> TinyBusResult<SinkAck> {
+        tokio::task::yield_now().await;
+        if self.reject.load(Ordering::Acquire) {
+            return Err(TinyBusError::failed("host rejected report"));
+        }
+        self.reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(report);
+        Ok(SinkAck {})
+    }
+}
+
+async fn connected_link(
+    host: CompleteRecordingHost,
+) -> Result<(Arc<TraceLink>, CompleteRecordingHost, Connection), Box<dyn std::error::Error>> {
+    let bus = tinybus::transport::memory::MemoryBus::new();
+    tinybus::broker::Broker::new().spawn(bus.clone());
+    let host_connection = Connection::connect(bus.connect().await?).await?;
+    host_connection
+        .serve_at(trace_sink::OBJECT_PATH.try_into()?, host.clone())
+        .await?;
+    host_connection.request_name(trace_sink::INTERFACE).await?;
+    let module = Connection::connect(bus.connect().await?).await?;
+    let link = TraceLink::new_for_bus_tests(module, tinybus::BusName::new(trace_sink::INTERFACE)?)?;
+    Ok((link, host, host_connection))
+}
+
+fn empty_task_report() -> Result<TaskReport, serde_json::Error> {
+    serde_json::from_value(serde_json::json!({
+        "view": {
+            "id": "task-1",
+            "status": {"state": "running"},
+            "summary": "working",
+            "progress": 0.0,
+            "next": []
+        },
+        "steps": [],
+        "records": {},
+        "artifacts": [],
+        "learned": [],
+        "trace": []
+    }))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn callbacks_commit_events_artifacts_and_reports_over_the_bus()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (link, host, _host_connection) = connected_link(CompleteRecordingHost::default()).await?;
+    let deadline = TraceSinkDeadline::after(5_000)?;
+    link.append(&serde_json::json!({"event": "started"}), deadline, 4096)
+        .map_err(|error| error.to_string())?;
+    let artifact_deadline = TraceSinkDeadline::after(5_000)?;
+    let reference = link
+        .store_artifact(
+            TraceSinkArtifact {
+                kind: EngineArtifactKind::Screenshot,
+                name: "screen.png",
+                bytes: &[1, 2, 3],
+                deadline: artifact_deadline,
+            },
+            TraceSinkArtifactLimits {
+                screenshot_bytes: 128,
+                screenshot_count: 2,
+                refmap_bytes: 64,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    link.write_report(TaskReportRecord {
+        task_id: "task-1".into(),
+        report: empty_task_report()?,
+    })
+    .await?;
+
+    assert_eq!(reference, "trace-artifact-1");
+    assert_eq!(
+        host.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_slice(),
+        &[serde_json::json!({"event": "started"})]
+    );
+    assert_eq!(
+        host.artifacts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+            .bytes,
+        [1, 2, 3]
+    );
+    assert_eq!(
+        host.reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+            .task_id,
+        "task-1"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejected_host_callbacks_return_errors_to_the_caller()
+-> Result<(), Box<dyn std::error::Error>> {
+    let host = CompleteRecordingHost::default();
+    host.reject.store(true, Ordering::Release);
+    let (link, _, _host_connection) = connected_link(host).await?;
+
+    assert!(
+        link.append(
+            &serde_json::json!({"event": "rejected"}),
+            TraceSinkDeadline::after(5_000)?,
+            4096,
+        )
+        .is_err()
+    );
+    assert!(
+        link.store_artifact(
+            TraceSinkArtifact {
+                kind: EngineArtifactKind::RefMap,
+                name: "refs.json",
+                bytes: &[4, 5],
+                deadline: TraceSinkDeadline::after(5_000)?,
+            },
+            TraceSinkArtifactLimits {
+                screenshot_bytes: 128,
+                screenshot_count: 2,
+                refmap_bytes: 64,
+            },
+        )
+        .is_err()
+    );
+    assert!(
+        link.write_report(TaskReportRecord {
+            task_id: "task-1".into(),
+            report: empty_task_report()?,
+        })
+        .await
+        .is_err()
+    );
+    Ok(())
+}
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.TraceSinkHost")]
 impl RecordingHost {

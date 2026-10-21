@@ -59,6 +59,7 @@ pub(crate) struct TraceLink {
     destination: tinybus::BusName,
     worker: SyncSender<Command>,
     callback_active: Arc<AtomicBool>,
+    confidential: bool,
 }
 
 impl std::fmt::Debug for TraceLink {
@@ -117,16 +118,18 @@ impl TraceLink {
             destination,
             worker: sender,
             callback_active,
+            confidential,
         }))
     }
 
     pub(crate) async fn write_report(&self, record: TaskReportRecord) -> TinyBusResult<()> {
         let _guard = CallbackGuard::try_acquire(&self.callback_active)
             .ok_or_else(|| TinyBusError::failed("trace sink callback is busy"))?;
-        call::<SinkAck, _>(
+        call_to_host::<SinkAck, _>(
             &self.proxy(CALL_TIMEOUT)?,
             trace_sink::methods::WRITE_REPORT,
             (record,),
+            self.confidential,
         )
         .await
         .map(|_| ())
