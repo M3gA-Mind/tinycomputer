@@ -11,10 +11,11 @@ use tinycomputer_bus::agent::{TaskStatus, TaskView};
 use tinycomputer_core::{Facts, SecretFactHandle};
 
 use super::super::{TaskCallBudget, Tasks};
-use super::{MAX_TASKS, OLDEST_VERSION, PausedTaskError, VERSION};
+use super::{OLDEST_VERSION, PausedTaskError, VERSION};
 use crate::UsageRecorder;
 use crate::rescue::Rescuer;
 use crate::shape::Shaper;
+use crate::task::MAX_TASKS;
 use crate::task::interpret::Resume;
 use crate::task::publish::{needs_input, publish};
 use crate::task::store::{Cell, State};

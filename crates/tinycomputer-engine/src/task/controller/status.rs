@@ -7,10 +7,12 @@ use tinycomputer_bus::agent::{
     TaskView,
 };
 
-use super::{MAX_AWAIT_MS, PaymentCheckpointState, Tasks};
+use super::Tasks;
+use crate::task::MAX_AWAIT_MS;
 use crate::task::errors::{no_such_task, poisoned};
 use crate::task::publish::{publish, records};
 use crate::task::redact_task_data;
+use crate::task::store::PaymentCheckpointState;
 
 impl Tasks {
     /// Waits until the task is no longer running, or `timeout_ms` passes.

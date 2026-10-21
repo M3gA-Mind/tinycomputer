@@ -10,6 +10,5 @@ mod handoff;
 mod plan;
 mod run;
 
-pub(super) use finish::finish;
 pub(super) use plan::{plan_payment_then_drive, plan_then_drive};
 pub(super) use run::drive;

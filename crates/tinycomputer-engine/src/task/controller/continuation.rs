@@ -8,13 +8,12 @@ use tinycomputer_bus::agent::{
 };
 use tinycomputer_core::{Facts, SecretFactHandle};
 
-use super::{
-    Cell, ContinuePaidAtShopRequest, ContinuePaymentRequest, PaymentCheckpointState, Resume, Tasks,
-    WorkerCompletion, WorkerSlot,
-};
+use super::{Cell, ContinuePaidAtShopRequest, ContinuePaymentRequest, Tasks};
 use crate::task::drive::plan_payment_then_drive;
 use crate::task::errors::{no_planner, no_such_task, poisoned};
+use crate::task::interpret::Resume;
 use crate::task::publish::{next_calls, state_name};
+use crate::task::store::{PaymentCheckpointState, WorkerCompletion, WorkerSlot};
 
 impl Tasks {
     /// Answers what a paused task asked for, and resumes it.

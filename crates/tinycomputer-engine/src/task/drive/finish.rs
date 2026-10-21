@@ -5,8 +5,10 @@ use std::time::Duration;
 
 use tinycomputer_bus::agent::{TaskId, TaskStatus};
 
-use super::{Harvest, SHAPE_TIMEOUT_MS, TaskRecords};
+use super::TaskRecords;
+use crate::shape::Harvest;
 use crate::task::FlowRunner;
+use crate::task::SHAPE_TIMEOUT_MS;
 use crate::task::artifact::capture;
 use crate::task::publish::{publish, records};
 use crate::task::redact_task_value;
