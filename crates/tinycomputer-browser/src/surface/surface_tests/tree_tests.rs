@@ -104,6 +104,23 @@ fn dialogs_are_the_surface_in_front() {
 }
 
 #[test]
+fn unreferenced_editable_values_do_not_become_shared_context() {
+    let parsed = screen(
+        "- heading \"Checkout\"\n- spinbutton: restored-control-value\n- text: Payment is ready\n",
+        "Shop",
+    );
+
+    assert_eq!(parsed.context, ["Checkout", "Payment is ready"]);
+    assert!(parsed.text_nodes.iter().any(|node| {
+        node.role == "spinbutton"
+            && node
+                .value
+                .as_ref()
+                .is_some_and(|value| value == "restored-control-value")
+    }));
+}
+
+#[test]
 fn repeated_containers_are_numbered_so_their_cards_group() {
     let page = "- list \"Results\"\n  - listitem\n    - text: IndiGo\n    - text: ₹6,840\n    - button \"Select\" [ref=e1]\n  - listitem\n    - text: Vistara\n    - text: ₹7,210\n    - button \"Select\" [ref=e2]\n- list \"More\"\n  - listitem\n    - button \"Next page\" [ref=e3]\n";
     let parsed = screen(page, "Results");

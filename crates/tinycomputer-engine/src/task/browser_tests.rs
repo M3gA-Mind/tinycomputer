@@ -176,7 +176,7 @@ impl Engine for BrowserScriptEngine {
             "title" => json!({"title": "Local fixture"}),
             "snapshot" => {
                 let snapshot = if self.0.echo_secret {
-                    "- heading \"Browser runner fixture\" [ref=h1]\n- textbox \"Card number\" [ref=card]: 4111 1111 1111 1111"
+                    "- heading \"Browser runner fixture\" [ref=h1]\n- textbox \"Card number\" [ref=card]: 4111 1111 1111 1111\n- textbox \"Email\" [ref=email]: unknown-autofill-canary\n- text: The saved card was 4111 1111 1111 1111"
                 } else {
                     "- heading \"Browser runner fixture\" [ref=h1]"
                 };
@@ -484,6 +484,9 @@ async fn rescue_visible_text_is_redacted_by_the_host() -> Result<(), Box<dyn std
     let visible = runner.visible_text(&task).await.join("\n");
 
     assert!(!visible.contains("4111 1111 1111 1111"));
+    assert!(!visible.contains("unknown-autofill-canary"));
+    assert!(visible.contains("Card number"));
+    assert!(visible.contains("Email"));
     assert!(visible.contains("•••• 1111"));
     runner.release(&task);
     Ok(())

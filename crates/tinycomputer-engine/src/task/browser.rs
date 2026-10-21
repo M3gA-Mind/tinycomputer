@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use tinycomputer_browser::{ActionContext, Browser, BrowserSurface, SessionOptions};
 use tinycomputer_bus::agent::{PaymentMode, TaskConstraints, TaskId};
 use tinycomputer_bus::browser::{ScreenshotRequest, SessionId};
-use tinycomputer_bus::{DesktopError, DesktopResponse, RunFlowRequest};
-use tinycomputer_core::surface::{Depth, Surface};
+use tinycomputer_bus::{DesktopError, DesktopResponse, JevOperation, RunFlowRequest};
+use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface};
 
 use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
 use crate::SecretHost;
@@ -54,7 +54,9 @@ impl BrowserRunner {
     }
 
     /// Uses `host` to resolve opaque secret handles and type them at the
-    /// moment a task fills a field.
+    /// moment a task fills a field. Editable control values are also hidden
+    /// from task observations while this host is present; the host can still
+    /// read and verify a field through the private surface APIs.
     #[must_use]
     pub fn with_secret_host(mut self, host: Arc<dyn SecretHost>) -> Self {
         self.secret_host = Some(host);
@@ -94,7 +96,7 @@ impl BrowserRunner {
                 options.allowed_origins.clone_from(&constraints.origins);
             }
             options.headless = !constraints.headed;
-            BrowserSurface::new(
+            let surface = BrowserSurface::new(
                 self.browser.clone(),
                 options,
                 tokio::runtime::Handle::current(),
@@ -103,7 +105,12 @@ impl BrowserRunner {
                 task_id: Some(task.0.clone()),
                 session_id: None,
                 payment_in_play: constraints.payment == PaymentMode::FillThenApprove,
-            })
+            });
+            if self.secret_host.is_some() {
+                surface.without_form_values()
+            } else {
+                surface
+            }
         };
 
         self.surfaces.lock().map_or_else(
@@ -281,6 +288,7 @@ impl BrowserRunner {
         let mut request = request;
         request.task_id = Some(task.0.clone());
         let secret_host = self.secret_host.clone();
+        let task_id = task.0.clone();
         Box::pin(async move {
             if surface.update_action_context(context).await.is_err() {
                 return DesktopResponse::err(
@@ -291,13 +299,257 @@ impl BrowserRunner {
                     ),
                 );
             }
-            tinycomputer_engine_flow(surface, runtime, request, secret_host).await
+            match secret_host {
+                Some(host) => {
+                    let surface = SecretRedactingSurface {
+                        inner: surface,
+                        host: host.clone(),
+                        task_id,
+                    };
+                    tinycomputer_engine_flow(surface, runtime, request, Some(host)).await
+                }
+                None => tinycomputer_engine_flow(surface, runtime, request, None).await,
+            }
         })
     }
 }
 
+/// Keeps known host-held values out of every model-facing screen and browser
+/// reply while delegating live reads and actions to the underlying surface.
+/// Editable field values are removed structurally by
+/// `BrowserSurface::without_form_values`; this layer also scrubs page text,
+/// labels, non-form values, and error output using the host's intent-scoped
+/// redactor.
+#[derive(Clone)]
+struct SecretRedactingSurface {
+    inner: BrowserSurface,
+    host: Arc<dyn SecretHost>,
+    task_id: String,
+}
+
+impl SecretRedactingSurface {
+    fn redact(&self, text: &str) -> String {
+        self.host.redact(&self.task_id, text)
+    }
+
+    fn redact_value(&self, value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::String(text) => *text = self.redact(text),
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    self.redact_value(value);
+                }
+            }
+            serde_json::Value::Object(values) => {
+                for value in values.values_mut() {
+                    self.redact_value(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn redact_screen(&self, screen: &mut Screen) {
+        redact_screen(&*self.host, &self.task_id, screen);
+    }
+
+    fn redact_response(&self, mut response: DesktopResponse) -> DesktopResponse {
+        if let Some(data) = &mut response.data {
+            self.redact_value(data);
+        }
+        if let Some(error) = &mut response.error {
+            error.message = self.redact(&error.message);
+            if let Some(suggestion) = &mut error.suggestion {
+                *suggestion = self.redact(suggestion);
+            }
+            if let Some(platform_detail) = &mut error.platform_detail {
+                *platform_detail = self.redact(platform_detail);
+            }
+            if let Some(details) = &mut error.details {
+                self.redact_value(details);
+            }
+        }
+        response
+    }
+}
+
+impl Surface for SecretRedactingSurface {
+    fn observe(
+        &self,
+        app: &str,
+        root: Option<&str>,
+        depth: Depth,
+    ) -> Result<Screen, Box<DesktopResponse>> {
+        let mut screen = self.inner.observe(app, root, depth)?;
+        self.redact_screen(&mut screen);
+        Ok(screen)
+    }
+
+    fn execute(
+        &self,
+        operation: JevOperation,
+        target: Option<Candidate>,
+        text: Option<String>,
+    ) -> DesktopResponse {
+        self.redact_response(self.inner.execute(operation, target, text))
+    }
+
+    fn authorize_secret_type(&self, target: &Candidate) -> Result<String, String> {
+        self.inner.authorize_secret_type(target)
+    }
+
+    fn read_value(&self, target: &Candidate) -> Option<String> {
+        self.inner.read_value(target)
+    }
+
+    fn paste(&self, app: &str, target: &Candidate, text: &str) -> DesktopResponse {
+        self.redact_response(self.inner.paste(app, target, text))
+    }
+
+    fn press(&self, app: &str, combo: &str) -> DesktopResponse {
+        self.redact_response(self.inner.press(app, combo))
+    }
+
+    fn launch(&self, app: &str) -> DesktopResponse {
+        self.redact_response(self.inner.launch(app))
+    }
+
+    fn settle(&self) {
+        self.inner.settle();
+    }
+
+    fn settle_briefly(&self) {
+        self.inner.settle_briefly();
+    }
+
+    fn await_change(&self, ms: u64) -> bool {
+        self.inner.await_change(ms)
+    }
+
+    fn navigate(&self, url: &str) -> DesktopResponse {
+        self.redact_response(self.inner.navigate(url))
+    }
+
+    fn back(&self, app: &str) -> DesktopResponse {
+        self.redact_response(self.inner.back(app))
+    }
+
+    fn dismiss_cover(&self, target: &Candidate) -> DesktopResponse {
+        self.redact_response(self.inner.dismiss_cover(target))
+    }
+}
+
+fn redact_screen(host: &dyn SecretHost, task_id: &str, screen: &mut Screen) {
+    fn candidate(host: &dyn SecretHost, task_id: &str, node: &mut Candidate) {
+        let redact = |text: &str| host.redact(task_id, text);
+        node.name = node.name.take().map(|text| redact(&text));
+        node.description = node.description.take().map(|text| redact(&text));
+        for state in &mut node.states {
+            *state = redact(state);
+        }
+        for path in &mut node.path {
+            *path = redact(path);
+        }
+        if let Some(value) = &mut node.value {
+            redact_json(host, task_id, value);
+        }
+        for child in &mut node.children {
+            candidate(host, task_id, child);
+        }
+    }
+    let redact = |text: &str| host.redact(task_id, text);
+    screen.app = redact(&screen.app);
+    screen.window = screen.window.take().map(|text| redact(&text));
+    screen.surface = redact(&screen.surface);
+    for text in &mut screen.context {
+        *text = redact(text);
+    }
+    for node in screen
+        .candidates
+        .iter_mut()
+        .chain(screen.text_nodes.iter_mut())
+    {
+        candidate(host, task_id, node);
+    }
+}
+
+fn redact_json(host: &dyn SecretHost, task_id: &str, value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => *text = host.redact(task_id, text),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redact_json(host, task_id, value);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values_mut() {
+                redact_json(host, task_id, value);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tinycomputer_core::surface::{Candidate, Screen};
+
+    use super::redact_screen;
+    use crate::{SecretHost, SecretTypeRequest};
+
+    struct Host;
+
+    impl SecretHost for Host {
+        fn type_secret(&self, _request: &SecretTypeRequest) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn redact(&self, _task_id: &str, text: &str) -> String {
+            text.replace("private-canary", "[hidden]")
+        }
+    }
+
+    #[test]
+    fn jev_screen_context_and_candidate_labels_are_redacted_before_model_use() {
+        let host: Arc<dyn SecretHost> = Arc::new(Host);
+        let mut screen = Screen {
+            app: "browser".into(),
+            window: Some("private-canary page".into()),
+            surface: "window".into(),
+            candidates: vec![Candidate {
+                ref_id: "e1".into(),
+                role: "button".into(),
+                name: Some("Private-canary action".into()),
+                value: Some(json!("private-canary")),
+                path: vec!["private-canary parent".into()],
+                ..Candidate::default()
+            }],
+            context: vec!["Restored private-canary value".into()],
+            unexplored: Vec::new(),
+            text_nodes: Vec::new(),
+        };
+
+        redact_screen(host.as_ref(), "task-1", &mut screen);
+
+        let serialized = format!(
+            "{} {:?} {:?} {:?} {:?}",
+            screen.app,
+            screen.window,
+            screen.context,
+            screen.candidates[0].name,
+            screen.candidates[0].value,
+        );
+        assert!(!serialized.contains("private-canary"));
+        assert!(serialized.contains("[hidden]"));
+        assert_eq!(screen.candidates[0].ref_id, "e1");
+    }
+}
+
 async fn tinycomputer_engine_flow(
-    surface: BrowserSurface,
+    surface: impl Surface + Sync,
     runtime: JevRuntime,
     request: RunFlowRequest,
     secret_host: Option<Arc<dyn SecretHost>>,

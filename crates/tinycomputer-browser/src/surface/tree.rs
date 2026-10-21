@@ -14,7 +14,17 @@ const MAX_CONTEXT_CHARS: usize = 160;
 
 /// Roles that contain a page's field content rather than its chrome; text
 /// inside them never reaches the shared context.
-const FIELD_ROLES: &[&str] = &["textbox", "searchbox", "combobox", "textarea", "document"];
+const FIELD_ROLES: &[&str] = &[
+    "textbox",
+    "searchbox",
+    "combobox",
+    "textarea",
+    "document",
+    "spinbutton",
+    "checkbox",
+    "radio",
+    "switch",
+];
 
 /// Roles a value is typed into.
 const TYPED_ROLES: &[&str] = &["textbox", "searchbox", "combobox", "spinbutton", "textarea"];
@@ -201,7 +211,9 @@ pub(crate) fn screen(tree: &str, title: &str) -> Screen {
                 candidates.push(node);
             }
         } else {
-            if !inside_field {
+            let is_field = FIELD_ROLES.contains(&line.role.as_str())
+                || VALUE_BEARING_ROLES.contains(&line.role.as_str());
+            if !inside_field && !is_field {
                 remember(&line, &mut context);
             }
             text_nodes.push(node);
