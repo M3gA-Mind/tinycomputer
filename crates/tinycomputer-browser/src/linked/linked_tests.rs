@@ -94,6 +94,31 @@ async fn a_closed_or_lost_browser_cannot_implicitly_launch_without_the_proxy() {
 }
 
 #[tokio::test]
+async fn enforced_browser_refuses_process_side_reads_with_a_url() {
+    let mut engine = Linked {
+        state: DaemonState::with_options(state_options("process-read")),
+        egress_authorizer: Some(Arc::new(RejectAll)),
+        proxy: None,
+        proxy_session_id: "private-session-id".into(),
+        enforced_launch: true,
+    };
+    let reply = engine
+        .execute(json!({
+            "id":"read",
+            "action":"read",
+            "url":"http://public.example/"
+        }))
+        .await;
+    assert_eq!(reply["success"], false);
+    assert!(
+        reply["error"]
+            .as_str()
+            .unwrap()
+            .contains("process-side reads with a URL")
+    );
+}
+
+#[tokio::test]
 async fn enforced_browser_rechecks_liveness_after_waiting_for_engine_lock() {
     let engine = Linked {
         state: DaemonState::with_options(state_options("closed-after-lock")),
