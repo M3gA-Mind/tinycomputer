@@ -1,6 +1,6 @@
 //! Authorizes requests and consumes grants before dialing approved addresses.
 
-use std::{io, sync::Arc, time::Duration};
+use std::{future::Future, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::net::TcpStream;
 
@@ -14,11 +14,25 @@ use super::{
 };
 
 pub(super) async fn serve(
-    mut client: TcpStream,
+    client: TcpStream,
     auth: Arc<dyn EgressAuthorizer>,
     session_id: String,
     proxy_password: String,
 ) -> io::Result<()> {
+    serve_with_connector(client, auth, session_id, proxy_password, TcpStream::connect).await
+}
+
+pub(super) async fn serve_with_connector<C, F>(
+    mut client: TcpStream,
+    auth: Arc<dyn EgressAuthorizer>,
+    session_id: String,
+    proxy_password: String,
+    mut connect: C,
+) -> io::Result<()>
+where
+    C: FnMut(SocketAddr) -> F,
+    F: Future<Output = io::Result<TcpStream>>,
+{
     let Some(request) = read_proxy_request(&mut client, &session_id, &proxy_password).await? else {
         return Ok(());
     };
@@ -52,7 +66,7 @@ pub(super) async fn serve(
             return refuse(&mut client).await;
         }
         if let Ok(Ok(upstream)) =
-            tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(address)).await
+            tokio::time::timeout(Duration::from_secs(5), connect(address)).await
         {
             connected = Some((upstream, grant.lease));
             break;

@@ -1,20 +1,23 @@
 //! Proxy retry behavior for multiple approved addresses.
 
 use super::simulator::*;
-use crate::EgressProxy;
-use std::sync::Arc;
+use crate::egress::serve_with_connector;
+use std::{
+    io,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpSocket, TcpStream},
+    net::{TcpListener, TcpStream},
 };
 
 #[tokio::test]
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {
-    // Keep the port reserved with a bound, unlistened socket. Connect attempts
-    // are refused, and another parallel test cannot claim the port meanwhile.
-    let first_socket = TcpSocket::new_v4().unwrap();
-    first_socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-    let first_address = first_socket.local_addr().unwrap();
+    let first_address = SocketAddr::from(([127, 0, 0, 1], 1));
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_address = destination.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -27,16 +30,30 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
     let authorizer = Arc::new(MultiAddressAuthorizer {
         addresses: vec![first_address, second_address],
     });
-    let proxy = EgressProxy::bind(
+    let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let proxy_address = proxy_listener.local_addr().unwrap();
+    let (client, (proxy_stream, _)) =
+        tokio::join!(TcpStream::connect(proxy_address), proxy_listener.accept(),);
+    let mut client = client.unwrap();
+    let proxy_stream = proxy_stream.unwrap();
+    let dial_attempts = Arc::new(AtomicUsize::new(0));
+    let counted_attempts = Arc::clone(&dial_attempts);
+    let service = tokio::spawn(serve_with_connector(
+        proxy_stream,
         authorizer,
         "multi-address-session".into(),
         FIXTURE_PASSWORD.into(),
-    )
-    .await
-    .unwrap();
-    let mut client = TcpStream::connect(proxy.url().replace("http://", ""))
-        .await
-        .unwrap();
+        move |address| {
+            counted_attempts.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if address == first_address {
+                    Err(io::Error::other("simulated unreachable address"))
+                } else {
+                    TcpStream::connect(address).await
+                }
+            }
+        },
+    ));
     client
         .write_all(
             format!(
@@ -59,4 +76,6 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
         String::from_utf8_lossy(&response)
     );
     server.await.unwrap();
+    service.await.unwrap().unwrap();
+    assert_eq!(dial_attempts.load(Ordering::SeqCst), 2);
 }
