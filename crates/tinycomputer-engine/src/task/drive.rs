@@ -253,7 +253,9 @@ pub(super) async fn drive(cell: Arc<Cell>, runner: Arc<dyn FlowRunner>, runs: Ve
             }
             if let Next::Stop { resume, .. } = &next {
                 state.resume.clone_from(resume);
-                if matches!(resume, Some(super::interpret::Resume::PaymentCheckpoint)) {
+                if state.payment_checkpoint == PaymentCheckpointState::Unavailable
+                    && matches!(resume, Some(super::interpret::Resume::PaymentCheckpoint))
+                {
                     state.payment_checkpoint = PaymentCheckpointState::Available;
                 }
             }

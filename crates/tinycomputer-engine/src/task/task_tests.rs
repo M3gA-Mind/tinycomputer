@@ -39,8 +39,9 @@ use tinycomputer_bus::{
 use super::interpret::app_at;
 use super::publish::next_calls;
 use super::{
-    ContinuePaymentRequest, FailedStepRecovery, FailedStepRecoveryFuture, FailedStepRecoveryResult,
-    FlowFuture, FlowRunner, MAX_TASKS, Tasks, capabilities, input_kind,
+    ContinuePaidAtShopRequest, ContinuePaymentRequest, FailedStepRecovery,
+    FailedStepRecoveryFuture, FailedStepRecoveryResult, FlowFuture, FlowRunner, MAX_TASKS, Tasks,
+    capabilities, input_kind,
 };
 
 /// Replies queued in order; a missing reply never resolves, like a flow
