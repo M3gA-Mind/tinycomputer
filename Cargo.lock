@@ -2800,6 +2800,7 @@ dependencies = [
  "agent-browser",
  "base64 0.22.1",
  "getrandom 0.4.3",
+ "log",
  "serde_json",
  "sha2 0.10.9",
  "sysinfo",
