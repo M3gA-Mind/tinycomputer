@@ -191,8 +191,7 @@ fn parse_proxy_headers(
     });
     if has_upgrade != connection_upgrade
         || !host_matches
-        || (connect && body_len != 0)
-        || (!connect && has_upgrade && body_len != 0)
+        || ((connect || has_upgrade) && body_len != 0)
     {
         return None;
     }
