@@ -741,13 +741,8 @@ fn payment_task_text(context: &str, goal: &str) -> String {
 }
 
 fn payment_budget(cell: &Arc<Cell>) -> Option<(super::TaskBudgetScope, super::HostWorkGuard)> {
-    let work = cell
-        .state
-        .lock()
-        .ok()?
-        .usage
-        .task_call_budget()?
-        .begin_payment_work()?;
+    let task_budget = cell.state.lock().ok()?.usage.task_call_budget()?;
+    let work = task_budget.begin_payment_work()?;
     let budget = work.scope();
     (budget.remaining_model_calls() > 0 && budget.remaining_ms() != Some(0))
         .then_some((budget, work))
