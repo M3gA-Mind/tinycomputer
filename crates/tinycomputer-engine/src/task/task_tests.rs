@@ -55,6 +55,8 @@ struct Script {
     host_secrets: Mutex<Vec<String>>,
     /// What the task's surface shows when asked.
     screen: Mutex<Vec<String>>,
+    /// The HTTPS origin of the still-open browser page.
+    origin: Mutex<Option<String>>,
     /// Tasks let go of, in order.
     released: Mutex<Vec<TaskId>>,
     /// The screenshot `capture` hands back, if any.
@@ -133,6 +135,11 @@ impl FlowRunner for Script {
     fn visible_text(&self, _task: &TaskId) -> super::TextFuture {
         let texts = self.screen.lock().unwrap().clone();
         Box::pin(async move { texts })
+    }
+
+    fn page_origin(&self, _task: &TaskId) -> super::PageOriginFuture {
+        let origin = self.origin.lock().unwrap().clone();
+        Box::pin(async move { origin })
     }
 
     fn capture(&self, _task: &TaskId) -> super::CaptureFuture {

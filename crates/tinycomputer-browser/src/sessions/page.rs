@@ -528,10 +528,24 @@ fn observed_target(
 fn observed_action(action: &Action) -> ObservedAction {
     match action {
         Action::Click { .. } => ObservedAction::Click,
+        Action::Fill { .. } => ObservedAction::Fill,
+        Action::Type { .. } => ObservedAction::Type,
+        Action::Select { .. } => ObservedAction::Select,
+        Action::Check { checked: true, .. } => ObservedAction::Check,
+        Action::Check { checked: false, .. } => ObservedAction::Uncheck,
+        Action::DoubleClick { .. } => ObservedAction::DoubleClick,
+        Action::Hover { .. } => ObservedAction::Hover,
+        Action::Focus { .. } => ObservedAction::Focus,
+        Action::Scroll { .. } => ObservedAction::Scroll,
+        Action::GetText { .. } | Action::GetAttribute { .. } | Action::IsVisible { .. } => {
+            ObservedAction::Read
+        }
+        Action::WaitFor { .. } => ObservedAction::Wait,
         Action::Press { key, .. } if key.eq_ignore_ascii_case("escape") => {
             ObservedAction::PressEscape
         }
-        _ => ObservedAction::Other,
+        Action::Press { .. } => ObservedAction::Press,
+        Action::Back | Action::Forward | Action::Reload => ObservedAction::Other,
     }
 }
 

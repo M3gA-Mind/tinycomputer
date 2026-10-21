@@ -23,6 +23,9 @@
 //! - [`ActionGate`] — an optional synchronous host policy called before typed
 //!   actions, raw commands, evaluations, and navigations. Requests expose
 //!   values to the trusted host callback; their `Debug` output omits values.
+//! - [`ActionObserver`] — an optional host callback after a successful typed
+//!   action or navigation. It receives only action kind, before/after URL, and
+//!   the fresh snapshot target metadata; no request payload or typed value.
 //! - `AgentBrowser` (feature `agent-browser`) — the [`Launcher`] for
 //!   agent-browser linked in-process.
 //! - [`Error`] — what can go wrong, as a taxonomy of what a caller should do

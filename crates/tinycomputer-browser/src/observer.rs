@@ -7,14 +7,38 @@ pub enum ObservedAction {
     Navigate,
     /// A control was clicked.
     Click,
-    /// Escape was pressed.
-    PressEscape,
+    /// A field was filled.
+    Fill,
+    /// Text was typed into a field. The text is not included.
+    Type,
+    /// One or more options were selected. Their values are not included.
+    Select,
+    /// A checkbox or radio was checked.
+    Check,
+    /// A checkbox or radio was unchecked.
+    Uncheck,
+    /// A control was double-clicked.
+    DoubleClick,
+    /// The pointer hovered over a control.
+    Hover,
+    /// A control received focus.
+    Focus,
+    /// The page or a control was scrolled.
+    Scroll,
+    /// A control was read or tested for visibility.
+    Read,
+    /// The browser waited for a condition.
+    Wait,
     /// Another typed browser action completed.
     Other,
+    /// Escape was pressed.
+    PressEscape,
+    /// Another key was pressed. The key text is not included.
+    Press,
 }
 
 /// A semantic target resolved from the latest accessibility snapshot.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ObservedTarget {
     /// The target's accessibility role.
     pub role: String,
@@ -27,9 +51,20 @@ pub struct ObservedTarget {
     pub unique: bool,
 }
 
+impl std::fmt::Debug for ObservedTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ObservedTarget")
+            .field("role", &self.role)
+            .field("reference", &self.reference)
+            .field("unique", &self.unique)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Metadata for a successful dispatch. It deliberately carries no request
 /// payload, typed text, fill values, or locator source text.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ActionObservation {
     /// The action that completed.
     pub action: ObservedAction,
@@ -39,6 +74,16 @@ pub struct ActionObservation {
     pub after_url: String,
     /// The resolved target, when the action named one.
     pub target: Option<ObservedTarget>,
+}
+
+impl std::fmt::Debug for ActionObservation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActionObservation")
+            .field("action", &self.action)
+            .field("target", &self.target)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A trusted host sink for successful browser action metadata.

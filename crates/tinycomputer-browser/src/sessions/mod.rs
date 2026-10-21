@@ -289,11 +289,15 @@ impl Browser {
 
     /// Installs a trusted host observer for successful browser actions.
     pub fn set_action_observer(&self, observer: Option<Arc<dyn ActionObserver>>) {
-        *self.action_observer.write().unwrap() = observer;
+        if let Ok(mut current) = self.action_observer.write() {
+            *current = observer;
+        }
     }
 
     pub(crate) fn observe_action(&self, observation: ActionObservation) {
-        if let Some(observer) = self.action_observer.read().unwrap().as_ref() {
+        if let Ok(observer) = self.action_observer.read()
+            && let Some(observer) = observer.as_ref()
+        {
             observer.observed(observation);
         }
     }
