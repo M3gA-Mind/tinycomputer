@@ -11,9 +11,9 @@ use std::{
 };
 use base64::Engine as _;
 
-const FIXTURE_PASSWORD: &str = "fixture-proxy-secret";
+pub(super) const FIXTURE_PASSWORD: &str = "fixture-proxy-secret";
 
-fn proxy_authorization() -> String {
+pub(super) fn proxy_authorization() -> String {
     format!(
         "Basic {}",
         base64::engine::general_purpose::STANDARD
@@ -22,10 +22,10 @@ fn proxy_authorization() -> String {
 }
 
 #[derive(Clone)]
-struct FixtureAuthorizer {
-    address: SocketAddr,
-    allow: bool,
-    consumed: Arc<AtomicBool>,
+pub(super) struct FixtureAuthorizer {
+    pub(super) address: SocketAddr,
+    pub(super) allow: bool,
+    pub(super) consumed: Arc<AtomicBool>,
 }
 
 impl EgressAuthorizer for FixtureAuthorizer {
@@ -74,8 +74,8 @@ impl EgressAuthorizer for FixtureAuthorizer {
     }
 }
 
-struct MultiAddressAuthorizer {
-    addresses: Vec<SocketAddr>,
+pub(super) struct MultiAddressAuthorizer {
+    pub(super) addresses: Vec<SocketAddr>,
 }
 
 impl EgressAuthorizer for MultiAddressAuthorizer {
@@ -118,9 +118,9 @@ impl EgressAuthorizer for MultiAddressAuthorizer {
     }
 }
 
-struct RevokingAuthorizer {
-    address: SocketAddr,
-    validations: Arc<std::sync::atomic::AtomicUsize>,
+pub(super) struct RevokingAuthorizer {
+    pub(super) address: SocketAddr,
+    pub(super) validations: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl EgressAuthorizer for RevokingAuthorizer {
