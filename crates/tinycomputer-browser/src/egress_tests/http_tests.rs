@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! HTTP request, body, authentication, and refusal tests.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::{io, sync::{Arc, atomic::{AtomicBool, Ordering}}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[tokio::test]
 async fn denied_destination_never_connects_to_the_fixture() {

@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! Proxy retry behavior for multiple approved addresses.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::sync::Arc;
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[tokio::test]
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {

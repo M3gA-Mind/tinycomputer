@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! Session proxy listener lifecycle tests.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::sync::{Arc, atomic::AtomicBool};
+use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::test]
 async fn dropping_session_proxy_closes_its_listener() {

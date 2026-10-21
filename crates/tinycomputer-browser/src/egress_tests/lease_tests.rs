@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! Lease validation and revocation tests for active streams.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::sync::{Arc, atomic::Ordering};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[tokio::test]
 async fn continuous_http_response_still_revalidates_and_closes_revoked_lease() {

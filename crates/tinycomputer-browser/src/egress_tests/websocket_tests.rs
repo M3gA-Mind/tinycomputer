@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! WebSocket upgrade forwarding tests.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::sync::{Arc, atomic::AtomicBool};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[tokio::test]
 async fn approved_websocket_upgrade_is_forwarded_and_tunneled() {

@@ -1,10 +1,9 @@
-//! Focused browser egress proxy tests.
+//! CONNECT proxy tests.
 
 use super::simulator::*;
 use crate::EgressProxy;
-use serde_json::json;
-use std::{io, net::SocketAddr, sync::*};
-use tokio::{io::*, net::*};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 #[tokio::test]
 async fn approved_connect_reaches_only_the_consumed_socket() {
