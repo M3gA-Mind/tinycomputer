@@ -9,7 +9,7 @@ use tinycomputer_desktop::{
     TraceSinkArtifactLimits, TraceSinkDeadline, TraceSinkError,
 };
 
-use super::{CALL_TIMEOUT, CallbackGuard, Command, TraceLink};
+use super::{CALL_TIMEOUT, Command, TraceLink};
 
 impl EngineTraceSink for TraceLink {
     fn append(

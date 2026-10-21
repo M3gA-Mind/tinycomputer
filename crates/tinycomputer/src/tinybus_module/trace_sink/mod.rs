@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -19,15 +19,15 @@ use tinybus::{Connection, Error as TinyBusError, Proxy, Result as TinyBusResult}
 use tinycomputer_bus::trace_sink::{
     self, SinkAck, TaskReportRecord, TraceArtifact, TraceArtifactKind, TraceArtifactRef, TraceEvent,
 };
+mod engine_adapter;
+
+#[cfg(test)]
+use engine_adapter::{operation_deadline, receive, send, validate_artifact_size};
+use engine_adapter::{remaining_millis, remaining_timeout};
+#[cfg(test)]
 use tinycomputer_desktop::{
     TraceSink as EngineTraceSink, TraceSinkArtifact, TraceSinkArtifactKind as EngineArtifactKind,
     TraceSinkArtifactLimits, TraceSinkDeadline, TraceSinkError,
-};
-
-mod engine_adapter;
-
-use engine_adapter::{
-    operation_deadline, receive, remaining_millis, remaining_timeout, send, validate_artifact_size,
 };
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
