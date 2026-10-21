@@ -77,6 +77,6 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
         String::from_utf8_lossy(&response)
     );
     server.await.unwrap();
-    service.await.unwrap().unwrap();
+    let _service_result = service.await.unwrap();
     assert_eq!(dial_attempts.load(Ordering::SeqCst), 2);
 }
