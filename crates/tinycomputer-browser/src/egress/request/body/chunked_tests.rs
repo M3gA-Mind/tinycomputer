@@ -1,6 +1,6 @@
 //! Failure cases for bounded chunked request framing.
 
-use super::forward_chunked_request_body;
+use super::chunked::forward_chunked_request_body;
 
 async fn forward(input: &[u8]) -> std::io::Result<Vec<u8>> {
     let (mut client_reader, client_writer) = tokio::io::duplex(input.len().max(1));
