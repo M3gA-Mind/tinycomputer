@@ -244,6 +244,10 @@ optional:
 | `prelaunch` | `true` (the default) opens a browser-only task's browser while `StartTask` plans it (a `task` with no `flow`), so the first step does not wait for the launch, and loads in it the one web address the task's text names, if it names one, so a first step that browses there does not wait for the page either; `false` opens it at the first step |
 | `egress` | Host-private TinySecurity scope. When present, `policy_id` and `generation` are required; browser arguments, an executable override, attached DevTools endpoints, and caller-supplied launch flags are refused. The scope is never a browser or task argument. |
 
+The launch and attach options above apply only when `egress` is absent. With
+`egress` set, TinyComputer owns the executable and launch arguments and refuses
+task `browser_executable` overrides and attached DevTools endpoints.
+
 With `egress`, every launched browser session uses a private, authenticated
 loopback proxy. TinyComputer parses each HTTP request, asks the authenticated
 host callback to delegate destination authorization to TinySecurity, consumes

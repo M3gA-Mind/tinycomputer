@@ -6,7 +6,10 @@
 
 use std::{future::Future, io, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
-use tokio::{net::{TcpListener, TcpStream}, task::JoinSet};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    task::JoinSet,
+};
 
 mod forward;
 mod request;
@@ -118,9 +121,7 @@ impl EgressProxy {
     }
 }
 
-async fn accept_connection<A>(
-    accepted: A,
-) -> Option<(TcpStream, SocketAddr)>
+async fn accept_connection<A>(accepted: A) -> Option<(TcpStream, SocketAddr)>
 where
     A: Future<Output = io::Result<(TcpStream, SocketAddr)>>,
 {
