@@ -113,7 +113,6 @@ impl Tasks {
         }
         Ok(serde_json::to_vec(&value)?)
     }
-
 }
 
 fn resumable(status: &TaskStatus) -> bool {

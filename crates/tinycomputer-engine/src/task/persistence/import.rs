@@ -61,8 +61,6 @@ impl Tasks {
     }
 }
 
-}
-
 fn decode(bytes: &[u8]) -> Result<PausedTask, PausedTaskError> {
     let value: serde_json::Value = serde_json::from_slice(bytes)?;
     let version = value
@@ -300,4 +298,3 @@ fn collect_references(value: &serde_json::Value, names: &mut BTreeSet<String>) {
         _ => {}
     }
 }
-

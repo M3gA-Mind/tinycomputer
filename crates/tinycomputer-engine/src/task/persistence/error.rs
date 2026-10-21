@@ -57,4 +57,3 @@ impl From<serde_json::Error> for PausedTaskError {
         Self::Json(error)
     }
 }
-

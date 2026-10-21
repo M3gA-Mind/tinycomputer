@@ -39,4 +39,3 @@ pub(super) struct PausedTask {
     artifacts: Vec<tinycomputer_bus::browser::OutputRef>,
     usage: TaskUsage,
 }
-
