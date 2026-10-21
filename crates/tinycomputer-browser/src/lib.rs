@@ -39,9 +39,6 @@ mod action_gate;
 mod convert;
 mod deep;
 mod egress;
-#[cfg(test)]
-#[path = "egress_tests.rs"]
-mod egress_tests;
 mod engine;
 mod error;
 #[cfg(test)]

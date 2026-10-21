@@ -5,7 +5,16 @@
 use std::io;
 use tokio::net::{TcpListener, TcpStream};
 
+mod authority_tests;
+mod body_tests;
+mod connect_tests;
 mod forward_tests;
+mod http_tests;
+mod lease_tests;
+mod lifecycle_tests;
+mod retry_tests;
+mod simulator;
+mod websocket_tests;
 
 #[tokio::test]
 async fn an_accept_error_waits_then_allows_later_connections() {
