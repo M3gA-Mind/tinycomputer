@@ -47,9 +47,10 @@ Two conditions, both necessary:
 2. **The module must be at least as new, minor-wise, as the host.** A host
    built against `(2, 21)` expects at least the members and fields that
    existed at `(2, 21)`. A module reporting `(2, 11)` might be missing one of
-   them, so it is rejected. A module reporting `(2, 21)` has everything the
-   host expects, plus something newer the host simply does not use yet, so
-   it is accepted.
+   them, so it is rejected. A module reporting `(2, 21)` is an exact match
+   and is accepted. A module reporting `(2, 22)` has everything the host
+   expects, plus something newer the host simply does not use yet, so it is
+   accepted.
 
 ```rust,ignore
 assert!(is_compatible(CONTRACT_VERSION));   // (2, 21), the exact version this crate ships
