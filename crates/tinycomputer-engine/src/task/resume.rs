@@ -53,6 +53,9 @@ impl Tasks {
                 ));
             }
         };
+        for name in supplied.names() {
+            state.omitted_secrets.remove(name);
+        }
         state.facts = state.facts.merged(&supplied);
         let mut input_flow = state.flow.clone();
         if let Some(Resume::Retry { steps, .. }) = &state.resume {

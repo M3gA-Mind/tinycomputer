@@ -267,7 +267,9 @@ impl Tasks {
             else {
                 return Err(PausedTaskError::Invalid("task store is full".to_owned()));
             };
-            tasks.remove(&oldest_final);
+            if let Some(evicted) = tasks.remove(&oldest_final) {
+                self.runner.release(&evicted.view.borrow().id);
+            }
         }
         tasks.insert(number, cell.clone());
         self.counter.fetch_max(number, Ordering::Relaxed);

@@ -39,8 +39,114 @@ pub(super) async fn plan_payment_then_drive(
     planner: crate::planner::Planner,
     task: String,
     surfaces: Vec<tinycomputer_bus::agent::SurfaceKind>,
+    budget: super::TaskBudgetScope,
+    work: super::HostWorkGuard,
 ) {
-    plan_then_drive_with_page(cell, runner, planner, task, surfaces, false, false).await;
+    let (names, secrets) = cell.state.lock().map_or_else(
+        |_| (Vec::new(), Vec::new()),
+        |state| {
+            let owned = |names: Vec<&str>| names.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            (
+                owned(state.facts.names()),
+                owned(state.facts.secret_names()),
+            )
+        },
+    );
+    let id = cell.view.borrow().id.clone();
+    let planner = planner.with_usage_recorder(task_usage(&cell));
+    let started = Instant::now();
+    let reserve_call = || budget.try_reserve_model_call();
+    let planning =
+        planner.plan_measured_with_budget(&task, &names, &secrets, &surfaces, Some(&reserve_call));
+    let (outcome, used) = if let Some(ms) = budget.remaining_ms() {
+        if let Ok(result) = tokio::time::timeout(Duration::from_millis(ms), planning).await {
+            result
+        } else {
+            drop(work);
+            handle_plan_failure(
+                cell,
+                runner,
+                id,
+                task,
+                "payment continuation exceeded the task time budget".to_owned(),
+            )
+            .await;
+            return;
+        }
+    } else {
+        planning.await
+    };
+    runner.journal(Some(&id), "plan", &|| {
+        super::timing::planned(&outcome, used, started.elapsed(), planner.configuration())
+    });
+    let plan = match outcome {
+        Ok(plan) => plan,
+        Err(reason) => {
+            drop(work);
+            handle_plan_failure(cell, runner, id, task, reason).await;
+            return;
+        }
+    };
+    if !payment_plan_stays_on_current_page(&plan.flow.steps) {
+        drop(work);
+        runner.release(&id);
+        publish(
+            &cell,
+            TaskStatus::Failed {
+                step: None,
+                reason:
+                    "the payment continuation tried to navigate away from the current checkout page"
+                        .to_owned(),
+                hint: "continue only with a plan that inspects the current checkout page"
+                    .to_owned(),
+                recoverable: true,
+            },
+            "The payment continuation was stopped because its plan navigated away from checkout.",
+        );
+        return;
+    }
+    let allow = {
+        let Ok(mut state) = cell.state.lock() else {
+            return;
+        };
+        state.flow = plan.flow.clone();
+        state.constraints.allow_destructive
+    };
+    drop(work);
+    if plan.questions.is_empty() {
+        drive(
+            cell,
+            runner,
+            vec![Run {
+                flow: plan.flow,
+                allow_destructive: allow,
+                rescue: None,
+            }],
+        )
+        .await;
+    } else {
+        runner.release(&id);
+        publish(
+            &cell,
+            TaskStatus::NeedsInput {
+                fields: plan.questions,
+            },
+            "The payment continuation needs values before it can continue.",
+        );
+    }
+}
+
+fn payment_plan_stays_on_current_page(steps: &[tinycomputer_bus::FlowStep]) -> bool {
+    use tinycomputer_bus::FlowAction;
+    steps.iter().all(|step| match step.action() {
+        FlowAction::Browse(_) => false,
+        FlowAction::If(branch) => {
+            payment_plan_stays_on_current_page(&branch.then)
+                && payment_plan_stays_on_current_page(&branch.otherwise)
+        }
+        FlowAction::RepeatUntil(repeat) => payment_plan_stays_on_current_page(&repeat.steps),
+        _ => true,
+    })
 }
 
 async fn plan_then_drive_with_page(
@@ -275,7 +381,9 @@ async fn draft_from_current_page(
     planner: Option<crate::planner::Planner>,
 ) -> Result<(tinycomputer_bus::agent::TaskPlan, String), String> {
     let usage = task_usage(cell);
-    let before_calls = usage.snapshot().planner.calls;
+    let call_budget = usage
+        .task_call_budget()
+        .ok_or_else(|| "the task model-call budget is unavailable".to_owned())?;
     let budget_left = {
         let state = cell
             .state
@@ -302,7 +410,7 @@ async fn draft_from_current_page(
     };
     // Drop also charges elapsed time and started planner calls if this future
     // is cancelled while the model is still responding.
-    let mut debit = PlanningDebit::new(Arc::downgrade(cell), Arc::clone(&usage), before_calls);
+    let mut debit = PlanningDebit::new(Arc::downgrade(cell));
     let id = cell.view.borrow().id.clone();
     let origin_future = runner.page_origin(&id);
     let origin = if let Some(ms) = budget_left {
@@ -329,6 +437,7 @@ async fn draft_from_current_page(
             facts,
             planner,
             budget_left,
+            call_budget,
         },
         &mut debit,
     )
@@ -383,6 +492,7 @@ async fn run_handoff_planner(
         draft.surfaces,
         draft.facts,
         draft.planner,
+        draft.call_budget.clone(),
     );
     let result = if let Some(ms) = draft.budget_left {
         let remaining = ms
@@ -431,6 +541,7 @@ struct HandoffDraft {
     facts: tinycomputer_core::Facts,
     planner: Option<crate::planner::Planner>,
     budget_left: Option<u64>,
+    call_budget: super::TaskCallBudget,
 }
 
 fn ensure_handoff_budget(cell: &Cell) -> Result<(), String> {
@@ -506,18 +617,14 @@ fn validate_handoff_plan(
 
 struct PlanningDebit {
     cell: Weak<Cell>,
-    usage: Arc<crate::UsageRecorder>,
-    planner_calls_before: u64,
     started: Instant,
     charged: bool,
 }
 
 impl PlanningDebit {
-    fn new(cell: Weak<Cell>, usage: Arc<crate::UsageRecorder>, planner_calls_before: u64) -> Self {
+    fn new(cell: Weak<Cell>) -> Self {
         Self {
             cell,
-            usage,
-            planner_calls_before,
             started: Instant::now(),
             charged: false,
         }
@@ -528,17 +635,9 @@ impl PlanningDebit {
             return;
         }
         self.charged = true;
-        let calls = self
-            .usage
-            .snapshot()
-            .planner
-            .calls
-            .saturating_sub(self.planner_calls_before);
-        let calls = u32::try_from(calls).unwrap_or(u32::MAX);
         if let Some(cell) = self.cell.upgrade()
             && let Ok(mut state) = cell.state.lock()
         {
-            state.spent.model_calls = state.spent.model_calls.saturating_add(calls);
             state.spent.elapsed_ms = state.spent.elapsed_ms.saturating_add(
                 u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX),
             );
@@ -609,6 +708,7 @@ async fn draft_handoff(
     surfaces: Vec<SurfaceKind>,
     facts: tinycomputer_core::Facts,
     planner: Option<crate::planner::Planner>,
+    call_budget: super::TaskCallBudget,
 ) -> Result<tinycomputer_bus::agent::TaskPlan, String> {
     if let Some(planner) = planner {
         let planner = planner.with_usage_recorder(task_usage(cell));
@@ -623,8 +723,9 @@ async fn draft_handoff(
             .into_iter()
             .map(str::to_owned)
             .collect::<Vec<_>>();
+        let reserve_call = || call_budget.reserve_model_call();
         let (outcome, used) = planner
-            .plan_measured(&task, &names, &secrets, &surfaces)
+            .plan_measured_with_budget(&task, &names, &secrets, &surfaces, Some(&reserve_call))
             .await;
         let id = cell.view.borrow().id.clone();
         runner.journal(Some(&id), "plan", &|| {

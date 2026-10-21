@@ -45,6 +45,31 @@ impl TaskCallBudget {
         self.begin(true)
     }
 
+    /// Reserves one planner call while no other host work is active.
+    #[must_use]
+    pub fn reserve_model_call(&self) -> bool {
+        let Some(cell) = self.cell.upgrade() else {
+            return false;
+        };
+        let Ok(mut state) = cell.state.lock() else {
+            return false;
+        };
+        if state.host_work != super::store::HostWorkState::Open
+            || state
+                .budget
+                .max_elapsed_ms
+                .is_some_and(|max| state.spent.elapsed_ms >= max)
+        {
+            return false;
+        }
+        let max = state.budget.max_model_calls.unwrap_or(DEFAULT_MODEL_CALLS);
+        if state.spent.model_calls >= max {
+            return false;
+        }
+        state.spent.model_calls = state.spent.model_calls.saturating_add(1);
+        true
+    }
+
     fn begin(&self, payment_checkpoint: bool) -> Option<HostWorkGuard> {
         let cell = self.cell.upgrade()?;
         let mut state = cell.state.lock().ok()?;
@@ -229,14 +254,20 @@ impl HostWork {
             super::store::HostWorkState::Active => !self.payment_checkpoint,
             super::store::HostWorkState::PaymentActive => {
                 self.payment_checkpoint
-                    && state.payment_checkpoint == super::store::PaymentCheckpointState::Available
-                    && matches!(
-                        &cell.view.borrow().status,
-                        tinycomputer_bus::agent::TaskStatus::Checkpoint {
-                            continuable: false,
-                            ..
-                        }
-                    )
+                    && (state.payment_checkpoint == super::store::PaymentCheckpointState::Available
+                        && matches!(
+                            &cell.view.borrow().status,
+                            tinycomputer_bus::agent::TaskStatus::Checkpoint {
+                                continuable: false,
+                                ..
+                            }
+                        )
+                        || state.payment_checkpoint
+                            == super::store::PaymentCheckpointState::Transitioned
+                            && matches!(
+                                &cell.view.borrow().status,
+                                tinycomputer_bus::agent::TaskStatus::Running
+                            ))
             }
             super::store::HostWorkState::Open | super::store::HostWorkState::Closed => false,
         }

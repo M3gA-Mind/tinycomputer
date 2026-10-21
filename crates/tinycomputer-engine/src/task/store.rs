@@ -125,6 +125,10 @@ impl Tasks {
         facts: Facts,
         request: &StartTaskRequest,
     ) -> Option<Arc<Cell>> {
+        // Imports reserve their restored id while holding this same index
+        // lock. Allocate under it so a start cannot reserve that id before
+        // blocking on the index and then replace the imported cell.
+        let mut tasks = self.cells.lock().ok()?;
         let number = loop {
             let current = self.counter.load(Ordering::Relaxed);
             let number = current.checked_add(1)?;
@@ -182,7 +186,6 @@ impl Tasks {
             planner: self.planner.clone(),
         });
         usage.set_task_call_budget(TaskCallBudget::for_cell(Arc::downgrade(&cell)));
-        let mut tasks = self.cells.lock().ok()?;
         while tasks.len() >= MAX_TASKS {
             let oldest_final = tasks
                 .iter()

@@ -298,6 +298,20 @@ impl Planner {
         secret_names: &[String],
         surfaces: &[SurfaceKind],
     ) -> (Result<TaskPlan, String>, ModelUse) {
+        self.plan_measured_with_budget(task, fact_names, secret_names, surfaces, None)
+            .await
+    }
+
+    /// Drafts a plan while reserving each provider call against `budget`
+    /// before the call starts.
+    pub async fn plan_measured_with_budget(
+        &self,
+        task: &str,
+        fact_names: &[String],
+        secret_names: &[String],
+        surfaces: &[SurfaceKind],
+        reserve_call: Option<&(dyn Fn() -> bool + Send + Sync)>,
+    ) -> (Result<TaskPlan, String>, ModelUse) {
         let surfaces = if surfaces.is_empty() {
             "the web browser and desktop applications".to_owned()
         } else {
@@ -349,6 +363,12 @@ impl Planner {
         let mut used = ModelUse::starting(&turns);
         let mut last = String::new();
         for _ in 0..=REPAIRS {
+            if reserve_call.is_some_and(|reserve| !reserve()) {
+                return (
+                    Err("the task model-call budget is exhausted".to_owned()),
+                    used,
+                );
+            }
             used.calls += 1;
             let reply = match self
                 .model

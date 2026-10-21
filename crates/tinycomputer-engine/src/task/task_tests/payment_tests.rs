@@ -199,6 +199,20 @@ async fn a_cancelled_payment_checkpoint_cannot_be_reauthorized() {
 }
 
 #[tokio::test]
+async fn awaited_cancellation_closes_payment_authorization() {
+    let (tasks, _script, started) = payment_task(vec![payment_checkpoint()], false);
+    settle(&tasks, &started.id).await;
+
+    let cancelled = tasks.cancel_and_wait(&started.id).await;
+    assert!(cancelled.ok);
+    let replay = tasks.continue_paid_at_shop(&ContinuePaidAtShopRequest {
+        id: started.id.clone(),
+        checkout_context: "Order confirmation".to_owned(),
+    });
+    assert_eq!(code(&replay), "PAYMENT_TRANSITION_REFUSED");
+}
+
+#[tokio::test]
 async fn payment_transition_rejects_non_card_and_colliding_handles_without_mutation() {
     let (tasks, _script, started) = payment_task(vec![payment_checkpoint()], false);
     let stopped = settle(&tasks, &started.id).await;
@@ -267,6 +281,56 @@ async fn paid_at_shop_continues_the_same_task_without_card_handles_or_payment_au
     let requests = script.requests.lock().unwrap();
     assert!(requests.last().unwrap().fact_handles.is_empty());
     assert!(requests.last().unwrap().facts.is_empty());
+}
+
+#[tokio::test]
+async fn payment_continuation_rejects_a_plan_that_navigates_away() {
+    let (tasks, script, started) = payment_task(vec![payment_checkpoint()], false);
+    let tasks = tasks.with_planner(crate::planner::Planner::new(Arc::new(FixedPlan(
+        r#"{"app":"browser","steps":[{"browse":"https://other.example/"}]}"#.to_owned(),
+        script.planner_text.clone(),
+    ))));
+    settle(&tasks, &started.id).await;
+
+    let resumed = tasks.continue_paid_at_shop(&ContinuePaidAtShopRequest {
+        id: started.id.clone(),
+        checkout_context: "Order confirmed".to_owned(),
+    });
+    assert!(resumed.ok, "{:?}", resumed.error);
+    let stopped = settle(&tasks, &started.id).await;
+
+    assert!(matches!(stopped.status, TaskStatus::Failed { .. }));
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn payment_continuation_refuses_when_the_task_call_budget_is_exhausted() {
+    let (tasks, script, started) = payment_task(vec![payment_checkpoint()], false);
+    let tasks = tasks.with_planner(crate::planner::Planner::new(Arc::new(FixedPlan(
+        r#"{"app":"browser","steps":["read the receipt"]}"#.to_owned(),
+        script.planner_text.clone(),
+    ))));
+    settle(&tasks, &started.id).await;
+    let cell = tasks.find(&started.id).unwrap();
+    {
+        let mut state = cell.state.lock().unwrap();
+        state.budget.max_model_calls = Some(state.spent.model_calls);
+    }
+
+    let refused = tasks.continue_paid_at_shop(&ContinuePaidAtShopRequest {
+        id: started.id.clone(),
+        checkout_context: "Order confirmed".to_owned(),
+    });
+
+    assert_eq!(code(&refused), "PAYMENT_TRANSITION_REFUSED");
+    assert!(script.planner_text.lock().unwrap().is_empty());
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Checkpoint {
+            continuable: false,
+            ..
+        }
+    ));
 }
 
 #[tokio::test]
