@@ -294,6 +294,7 @@ impl Browser {
                 role: Some(role.to_owned()),
                 name: name.map(str::to_owned),
                 reference: Some(reference.to_owned()),
+                unique: false,
             }),
             current_url: Some(current_url.clone()),
             destination_url: None,
