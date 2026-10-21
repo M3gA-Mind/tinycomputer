@@ -490,13 +490,3 @@ async fn draft_handoff(
         Err("no planner or host plan-recovery hook is configured".to_owned())
     }
 }
-
-/// Runs a task's flows in order until one stops it or all finish.
-///
-/// A task's [`TaskBudget`] bounds the whole task, not one run of it: an
-/// approval or a human intervention splits a task into several runs, and
-/// each is given only what the task has not already spent, so resuming can
-/// never reset the budget back to full. `max_elapsed_ms` has no equivalent in
-/// [`RunFlowRequest`] — a run cannot police its own wall-clock time from the
-/// inside — so it is enforced here instead, by timing out a run that would
-/// otherwise run past what remains of it.
