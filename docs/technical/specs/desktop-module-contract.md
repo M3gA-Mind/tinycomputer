@@ -102,6 +102,18 @@ They do not contain the secret value, and a module without a configured
 task context. Existing value facts and requests without handles keep their
 wire behavior.
 
+Continuation secret handles (2.23): `ContinueTask` accepts optional
+`fact_handles`, keyed by fact name, using the same opaque handle, mask, and kind
+shape as 2.22. A host can therefore supply a secret only when a paused task
+asks for it, without sending the value through the module. Modules without a
+configured `SecretHost` refuse to type these handles.
+
+Planner handoff (2.24): `StartTask` accepts optional `handoff_to_planner`.
+When true, the module runs the supplied flow as a prefix and hands the same
+task and retained browser page to the configured planner after the prefix
+completes. The field is refused when no module planner is configured; omitted
+or false keeps the existing start behavior.
+
 - `TaskReport` takes a `TaskReportRequest` (2.7), `{"id", "trace"}` with
   `trace` always serialized, rather than a `TaskRef`. A TinyBus client
   refuses a confidential body holding an object whose only field is a string
