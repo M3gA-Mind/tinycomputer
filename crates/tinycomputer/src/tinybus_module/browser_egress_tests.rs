@@ -1,7 +1,5 @@
 //! Tests for the mechanical TinyBus-to-TinySecurity browser egress adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(clippy::unused_async)] // TinyBus interface methods must be async.
-
 use super::*;
 use std::sync::{Arc, Mutex};
 use tinybus::{Connection, broker::Broker, transport::memory::MemoryBus};
@@ -22,6 +20,7 @@ struct Host {
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.BrowserEgressHost")]
 impl Host {
     async fn authorize(&self, request: BrowserEgressTarget) -> tinybus::Result<BrowserEgressGrant> {
+        tokio::task::yield_now().await;
         self.seen.lock().unwrap().push(format!(
             "authorize:{}:{}:{}:{}:{}:{}",
             request.policy_id,
@@ -42,6 +41,7 @@ impl Host {
         &self,
         request: BrowserEgressConsumeRequest,
     ) -> tinybus::Result<BrowserEgressDecision> {
+        tokio::task::yield_now().await;
         self.seen.lock().unwrap().push(format!(
             "consume:{}:{}:{}:{}:{}:{}",
             request.target.policy_id,
@@ -60,6 +60,7 @@ impl Host {
         &self,
         request: BrowserEgressValidateRequest,
     ) -> tinybus::Result<BrowserEgressDecision> {
+        tokio::task::yield_now().await;
         self.seen
             .lock()
             .unwrap()
