@@ -2,8 +2,17 @@
 
 use super::simulator::*;
 use crate::EgressProxy;
-use std::{io, sync::{Arc, atomic::{AtomicBool, Ordering}}};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::test]
 async fn denied_destination_never_connects_to_the_fixture() {

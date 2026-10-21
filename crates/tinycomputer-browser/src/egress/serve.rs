@@ -9,7 +9,7 @@ use super::{
     forward::{
         forward_response_with_lease, initialize_upstream, refuse, tunnel_with_lease, validate_lease,
     },
-    request::{ProxyRequest, read_proxy_request, read_request_body},
+    request::{read_proxy_request, read_request_body},
 };
 
 pub(super) async fn serve(

@@ -3,7 +3,10 @@
 use super::simulator::*;
 use crate::EgressProxy;
 use std::sync::{Arc, atomic::Ordering};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::test]
 async fn continuous_http_response_still_revalidates_and_closes_revoked_lease() {

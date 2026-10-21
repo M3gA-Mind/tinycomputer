@@ -2,8 +2,14 @@
 
 use super::simulator::*;
 use crate::EgressProxy;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::test]
 async fn approved_connect_reaches_only_the_consumed_socket() {

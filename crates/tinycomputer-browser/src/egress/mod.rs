@@ -12,6 +12,7 @@ mod forward;
 mod request;
 mod serve;
 
+#[cfg(test)]
 pub(crate) use request::parse_authority;
 
 /// A destination parsed from the browser's actual proxy request.

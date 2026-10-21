@@ -3,7 +3,10 @@
 use super::simulator::*;
 use crate::EgressProxy;
 use std::sync::Arc;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::test]
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {

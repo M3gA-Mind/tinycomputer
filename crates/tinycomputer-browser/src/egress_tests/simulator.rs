@@ -120,7 +120,7 @@ impl EgressAuthorizer for MultiAddressAuthorizer {
 
 pub(super) struct RevokingAuthorizer {
     pub(super) address: SocketAddr,
-    pub(super) validations: Arc<std::sync::atomic::AtomicUsize>,
+    pub(super) validations: Arc<AtomicUsize>,
 }
 
 impl EgressAuthorizer for RevokingAuthorizer {

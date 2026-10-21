@@ -3,7 +3,10 @@
 use super::simulator::*;
 use crate::EgressProxy;
 use std::sync::{Arc, atomic::AtomicBool};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 #[tokio::test]
 async fn approved_websocket_upgrade_is_forwarded_and_tunneled() {
