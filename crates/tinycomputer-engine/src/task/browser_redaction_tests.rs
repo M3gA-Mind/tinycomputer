@@ -173,8 +173,9 @@ fn secret_shaped_bounds_are_dropped_before_model_description() {
 }
 
 #[test]
-fn secret_redacting_surface_wraps_browser_surface_operations() {
-    let runtime = tokio::runtime::Runtime::new().expect("create a Tokio runtime");
+fn secret_redacting_surface_wraps_browser_surface_operations()
+-> Result<(), Box<dyn std::error::Error>> {
+    let runtime = tokio::runtime::Runtime::new()?;
     let browser = Arc::new(Browser::new(Arc::new(BrowserScript::default())));
     let inner = BrowserSurface::new(browser, SessionOptions::default(), runtime.handle().clone());
     let surface = super::SecretRedactingSurface {
@@ -197,4 +198,5 @@ fn secret_redacting_surface_wraps_browser_surface_operations() {
     let _ = surface.navigate("https://shop.example/");
     let _ = surface.back("browser");
     let _ = surface.dismiss_cover(&target);
+    Ok(())
 }
