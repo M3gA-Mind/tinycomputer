@@ -12,10 +12,10 @@ use tinycomputer_core::surface::{Candidate, Depth, Screen, Surface};
 use super::{CaptureFuture, FlowFuture, FlowRunner, PrepareFuture, TextFuture};
 
 mod redaction;
-use redaction::SecretRedactingSurface;
-pub(super) use redaction::{redact_observation_error, redact_response, redact_screen};
 use crate::SecretHost;
 use crate::{JevRuntime, UsageRecorder};
+use redaction::SecretRedactingSurface;
+pub(super) use redaction::{redact_observation_error, redact_response, redact_screen};
 
 /// Runs task flows directly on one in-process browser surface per task.
 ///
@@ -344,6 +344,10 @@ async fn tinycomputer_engine_flow(
 ) -> DesktopResponse {
     crate::run_flow_with_host(surface, &runtime, request, secret_host).await
 }
+
+#[cfg(test)]
+#[path = "../browser_redaction_tests.rs"]
+mod redaction_tests;
 
 #[cfg(test)]
 #[path = "../browser_tests.rs"]

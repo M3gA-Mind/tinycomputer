@@ -201,8 +201,3 @@ pub(super) fn redact_screen(host: &dyn SecretHost, task_id: &str, screen: &mut S
         .text_nodes
         .retain_mut(|node| candidate(host, task_id, node));
 }
-
-#[cfg(test)]
-#[path = "browser_redaction_tests.rs"]
-mod redaction_tests;
-
