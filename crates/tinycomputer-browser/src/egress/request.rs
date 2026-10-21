@@ -10,7 +10,7 @@ use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use super::{
     BrowserDialTarget,
-    forward::{constant_time_eq, refuse},
+    forward::{constant_time_eq, refuse, write_all_bounded},
 };
 
 pub(super) struct ProxyRequest {
