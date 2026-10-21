@@ -55,6 +55,27 @@ async fn an_empty_command_is_answered_without_launching_a_browser() {
 }
 
 #[tokio::test]
+async fn enforced_launcher_creates_a_private_session_without_implicit_launch() {
+    let launcher = super::EnforcedAgentBrowser::new(Arc::new(RejectAll));
+    assert_eq!(
+        format!("{launcher:?}"),
+        "EnforcedAgentBrowser([host authorizer])"
+    );
+
+    let mut engine = launcher.open("private-launcher");
+    let reply = engine
+        .execute(json!({"id": "read", "action": "read"}))
+        .await;
+
+    assert_eq!(reply["success"], false);
+    assert!(
+        reply["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("enforced launch with a live browser session"))
+    );
+}
+
+#[tokio::test]
 async fn enforced_browser_refuses_implicit_launch_before_any_request() {
     let mut engine = EnforcedAgentBrowser::new(Arc::new(RejectAll)).open("unit");
     let reply = engine
