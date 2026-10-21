@@ -2,15 +2,19 @@
 
 use std::{io, time::Duration};
 
-use tokio::{io::AsyncReadExt, net::TcpStream};
+use tokio::io::AsyncReadExt;
 
 use crate::egress::forward::write_all_bounded;
 
-pub(super) async fn forward_chunked_request_body(
-    client: &mut TcpStream,
-    upstream: &mut TcpStream,
+pub(super) async fn forward_chunked_request_body<C, U>(
+    client: &mut C,
+    upstream: &mut U,
     initial: &[u8],
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    C: tokio::io::AsyncRead + Unpin,
+    U: tokio::io::AsyncWrite + Unpin,
+{
     let mut pending = initial.to_vec();
     let mut offset = 0;
     let mut trailer_bytes = 0;
@@ -101,8 +105,8 @@ pub(super) async fn forward_chunked_request_body(
     }
 }
 
-async fn read_chunk_line(
-    client: &mut TcpStream,
+async fn read_chunk_line<C: tokio::io::AsyncRead + Unpin>(
+    client: &mut C,
     pending: &mut Vec<u8>,
     offset: &mut usize,
 ) -> io::Result<Vec<u8>> {
@@ -140,8 +144,8 @@ async fn read_chunk_line(
     }
 }
 
-async fn read_body_bytes(
-    client: &mut TcpStream,
+async fn read_body_bytes<C: tokio::io::AsyncRead + Unpin>(
+    client: &mut C,
     pending: &mut Vec<u8>,
     offset: &mut usize,
     length: usize,

@@ -110,12 +110,16 @@ pub(super) async fn tunnel_with_lease(
     }
 }
 
-pub(super) async fn forward_response_with_lease(
-    client: &mut TcpStream,
-    upstream: &mut TcpStream,
+pub(super) async fn forward_response_with_lease<C, U>(
+    client: &mut C,
+    upstream: &mut U,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: String,
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    C: tokio::io::AsyncWrite + Unpin,
+    U: tokio::io::AsyncRead + Unpin,
+{
     let mut chunk = [0u8; 8192];
     let mut validations = validation_interval();
     loop {
@@ -133,13 +137,17 @@ pub(super) async fn forward_response_with_lease(
     }
 }
 
-pub(super) async fn forward_request_body_with_lease(
-    client: &mut TcpStream,
-    upstream: &mut TcpStream,
+pub(super) async fn forward_request_body_with_lease<C, U>(
+    client: &mut C,
+    upstream: &mut U,
     request: &ProxyRequest,
     auth: &Arc<dyn EgressAuthorizer>,
     lease: &str,
-) -> io::Result<bool> {
+) -> io::Result<bool>
+where
+    C: tokio::io::AsyncRead + Unpin,
+    U: tokio::io::AsyncWrite + Unpin,
+{
     let body = read_request_body(client, upstream, request, buffered_body_len(request));
     tokio::pin!(body);
     let mut validations = validation_interval();
@@ -183,8 +191,8 @@ pub(super) async fn refuse(client: &mut TcpStream) -> io::Result<()> {
     .await
 }
 
-pub(super) async fn write_all_bounded(
-    stream: &mut TcpStream,
+pub(super) async fn write_all_bounded<W: tokio::io::AsyncWrite + Unpin>(
+    stream: &mut W,
     bytes: &[u8],
     message: &'static str,
 ) -> io::Result<()> {

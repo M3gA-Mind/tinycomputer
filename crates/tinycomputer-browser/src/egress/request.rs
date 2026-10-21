@@ -239,12 +239,16 @@ pub(super) fn buffered_body_len(request: &ProxyRequest) -> usize {
     }
 }
 
-pub(super) async fn read_request_body(
-    client: &mut TcpStream,
-    upstream: &mut TcpStream,
+pub(super) async fn read_request_body<C, U>(
+    client: &mut C,
+    upstream: &mut U,
     request: &ProxyRequest,
     mut received: usize,
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    C: tokio::io::AsyncRead + Unpin,
+    U: tokio::io::AsyncWrite + Unpin,
+{
     if request.has_upgrade || request.connect {
         return Ok(());
     }
