@@ -32,9 +32,10 @@ async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachab
     });
     let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy_address = proxy_listener.local_addr().unwrap();
-    let (client, (proxy_stream, _)) =
-        tokio::join!(TcpStream::connect(proxy_address), proxy_listener.accept(),);
+    let (client, proxy_connection) =
+        tokio::join!(TcpStream::connect(proxy_address), proxy_listener.accept());
     let mut client = client.unwrap();
+    let (proxy_stream, _) = proxy_connection.unwrap();
     let proxy_stream = proxy_stream.unwrap();
     let dial_attempts = Arc::new(AtomicUsize::new(0));
     let counted_attempts = Arc::clone(&dial_attempts);

@@ -19,10 +19,17 @@ pub(super) async fn serve(
     session_id: String,
     proxy_password: String,
 ) -> io::Result<()> {
-    serve_with_connector(client, auth, session_id, proxy_password, TcpStream::connect).await
+    Box::pin(serve_with_connector(
+        client,
+        auth,
+        session_id,
+        proxy_password,
+        TcpStream::connect,
+    ))
+    .await
 }
 
-pub(super) async fn serve_with_connector<C, F>(
+pub(crate) async fn serve_with_connector<C, F>(
     mut client: TcpStream,
     auth: Arc<dyn EgressAuthorizer>,
     session_id: String,
