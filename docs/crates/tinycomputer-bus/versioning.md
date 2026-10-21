@@ -47,9 +47,9 @@ Two conditions, both necessary:
 2. **The module must be at least as new, minor-wise, as the host.** A host
    built against `(2, 25)` expects at least the members and fields that
    existed at `(2, 25)`. A module reporting `(2, 11)` might be missing one of
-   them, so it is rejected. A module reporting `(2, 24)` has everything the
-   host expected before the `TraceSinkHost` callbacks were added, so it is
-   rejected by a 2.25 host.
+   them, so it is rejected. A module reporting `(2, 24)` predates the
+   `TraceSinkHost` callbacks that a 2.25 host expects, so a 2.25 host
+   rejects it too.
 
 ```rust,ignore
 assert!(is_compatible(CONTRACT_VERSION));   // (2, 25), the exact version this crate ships
