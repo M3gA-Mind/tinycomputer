@@ -175,6 +175,12 @@ fn the_browser_configuration_is_read_or_refused() {
     assert_eq!(defaults.perception, Perception::Tree);
     assert_eq!(defaults.settle, Settle::Steady);
     assert!(!defaults.prelaunch);
+    let egress = BrowserDefaults::from_config(&json!({"browser": {
+        "egress": {"policy_id": "host-policy", "generation": 7}
+    }}))
+    .unwrap();
+    assert_eq!(egress.egress.as_ref().unwrap().policy_id, "host-policy");
+    assert_eq!(egress.egress.as_ref().unwrap().generation, 7);
     // Settling promptly and opening the browser early are on unless turned
     // off.
     let unset = BrowserDefaults::default();
@@ -196,6 +202,9 @@ fn the_browser_configuration_is_read_or_refused() {
         json!({"browser": {"settle": "fast"}}),
         json!({"browser": {"prelaunch": "yes"}}),
         json!({"browser": {"useragent": "typo"}}),
+        json!({"browser": {"egress": {"policy_id": "", "generation": 0}}}),
+        json!({"browser": {"egress": {"policy_id": "p", "generation": 1, "extra": true}}}),
+        json!({"browser": {"egress": {"policy_id": "p", "generation": 1}, "args": ["--proxy-server=bad"]}}),
     ] {
         assert!(BrowserDefaults::from_config(&invalid).is_err(), "{invalid}");
         assert!(DesktopService::from_config(&invalid).is_err(), "{invalid}");

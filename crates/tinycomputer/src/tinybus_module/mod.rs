@@ -19,6 +19,7 @@
 //! call — nothing platform-specific has to cross a thread boundary or survive
 //! an `await`.
 
+mod browser_egress;
 mod config;
 mod consequence_gate;
 mod dispatch;
@@ -39,7 +40,8 @@ pub(crate) use dispatch::DesktopService;
 /// silently ignoring the session it was told to join would allocate refs
 /// nothing else can spend.
 async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
-    let service = DesktopService::from_config_with_connection(&config, &connection)?;
+    let service = DesktopService::from_config_with_connection(&config, connection.clone())
+        .map_err(|error| tinybus::Error::failed(error.to_string()))?;
     // The host's per-site memory; a host that does not serve it only costs
     // tasks what earlier ones learned.
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
@@ -95,6 +97,7 @@ tinybus_module::module_export_optional_static! {
         "ai.tinyhumans.tinycomputer.SiteMemoryHost",
         "ai.tinyhumans.tinycomputer.ConsequenceHost",
         "ai.tinyhumans.tinycomputer.TraceSinkHost",
+        "ai.tinyhumans.tinycomputer.BrowserEgressHost",
     ],
     lazy = false,
 }

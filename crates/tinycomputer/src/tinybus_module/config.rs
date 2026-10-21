@@ -29,6 +29,21 @@ pub(crate) struct BrowserDefaults {
     /// drafted (the default), at the one web address the task's text names
     /// if it names one, rather than at its first step.
     pub(crate) prelaunch: bool,
+    /// Immutable `TinySecurity` scope captured from host-private configuration.
+    pub(crate) egress: Option<BrowserEgressConfig>,
+}
+
+/// Host-selected policy identity and generation; never an agent argument.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct BrowserEgressConfig {
+    pub(crate) policy_id: String,
+    pub(crate) generation: u64,
+}
+
+impl std::fmt::Debug for BrowserEgressConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("BrowserEgressConfig([REDACTED])")
+    }
 }
 
 impl Default for BrowserDefaults {
@@ -40,6 +55,7 @@ impl Default for BrowserDefaults {
             perception: Perception::default(),
             settle: Settle::default(),
             prelaunch: true,
+            egress: None,
         }
     }
 }
@@ -63,7 +79,7 @@ impl BrowserDefaults {
             field: "browser",
             expected: "an object with optional `executable` and `user_agent` strings, an `args` \
                        array of strings, a `perception` of sight or tree, a `settle` of \
-                       prompt or steady, and a `prelaunch` boolean",
+                       prompt or steady, a `prelaunch` boolean, and optional private `egress` policy",
         };
         let browser = browser.as_object().ok_or_else(invalid)?;
         let text = |name: &str| match browser.get(name) {
@@ -99,6 +115,32 @@ impl BrowserDefaults {
             Some(serde_json::Value::Bool(prelaunch)) => *prelaunch,
             Some(_) => return Err(invalid()),
         };
+        defaults.egress = match browser.get("egress") {
+            None => None,
+            Some(serde_json::Value::Object(egress)) => {
+                let policy_id = egress
+                    .get("policy_id")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|id| !id.is_empty() && id.len() <= 64)
+                    .ok_or_else(invalid)?;
+                let generation = egress
+                    .get("generation")
+                    .and_then(serde_json::Value::as_u64)
+                    .filter(|generation| *generation > 0)
+                    .ok_or_else(invalid)?;
+                if egress.len() != 2
+                    || browser.contains_key("args")
+                    || browser.contains_key("executable")
+                {
+                    return Err(invalid());
+                }
+                Some(BrowserEgressConfig {
+                    policy_id: policy_id.to_owned(),
+                    generation,
+                })
+            }
+            Some(_) => return Err(invalid()),
+        };
         if browser.keys().any(|key| {
             ![
                 "executable",
@@ -107,6 +149,7 @@ impl BrowserDefaults {
                 "perception",
                 "settle",
                 "prelaunch",
+                "egress",
             ]
             .contains(&key.as_str())
         }) {

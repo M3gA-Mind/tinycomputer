@@ -89,12 +89,22 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
+Browser egress (2.26): a host may serve the optional
+`ai.tinyhumans.tinycomputer.BrowserEgressHost` interface
+(`tinycomputer_bus::browser_egress`) with `Authorize`, `Consume`, and
+`Validate`. Before a browser proxy request is dialed, the module asks the host
+to authorize its actual destination and receives vetted socket addresses plus
+an opaque lease. It consumes a one-use grant for an exact address before
+dialing, and reauthorizes before trying another address if a connection fails.
+The lease is revalidated while uploads, tunnels, or responses remain active. A
+2.25 module cannot enforce these host decisions.
+
 Session identity (2.20): `SessionOptions` takes the optional `timezone`,
 `locale`, `accept_language`, `user_agent_metadata`, `screen`, `init_scripts` and
 `stealth`. A client that sends none gets the defaults; a 2.19 module ignores
 them. They apply to a browser the module launches, not one it attaches to.
 
-Trace and report persistence (2.25): when module configuration sets
+Trace and report persistence (2.26): when module configuration sets
 `trace_sink` to an object containing the unique callback `destination`, the
 module calls the confidential `ai.tinyhumans.tinycomputer.TraceSinkHost`
 interface. `Append` receives each complete sanitized agent-desktop trace event

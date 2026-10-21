@@ -117,6 +117,7 @@ pub mod agent;
 pub mod agentic;
 pub mod apps;
 pub mod browser;
+pub mod browser_egress;
 pub mod catalogue;
 pub mod clipboard;
 pub mod consequence_host;

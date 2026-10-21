@@ -36,9 +36,11 @@ tinycomputer-cursor = { workspace = true }
 url = { workspace = true }
 # Per-session locks held across engine calls; `rt` for the runtime handle a
 # blocking surface call runs the async browser on.
-tokio = { workspace = true, features = ["sync", "rt", "time"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "net", "io-util"] }
 # Whether the process a Chrome profile lock names is alive.
 sysinfo = { workspace = true }
+# Report transient browser proxy listener errors without stopping the session.
+log = { workspace = true }
 
 # The linked engine, with the `agent-browser` feature. Without it the crate
 # is the adapter alone, for hosts that bring their own `Launcher`.
@@ -50,7 +52,7 @@ default = []
 agent-browser = ["dep:agent-browser"]
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

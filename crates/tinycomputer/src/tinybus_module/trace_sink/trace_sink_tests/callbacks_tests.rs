@@ -82,7 +82,7 @@ async fn configured_service_routes_task_reports_to_the_confidential_host_callbac
     });
     let service = crate::tinybus_module::DesktopService::from_config_with_connection(
         &config,
-        &module_connection,
+        module_connection.clone(),
     )?;
 
     let started: AgentResponse<TaskView> = serde_json::from_value(
