@@ -97,7 +97,9 @@ impl EgressProxy {
                         let auth = authorizer.clone();
                         let session = session_id.clone();
                         let password = proxy_password.clone();
-                        connections.spawn(async move { let _ = serve::serve(stream, auth, session, password).await; });
+                        connections.spawn(async move {
+                            let _ = Box::pin(serve::serve(stream, auth, session, password)).await;
+                        });
                     }
                     _ = connections.join_next(), if !connections.is_empty() => {}
                 }
