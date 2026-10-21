@@ -180,15 +180,23 @@ impl Tasks {
         Some(cell)
     }
 
-    pub(super) fn register_planless(&self, request: &StartTaskRequest) -> AgentResponse<TaskView> {
+    pub(super) fn register_planless(
+        &self,
+        request: &StartTaskRequest,
+        facts: Facts,
+    ) -> AgentResponse<TaskView> {
         let flow = Flow {
             app: String::new(),
             vars: BTreeMap::new(),
             steps: Vec::new(),
         };
-        let Some(cell) = self.register(&flow, Facts::default(), request) else {
+        let Some(cell) = self.register(&flow, facts, request) else {
             return too_many();
         };
+        if self.runner.plan_recovery_enabled() {
+            self.start_planless_recovery(&cell, request.task.as_deref().unwrap_or_default());
+            return AgentResponse::ok(cell.current_view());
+        }
         publish(
             &cell,
             TaskStatus::NeedsPlan {
@@ -197,6 +205,86 @@ impl Tasks {
             "No planner is configured: write a flow for this task with the guide and start it again.",
         );
         AgentResponse::ok(cell.current_view())
+    }
+
+    fn start_planless_recovery(&self, cell: &Arc<Cell>, task: &str) {
+        publish(
+            cell,
+            TaskStatus::Running,
+            "Writing a safe plan for the task.",
+        );
+        let (done, done_rx) = watch::channel(false);
+        let running_cell = cell.clone();
+        let runner = self.runner.clone();
+        let task = task.to_owned();
+        let worker = tokio::spawn(async move {
+            let _completion = WorkerCompletion(done);
+            let id = running_cell.view.borrow().id.clone();
+            let constraints = {
+                let Ok(state) = running_cell.state.lock() else {
+                    return;
+                };
+                state.constraints.clone()
+            };
+            runner.prepare(&id, &constraints).await;
+            match super::plan_recovery::host_plan(
+                &running_cell,
+                runner.as_ref(),
+                task,
+                FLOW_GUIDE.to_owned(),
+            )
+            .await
+            {
+                Ok(flow) => {
+                    let Ok(facts) = running_cell.state.lock().map(|state| state.facts.clone())
+                    else {
+                        runner.release(&id);
+                        return;
+                    };
+                    let known = super::names::known_names(&flow, &facts);
+                    let fact_names = super::names::fact_names(&facts);
+                    let missing = crate::agentic::missing_inputs(&flow, &known, &fact_names);
+                    if let Ok(mut state) = running_cell.state.lock() {
+                        state.flow = flow.clone();
+                    }
+                    if !missing.is_empty() {
+                        runner.release(&id);
+                        publish(
+                            &running_cell,
+                            super::publish::needs_input(&missing),
+                            "The recovered plan needs caller values before it can start.",
+                        );
+                        return;
+                    }
+                    drive(
+                        running_cell,
+                        runner,
+                        vec![Run {
+                            flow,
+                            allow_destructive: constraints.allow_destructive,
+                            rescue: None,
+                        }],
+                    )
+                    .await;
+                }
+                Err(reason) => {
+                    runner.release(&id);
+                    publish(
+                        &running_cell,
+                        TaskStatus::NeedsPlan {
+                            guide: FLOW_GUIDE.to_owned(),
+                        },
+                        &format!("The host could not write a valid plan: {reason}"),
+                    );
+                }
+            }
+        });
+        if let Ok(mut slot) = cell.worker.lock() {
+            *slot = Some(WorkerSlot {
+                abort: worker.abort_handle(),
+                done: done_rx,
+            });
+        }
     }
 
     pub(super) fn start_planned(

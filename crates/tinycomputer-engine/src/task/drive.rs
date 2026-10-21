@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tinycomputer_bus::FLOW_GUIDE;
 use tinycomputer_bus::agent::{SurfaceKind, TaskConstraints, TaskId, TaskStatus};
 
 use super::artifact::{capture, captured};
@@ -115,20 +116,7 @@ async fn plan_then_drive_with_page(
     let plan = match outcome {
         Ok(plan) => plan,
         Err(reason) => {
-            // A browser opened while planning has nothing left to do; it is
-            // let go before the failure is told, as a finished task's is.
-            runner.release(&id);
-            publish(
-                &cell,
-                TaskStatus::Failed {
-                    step: None,
-                    reason: reason.clone(),
-                    hint: "reword the task, or pass a flow written with Describe's guide"
-                        .to_owned(),
-                    recoverable: true,
-                },
-                &format!("Planning failed: {reason}"),
-            );
+            handle_plan_failure(cell, runner, id, task, reason).await;
             return;
         }
     };
@@ -163,6 +151,78 @@ async fn plan_then_drive_with_page(
             "The plan needs values before it can start.",
         );
     }
+}
+
+async fn handle_plan_failure(
+    cell: Arc<Cell>,
+    runner: Arc<dyn FlowRunner>,
+    id: TaskId,
+    task: String,
+    reason: String,
+) {
+    if let Err(recovery) =
+        recover_plan_after_planner_failure(cell.clone(), runner.clone(), id.clone(), task).await
+    {
+        runner.release(&id);
+        let failure = format!("{reason}; host planning recovery failed: {recovery}");
+        publish(
+            &cell,
+            TaskStatus::Failed {
+                step: None,
+                reason: failure.clone(),
+                hint: "reword the task, or pass a flow written with Describe's guide".to_owned(),
+                recoverable: true,
+            },
+            &format!("Planning failed: {failure}"),
+        );
+    }
+}
+
+async fn recover_plan_after_planner_failure(
+    cell: Arc<Cell>,
+    runner: Arc<dyn FlowRunner>,
+    id: TaskId,
+    task: String,
+) -> Result<(), String> {
+    let plan = super::plan_recovery::host_plan(&cell, runner.as_ref(), task, FLOW_GUIDE.to_owned())
+        .await?;
+    let facts = cell
+        .state
+        .lock()
+        .map_err(|_| "task state is unavailable".to_owned())?
+        .facts
+        .clone();
+    let known = super::names::known_names(&plan, &facts);
+    let fact_names = super::names::fact_names(&facts);
+    let missing = crate::agentic::missing_inputs(&plan, &known, &fact_names);
+    let allow = {
+        let mut state = cell
+            .state
+            .lock()
+            .map_err(|_| "task state is unavailable".to_owned())?;
+        state.flow = plan.clone();
+        state.constraints.allow_destructive
+    };
+    if !missing.is_empty() {
+        runner.release(&id);
+        publish(
+            &cell,
+            super::publish::needs_input(&missing),
+            "The recovered plan needs caller values before it can start.",
+        );
+        return Ok(());
+    }
+    drive(
+        cell,
+        runner,
+        vec![Run {
+            flow: plan,
+            allow_destructive: allow,
+            rescue: None,
+        }],
+    )
+    .await;
+    Ok(())
 }
 
 async fn prepare_page(

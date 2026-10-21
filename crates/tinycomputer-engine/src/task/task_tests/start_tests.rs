@@ -552,6 +552,45 @@ async fn requests_that_cannot_start_are_refused_with_a_hint() {
 }
 
 #[tokio::test]
+async fn host_supplies_a_plan_on_the_same_planless_task() {
+    let plan = flow(json!({"app":"browser","steps":["open the shop home page"]}));
+    let (tasks, script) = controller(vec![finished_run(
+        FlowStopReason::Completed,
+        vec![step(
+            "1",
+            "do",
+            "open the shop home page",
+            StepOutcome::Done,
+            "",
+        )],
+        &[],
+        None,
+    )]);
+    *script.plan_recovery.lock().unwrap() = Some(crate::task::PlanRecoveryResult::Plan(plan));
+    let initial = tasks
+        .start(&StartTaskRequest {
+            task: Some("find a blue wool sweater".to_owned()),
+            facts: BTreeMap::from([("email".to_owned(), "private@example.test".to_owned())]),
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &initial.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].task_id.as_deref(), Some(initial.id.0.as_str()));
+    let plan_requests = script.plan_requests.lock().unwrap();
+    assert_eq!(plan_requests.len(), 1);
+    assert_eq!(plan_requests[0].task, initial.id);
+    assert_eq!(plan_requests[0].known_names, ["email"]);
+    assert!(!plan_requests[0].task_text.contains("private@example.test"));
+}
+
+#[tokio::test]
 async fn extracted_rows_become_structured_records() {
     let (tasks, _) = controller(vec![finished_run(
         FlowStopReason::Completed,

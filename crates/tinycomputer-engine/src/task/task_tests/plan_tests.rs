@@ -103,6 +103,46 @@ async fn a_plain_language_task_is_planned_then_run() {
 }
 
 #[tokio::test]
+async fn host_recovers_a_failed_planner_without_replacing_the_task() {
+    let (tasks, script) = planned(
+        vec![finished_run(
+            FlowStopReason::Completed,
+            vec![step(
+                "1",
+                "do",
+                "open the shop home page",
+                StepOutcome::Done,
+                "",
+            )],
+            &[],
+            None,
+        )],
+        Err("the configured planner is unavailable"),
+    );
+    *script.plan_recovery.lock().unwrap() = Some(crate::task::PlanRecoveryResult::Plan(flow(
+        json!({"app":"browser","steps":["open the shop home page"]}),
+    )));
+    let started = tasks
+        .start(&StartTaskRequest {
+            task: Some("find a blue wool sweater".to_owned()),
+            constraints: TaskConstraints {
+                surfaces: vec![tinycomputer_bus::agent::SurfaceKind::Browser],
+                ..TaskConstraints::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Done { .. }
+    ));
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+    assert_eq!(script.plan_requests.lock().unwrap()[0].task, started.id);
+}
+
+#[tokio::test]
 async fn a_planned_task_reports_usage_from_warmup_and_run() {
     let script = Arc::new(Script {
         replies: VecDeque::from([finished_run(FlowStopReason::Completed, vec![], &[], None)])

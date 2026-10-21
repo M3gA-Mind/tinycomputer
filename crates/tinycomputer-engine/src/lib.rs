@@ -65,8 +65,9 @@ pub use shape::{Harvest, RECORDS_CHARS, Shaper};
 pub use task::{
     BrowserRunner, CaptureFuture, ContinuePaidAtShopRequest, ContinuePaymentRequest,
     FailedStepRecovery, FailedStepRecoveryFuture, FailedStepRecoveryResult, FlowFuture, FlowRunner,
-    MAX_AWAIT_MS, MAX_TASKS, PausedTaskError, PrepareFuture, SecretHost, SecretTypeRequest, Tasks,
-    TextFuture, capabilities,
+    MAX_AWAIT_MS, MAX_TASKS, PausedTaskError, PlanRecoveryFuture, PlanRecoveryRequest,
+    PlanRecoveryResult, PrepareFuture, SecretHost, SecretTypeRequest, Tasks, TextFuture,
+    capabilities,
 };
 pub use tinycomputer_bus::DesktopResponse;
 #[cfg(feature = "desktop")]

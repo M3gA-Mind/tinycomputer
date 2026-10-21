@@ -40,8 +40,8 @@ use super::interpret::app_at;
 use super::publish::next_calls;
 use super::{
     ContinuePaidAtShopRequest, ContinuePaymentRequest, FailedStepRecovery,
-    FailedStepRecoveryFuture, FailedStepRecoveryResult, FlowFuture, FlowRunner, MAX_TASKS, Tasks,
-    capabilities, input_kind,
+    FailedStepRecoveryFuture, FailedStepRecoveryResult, FlowFuture, FlowRunner, MAX_TASKS,
+    PlanRecoveryFuture, PlanRecoveryRequest, PlanRecoveryResult, Tasks, capabilities, input_kind,
 };
 
 /// Replies queued in order; a missing reply never resolves, like a flow
@@ -79,6 +79,10 @@ struct Script {
     recovery: Mutex<Option<FailedStepRecoveryResult>>,
     /// Recovery requests, including their redacted task context.
     recoveries: Mutex<Vec<FailedStepRecovery>>,
+    /// The host's planless recovery response.
+    plan_recovery: Mutex<Option<PlanRecoveryResult>>,
+    /// Planless recovery requests, including named-only facts.
+    plan_requests: Mutex<Vec<PlanRecoveryRequest>>,
 }
 
 impl FlowRunner for Script {
@@ -106,6 +110,21 @@ impl FlowRunner for Script {
                 reason: "no scripted recovery".to_owned(),
             }
         });
+        Box::pin(async move { result })
+    }
+
+    fn plan_recovery_enabled(&self) -> bool {
+        self.plan_recovery.lock().unwrap().is_some()
+    }
+
+    fn recover_plan(&self, request: PlanRecoveryRequest) -> PlanRecoveryFuture {
+        self.plan_requests.lock().unwrap().push(request);
+        let result = self
+            .plan_recovery
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| PlanRecoveryResult::GiveUp("no scripted plan recovery".to_owned()));
         Box::pin(async move { result })
     }
 
