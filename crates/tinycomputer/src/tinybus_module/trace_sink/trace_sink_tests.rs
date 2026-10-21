@@ -1,5 +1,5 @@
 //! Shared host fixtures for trace-sink callback and lifecycle tests.
-//! The cases cover the TinyBus transport, payloads, deadlines, and shutdown.
+//! The cases cover the `TinyBus` transport, payloads, deadlines, and shutdown.
 
 #[path = "trace_sink_tests/callbacks_tests.rs"]
 mod callbacks_tests;
