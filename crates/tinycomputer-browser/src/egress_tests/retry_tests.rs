@@ -13,9 +13,9 @@ use tokio::{
 async fn proxy_tries_later_addresses_when_the_first_granted_address_is_unreachable() {
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let second_address = destination.local_addr().unwrap();
-    // The IPv6 loopback address is distinct from the IPv4-only listener below,
-    // so this candidate fails on both Windows and Unix without relying on port 0.
-    let first_address = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], second_address.port()));
+    // TCP cannot connect to the limited IPv4 broadcast address, unlike a
+    // freed ephemeral port that another test could claim before we dial.
+    let first_address = SocketAddr::from(([255, 255, 255, 255], second_address.port()));
     let server = tokio::spawn(async move {
         let (mut socket, _) = destination.accept().await.unwrap();
         socket
