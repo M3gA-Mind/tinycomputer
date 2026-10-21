@@ -1,6 +1,6 @@
 //! Running task flows and recording their results.
 
-use super::finish::task_usage;
+use super::finish::{task_usage, written_names};
 use super::handoff::plan_handoff;
 use super::*;
 

@@ -131,7 +131,9 @@ pub(in crate::task) fn task_usage(cell: &Cell) -> Arc<crate::UsageRecorder> {
 
 /// Every variable a step of `steps` writes: a `read`'s, `extract`'s, or
 /// `pick`'s `into`, at any depth.
-fn written_names(steps: &[tinycomputer_bus::FlowStep]) -> std::collections::BTreeSet<String> {
+pub(in crate::task) fn written_names(
+    steps: &[tinycomputer_bus::FlowStep],
+) -> std::collections::BTreeSet<String> {
     use tinycomputer_bus::FlowAction;
     let mut names = std::collections::BTreeSet::new();
     for step in steps {
