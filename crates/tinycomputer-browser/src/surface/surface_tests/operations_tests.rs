@@ -40,6 +40,28 @@ fn keys_are_spelled_the_way_agent_browser_reads_them() {
 }
 
 #[test]
+fn a_tree_snapshot_ref_does_not_run_sight_only_tab_preparation() {
+    let Harness { fake, surface, .. } = harness("tree-ref-same-tab", page_fake());
+    let screen = surface.observe("shop", None, Depth::Full).unwrap();
+    let search = screen
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name.as_deref() == Some("Search"))
+        .unwrap()
+        .clone();
+    assert!(search.ref_id.starts_with('e'));
+
+    let result = surface.execute(JevOperation::Click, Some(search), None);
+    assert!(result.ok, "{:?}", result.error);
+    assert!(fake.sent().iter().all(|command| {
+        command["action"] != "evaluate"
+            || !command["script"]
+                .as_str()
+                .is_some_and(|script| script.contains("window.__tcOpen"))
+    }));
+}
+
+#[test]
 fn secret_type_preflight_uses_gate_metadata_without_sending_text_to_the_page() {
     #[derive(Default)]
     struct RefuseFill(std::sync::Mutex<Vec<ActionRequest>>);
