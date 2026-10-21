@@ -71,10 +71,24 @@ fn start_task_input() -> Value {
         json!({
             "task": {"type": "string", "description": "the goal in plain language"},
             "flow": {"type": "object", "description": "a flow written from the guide"},
+            "handoff_to_planner": {"type": "boolean", "default": false, "description": "after a supplied flow finishes, plan the remaining task in the same browser session"},
             "facts": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
                 "description": "values the flow may type, by name; secret ones never reach a model"
+            },
+            "fact_handles": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "required": ["handle", "mask", "kind"],
+                    "properties": {
+                        "handle": {"type": "string"},
+                        "mask": {"type": "string"},
+                        "kind": {"type": "string"}
+                    }
+                },
+                "description": "host-owned secret facts by name; the host resolves each opaque handle only when the flow types it"
             },
             "secret_facts": {
                 "type": "array",
@@ -180,11 +194,24 @@ fn members() -> Vec<MemberDoc> {
         ),
         member(
             methods::CONTINUE_TASK,
-            "Answers a paused task: inputs for needs_input, approve for needs_approval.",
+            "Answers a paused task: values or host-held secret handles for needs_input, approve for needs_approval.",
             object(
                 json!({
                     "id": {"type": "string"},
                     "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
+                    "fact_handles": {
+                        "type": "object",
+                        "description": "Host-held secret values by input name. Only opaque handles and safe masks cross the engine boundary.",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "handle": {"type": "string"},
+                                "mask": {"type": "string"},
+                                "kind": {"type": "string"}
+                            },
+                            "required": ["handle", "mask", "kind"]
+                        }
+                    },
                     "approve": {"type": "boolean"},
                     "answer": {"type": "string"}
                 }),

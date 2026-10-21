@@ -11,7 +11,8 @@ use serde_json::json;
 
 use super::{
     AgentError, AgentResponse, AwaitTaskRequest, ContinueTaskRequest, InputField, InputKind,
-    PaymentMode, StartTaskRequest, SurfaceKind, TaskId, TaskReportRequest, TaskStatus, TaskView,
+    PaymentMode, StartTaskRequest, SurfaceKind, TaskId, TaskReportRequest, TaskStatus, TaskUsage,
+    TaskView,
 };
 
 #[test]
@@ -87,6 +88,30 @@ fn secrets_and_the_payment_mode_pin_their_wire_form() {
         serde_json::to_value(PaymentMode::StopAtPayment).unwrap(),
         json!("stop_at_payment")
     );
+}
+
+#[test]
+fn host_secret_handles_pin_their_wire_form_and_hide_from_debug() {
+    let request: StartTaskRequest = serde_json::from_value(json!({
+        "flow": {"app": "browser", "steps": [{"enter": {"card number": "${card number}"}}]},
+        "fact_handles": {
+            "card number": {
+                "handle": "opaque-card-reference",
+                "mask": "•••• 1111",
+                "kind": "payment_card"
+            }
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        request.fact_handles["card number"].handle,
+        "opaque-card-reference"
+    );
+    assert_eq!(
+        serde_json::to_value(&request).unwrap()["fact_handles"]["card number"],
+        json!({"handle": "opaque-card-reference", "mask": "•••• 1111", "kind": "payment_card"})
+    );
+    assert!(!format!("{request:?}").contains("opaque-card-reference"));
 }
 
 #[test]
@@ -223,6 +248,7 @@ fn replies_carry_data_or_an_actionable_error() {
         step: None,
         progress: 0.25,
         next: vec!["AwaitTask".to_owned()],
+        usage: TaskUsage::default(),
     };
     let ok = serde_json::to_value(AgentResponse::ok(view)).unwrap();
     assert_eq!(ok["ok"], true);
@@ -255,6 +281,18 @@ fn waiting_and_continuing_have_forgiving_defaults() {
     assert_eq!(resume.id.to_string(), "t-1");
     assert_eq!(resume.inputs["date of birth"], "1990-04-02");
     assert_eq!(resume.approve, None);
+
+    let private: ContinueTaskRequest = serde_json::from_value(json!({
+        "id": "t-2",
+        "fact_handles": {
+            "email": {"handle": "opaque-email", "mask": "‹email›", "kind": "asked_input"}
+        }
+    }))
+    .unwrap();
+    assert_eq!(private.fact_handles["email"].handle, "opaque-email");
+    let wire = serde_json::to_value(private).unwrap();
+    assert_eq!(wire["fact_handles"]["email"]["mask"], "‹email›");
+    assert_eq!(wire["inputs"], json!({}));
 }
 
 #[test]
