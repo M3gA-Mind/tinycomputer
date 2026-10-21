@@ -9,8 +9,7 @@ use std::{
     io,
     net::SocketAddr,
     sync::{
-        Arc,
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,

@@ -10,8 +10,8 @@
 
 mod types;
 pub use types::{
-    BrowserEgressConsumeRequest, BrowserEgressDecision, BrowserEgressGrant,
-    BrowserEgressTarget, BrowserEgressValidateRequest,
+    BrowserEgressConsumeRequest, BrowserEgressDecision, BrowserEgressGrant, BrowserEgressTarget,
+    BrowserEgressValidateRequest,
 };
 
 /// Host interface implemented by an authenticated adapter to `TinySecurity`.
