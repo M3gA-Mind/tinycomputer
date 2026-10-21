@@ -1,9 +1,9 @@
 //! Focused browser egress proxy tests.
 
 use super::simulator::*;
-use crate::{BrowserDialTarget, DialGrant, EgressProxy, egress::parse_authority};
+use crate::EgressProxy;
 use serde_json::json;
-use std::{io, net::*, sync::*};
+use std::{io, net::SocketAddr, sync::*};
 use tokio::{io::*, net::*};
 
 #[tokio::test]

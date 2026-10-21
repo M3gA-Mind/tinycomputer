@@ -1,10 +1,6 @@
-//! Focused browser egress proxy tests.
+//! Authority parsing and redaction tests.
 
-use super::simulator::*;
-use crate::{BrowserDialTarget, DialGrant, EgressProxy, egress::parse_authority};
-use serde_json::json;
-use std::{io, net::*, sync::*};
-use tokio::{io::*, net::*};
+use crate::{BrowserDialTarget, DialGrant, egress::parse_authority};
 
 #[test]
 fn browser_dial_target_debug_does_not_disclose_session_or_destination() {
