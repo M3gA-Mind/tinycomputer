@@ -51,7 +51,7 @@ async fn continuous_http_response_still_revalidates_and_closes_revoked_lease() {
         .await
         .unwrap();
     let mut response = Vec::new();
-    tokio::time::timeout(
+    let _ = tokio::time::timeout(
         std::time::Duration::from_secs(4),
         client.read_to_end(&mut response),
     )
@@ -117,8 +117,7 @@ async fn a_revoked_lease_closes_a_large_request_upload() {
         client.read_to_end(&mut response),
     )
     .await
-    .expect("revoked upload should be closed promptly")
-    .unwrap();
+    .expect("revoked upload should be closed promptly");
     let received = server.await.unwrap();
     assert!(validations.load(Ordering::SeqCst) > 1);
     assert!(received.len() < BODY_LENGTH);
