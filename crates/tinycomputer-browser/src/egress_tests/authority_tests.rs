@@ -50,5 +50,3 @@ fn proxy_authority_uses_scheme_defaults_and_canonical_ipv6_literals() {
     assert_eq!(ipv6.hostname, "2001:4860:4860::8888");
     assert!(parse_authority("https://example.test:443", "https", "session").is_err());
 }
-
-#[derive(Clone)]

@@ -1,7 +1,17 @@
 //! Local authorizers and fixture helpers shared by egress tests.
 
 use crate::{BrowserDialTarget, DialGrant, EgressAuthorizer};
-use std::{io, net::SocketAddr, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{
+    io,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
+use base64::Engine as _;
+
+const FIXTURE_PASSWORD: &str = "fixture-proxy-secret";
 
 fn proxy_authorization() -> String {
     format!(
@@ -11,6 +21,7 @@ fn proxy_authorization() -> String {
     )
 }
 
+#[derive(Clone)]
 struct FixtureAuthorizer {
     address: SocketAddr,
     allow: bool,
