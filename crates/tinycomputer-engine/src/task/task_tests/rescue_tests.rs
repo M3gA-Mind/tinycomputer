@@ -222,6 +222,42 @@ async fn a_cancelled_host_recovery_keeps_its_call_reservation_and_elapsed_time()
 }
 
 #[tokio::test]
+async fn a_cancelled_task_closes_a_retained_host_budget_scope() {
+    let (tasks, script) = controller(vec![failed_at_step_two()]);
+    *script.reserve_host_calls.lock().unwrap() = true;
+    *script.hang_recovery.lock().unwrap() = true;
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(flights())),
+            task: Some("find the cheapest flight".to_owned()),
+            budget: TaskBudget {
+                max_model_calls: Some(2),
+                max_elapsed_ms: Some(10_000),
+                ..TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    for _ in 0..100 {
+        if !script.recoveries.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(script.recoveries.lock().unwrap().len(), 1);
+    assert!(matches!(
+        tasks.cancel_and_wait(&view.id).await.data.unwrap().status,
+        TaskStatus::Cancelled
+    ));
+
+    let scope = script.recoveries.lock().unwrap()[0].host_budget.clone();
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert_eq!(scope.remaining_ms(), Some(0));
+    assert!(!scope.try_reserve_model_call());
+}
+
+#[tokio::test]
 async fn a_failed_step_is_rescued_and_the_task_finishes() {
     let (tasks, script, model) = rescued(
         vec![

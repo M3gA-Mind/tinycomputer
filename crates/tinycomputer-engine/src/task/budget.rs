@@ -30,17 +30,61 @@ impl TaskCallBudget {
         Self { cell }
     }
 
-    /// Starts one host-work interval whose active time counts against the
-    /// task's elapsed budget until its last clone is dropped.
+    /// Starts one host-work interval. Its elapsed time is charged when the
+    /// returned guard is dropped, even if a callback retains its scope.
     #[must_use]
-    pub fn begin_work(&self) -> HostWorkGuard {
-        HostWorkGuard {
+    pub fn begin_work(&self) -> Option<HostWorkGuard> {
+        self.begin(false)
+    }
+
+    /// Starts a scoped payment-mapping interval on the task's one available
+    /// non-continuable payment checkpoint. This is host-only authority; generic
+    /// task continuation remains unavailable at that checkpoint.
+    #[must_use]
+    pub fn begin_payment_work(&self) -> Option<HostWorkGuard> {
+        self.begin(true)
+    }
+
+    fn begin(&self, payment_checkpoint: bool) -> Option<HostWorkGuard> {
+        let cell = self.cell.upgrade()?;
+        let mut state = cell.state.lock().ok()?;
+        let is_payment_checkpoint = matches!(
+            &cell.view.borrow().status,
+            tinycomputer_bus::agent::TaskStatus::Checkpoint {
+                continuable: false,
+                ..
+            }
+        );
+        let authorized_payment_checkpoint = payment_checkpoint
+            && state.payment_checkpoint == super::store::PaymentCheckpointState::Available
+            && is_payment_checkpoint;
+        let state_allows_work = if payment_checkpoint {
+            state.host_work == super::store::HostWorkState::Closed && authorized_payment_checkpoint
+        } else {
+            state.host_work == super::store::HostWorkState::Open
+        };
+        if !state_allows_work
+            || state
+                .budget
+                .max_elapsed_ms
+                .is_some_and(|max| state.spent.elapsed_ms >= max)
+        {
+            return None;
+        }
+        state.host_work = if payment_checkpoint {
+            super::store::HostWorkState::PaymentActive
+        } else {
+            super::store::HostWorkState::Active
+        };
+        drop(state);
+        Some(HostWorkGuard {
             inner: Arc::new(HostWork {
-                cell: self.cell.clone(),
+                cell: Arc::downgrade(&cell),
                 started: Instant::now(),
                 charged: AtomicBool::new(false),
+                payment_checkpoint,
             }),
-        }
+        })
     }
 }
 
@@ -53,7 +97,7 @@ impl fmt::Debug for TaskCallBudget {
 }
 
 /// One cloneable host-work interval, shared with the request passed to the
-/// host callback. It accounts elapsed time once, after the last clone drops.
+/// host callback. Its owning guard charges active time once when dropped.
 #[derive(Clone)]
 pub struct TaskBudgetScope {
     inner: Arc<HostWork>,
@@ -100,6 +144,16 @@ impl TaskBudgetScope {
         let Ok(mut state) = cell.state.lock() else {
             return false;
         };
+        if !self.inner.is_active(&cell, &state) {
+            return false;
+        }
+        if state.budget.max_elapsed_ms.is_some_and(|max| {
+            state.spent.elapsed_ms.saturating_add(
+                u64::try_from(self.inner.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            ) >= max
+        }) {
+            return false;
+        }
         let max = state.budget.max_model_calls.unwrap_or(DEFAULT_MODEL_CALLS);
         if state.spent.model_calls >= max {
             return false;
@@ -117,6 +171,16 @@ impl TaskBudgetScope {
         let Ok(state) = cell.state.lock() else {
             return 0;
         };
+        if !self.inner.is_active(&cell, &state) {
+            return 0;
+        }
+        if state.budget.max_elapsed_ms.is_some_and(|max| {
+            state.spent.elapsed_ms.saturating_add(
+                u64::try_from(self.inner.started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            ) >= max
+        }) {
+            return 0;
+        }
         state
             .budget
             .max_model_calls
@@ -130,6 +194,9 @@ impl TaskBudgetScope {
     pub fn remaining_ms(&self) -> Option<u64> {
         let cell = self.inner.cell.upgrade()?;
         let state = cell.state.lock().ok()?;
+        if !self.inner.is_active(&cell, &state) {
+            return Some(0);
+        }
         state.budget.max_elapsed_ms.map(|max| {
             max.saturating_sub(state.spent.elapsed_ms).saturating_sub(
                 u64::try_from(self.inner.started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -150,18 +217,50 @@ struct HostWork {
     cell: Weak<Cell>,
     started: Instant,
     charged: AtomicBool,
+    payment_checkpoint: bool,
 }
 
 impl HostWork {
-    fn charge(&self) {
-        if self.charged.swap(true, Ordering::AcqRel) {
-            return;
+    fn is_active(&self, cell: &Cell, state: &super::store::State) -> bool {
+        if self.charged.load(Ordering::Acquire) {
+            return false;
         }
+        match state.host_work {
+            super::store::HostWorkState::Active => !self.payment_checkpoint,
+            super::store::HostWorkState::PaymentActive => {
+                self.payment_checkpoint
+                    && state.payment_checkpoint == super::store::PaymentCheckpointState::Available
+                    && matches!(
+                        &cell.view.borrow().status,
+                        tinycomputer_bus::agent::TaskStatus::Checkpoint {
+                            continuable: false,
+                            ..
+                        }
+                    )
+            }
+            super::store::HostWorkState::Open | super::store::HostWorkState::Closed => false,
+        }
+    }
+
+    fn charge(&self) {
         let Some(cell) = self.cell.upgrade() else {
+            self.charged.store(true, Ordering::Release);
             return;
         };
         let Ok(mut state) = cell.state.lock() else {
+            self.charged.store(true, Ordering::Release);
             return;
+        };
+        if self.charged.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        state.host_work = match state.host_work {
+            super::store::HostWorkState::PaymentActive | super::store::HostWorkState::Closed => {
+                super::store::HostWorkState::Closed
+            }
+            super::store::HostWorkState::Active | super::store::HostWorkState::Open => {
+                super::store::HostWorkState::Open
+            }
         };
         state.spent.elapsed_ms = state
             .spent

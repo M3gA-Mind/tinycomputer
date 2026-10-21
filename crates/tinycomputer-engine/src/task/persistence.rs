@@ -437,6 +437,7 @@ fn build_cell(
             resume: task.resume,
             payment_checkpoint: super::store::PaymentCheckpointState::Unavailable,
             spent: task.spent,
+            host_work: super::store::HostWorkState::Open,
             rescues: task.rescues,
             output: task.output,
             artifacts: task.artifacts,

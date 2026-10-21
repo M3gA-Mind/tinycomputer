@@ -25,6 +25,7 @@ pub(super) fn stopped_summary(status: &TaskStatus) -> String {
 
 /// Updates a task's view: status, summary, progress, step, and next calls.
 pub(super) fn publish(cell: &Cell, status: TaskStatus, summary: &str) {
+    let terminal = status.is_final();
     let waits = matches!(
         status,
         TaskStatus::NeedsInput { .. }
@@ -35,6 +36,9 @@ pub(super) fn publish(cell: &Cell, status: TaskStatus, summary: &str) {
         cell.state
             .lock()
             .map_or((0.0, None, TaskUsage::default()), |mut state| {
+                if terminal {
+                    state.host_work = super::store::HostWorkState::Closed;
+                }
                 // The wait starts when the task first asks; publishing the same
                 // pause again does not restart it.
                 state.waiting_since = if waits {

@@ -85,6 +85,8 @@ pub(super) struct State {
     /// human intervention that splits a task into several runs still cannot
     /// exceed its declared budget by starting each run with a fresh one.
     pub(super) spent: Spent,
+    /// Host model work is single-flight and closed after terminal task status.
+    pub(super) host_work: HostWorkState,
     /// Every rescue so far, in order.
     pub(super) rescues: Vec<Rescue>,
     /// The shape the caller wants the answer in, if any.
@@ -163,6 +165,7 @@ impl Tasks {
                 resume: None,
                 payment_checkpoint: PaymentCheckpointState::Unavailable,
                 spent: Spent::default(),
+                host_work: HostWorkState::Open,
                 rescues: Vec::new(),
                 output: request.output.clone(),
                 artifacts: Vec::new(),
@@ -363,6 +366,14 @@ pub(super) enum PaymentCheckpointState {
     /// The one host continuation was consumed.
     Transitioned,
     /// The checkpoint was cancelled before the host authorized it.
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HostWorkState {
+    Open,
+    Active,
+    PaymentActive,
     Closed,
 }
 

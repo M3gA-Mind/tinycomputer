@@ -67,14 +67,13 @@ async fn a_plain_language_task_is_planned_then_run() {
         Ok(r#"{"app": "Mail", "steps": [{"enter": {"recipient": "${email}"}}]}"#),
     );
     assert!(tasks.planner_configured());
-    let started = tasks
-        .start(&StartTaskRequest {
-            task: Some("email Sam".to_owned()),
-            facts: BTreeMap::from([("email".to_owned(), "sam@example.com".to_owned())]),
-            ..StartTaskRequest::default()
-        })
-        .data
-        .unwrap();
+    let reply = tasks.start(&StartTaskRequest {
+        task: Some("email Sam".to_owned()),
+        facts: BTreeMap::from([("email".to_owned(), "sam@example.com".to_owned())]),
+        ..StartTaskRequest::default()
+    });
+    assert!(reply.ok, "{:?}", reply.error);
+    let started = reply.data.unwrap();
     assert_eq!(started.summary, "Planning the task.");
     assert!(matches!(
         settle(&tasks, &started.id).await.status,
@@ -739,6 +738,96 @@ async fn failed_native_handoff_charges_host_plan_elapsed_once() {
         (u64::try_from(delay.as_millis()).unwrap()..=100).contains(&host_elapsed),
         "host plan elapsed must be charged once after the native PlanningDebit, got {host_elapsed} ms"
     );
+}
+
+#[tokio::test]
+async fn a_retained_plan_scope_cannot_reserve_after_its_guard_is_dropped() {
+    let (tasks, script) = controller(vec![finished_run(
+        FlowStopReason::StoppedBeforeDestructive,
+        vec![step(
+            "1",
+            "stop_before",
+            "pay now",
+            StepOutcome::Gated,
+            "found payment",
+        )],
+        &[],
+        Some("Pay now"),
+    )]);
+    *script.plan_recovery.lock().unwrap() = Some(PlanRecoveryResult::Plan(flow(json!({
+        "app":"browser","steps":[{"stop_before":"pay now"}]
+    }))));
+    let reply = tasks.start(&StartTaskRequest {
+        task: Some("buy a lamp".to_owned()),
+        constraints: TaskConstraints {
+            payment: tinycomputer_bus::agent::PaymentMode::FillThenApprove,
+            surfaces: vec![SurfaceKind::Browser],
+            origins: vec![".shop.example".to_owned()],
+            ..TaskConstraints::default()
+        },
+        budget: tinycomputer_bus::agent::TaskBudget {
+            max_elapsed_ms: Some(1_000),
+            ..tinycomputer_bus::agent::TaskBudget::default()
+        },
+        ..StartTaskRequest::default()
+    });
+    assert!(reply.ok, "{:?}", reply.error);
+    let started = reply.data.unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::NeedsApproval { .. }
+    ));
+
+    let scope = script.plan_requests.lock().unwrap()[0].host_budget.clone();
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert_eq!(scope.remaining_ms(), Some(0));
+    assert!(!scope.try_reserve_model_call());
+}
+
+#[tokio::test]
+async fn a_host_scope_cannot_reserve_when_the_task_time_budget_is_exhausted() {
+    let (tasks, _) = controller(vec![finished_run(
+        FlowStopReason::StoppedBeforeDestructive,
+        vec![step(
+            "1",
+            "stop_before",
+            "sending the email",
+            StepOutcome::Gated,
+            "found Send",
+        )],
+        &[],
+        Some("Send"),
+    )]);
+    let max_elapsed_ms = 10_000;
+    let started = tasks
+        .start(&StartTaskRequest {
+            flow: Some(flow(
+                json!({"app":"Mail","steps":[{"stop_before":"sending the email"}]}),
+            )),
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_elapsed_ms: Some(max_elapsed_ms),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::NeedsApproval { .. }
+    ));
+
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    let budget = cell.state.lock().unwrap().usage.task_call_budget().unwrap();
+    let work = budget
+        .begin_work()
+        .expect("a paused non-terminal task permits a host-work scope");
+    let scope = work.scope();
+    cell.state.lock().unwrap().spent.elapsed_ms = max_elapsed_ms;
+
+    assert_eq!(scope.remaining_ms(), Some(0));
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert!(!scope.try_reserve_model_call());
 }
 
 #[tokio::test]

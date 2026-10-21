@@ -152,6 +152,37 @@ async fn generic_continue_and_missing_handles_cannot_authorize_a_payment_checkpo
 }
 
 #[tokio::test]
+async fn host_payment_mapping_can_reserve_at_its_checkpoint_until_cancelled() {
+    let (tasks, _script, started) = payment_task(vec![payment_checkpoint()], false);
+    assert!(matches!(
+        settle(&tasks, &started.id).await.status,
+        TaskStatus::Checkpoint {
+            continuable: false,
+            ..
+        }
+    ));
+    let cell = tasks.cells.lock().unwrap().values().next().unwrap().clone();
+    let budget = cell.state.lock().unwrap().usage.task_call_budget().unwrap();
+    assert!(
+        budget.begin_work().is_none(),
+        "generic host work cannot reopen a final payment checkpoint"
+    );
+    let work = budget
+        .begin_payment_work()
+        .expect("the host may map payment details at its checkpoint");
+    let scope = work.scope();
+    assert!(scope.try_reserve_model_call());
+
+    let _ = tasks.cancel(&started.id);
+    assert!(
+        !scope.try_reserve_model_call(),
+        "cancelling closes the host-only payment mapping grant"
+    );
+    assert_eq!(scope.remaining_model_calls(), 0);
+    assert_eq!(scope.remaining_ms(), Some(0));
+}
+
+#[tokio::test]
 async fn a_cancelled_payment_checkpoint_cannot_be_reauthorized() {
     let (tasks, script, started) = payment_task(vec![payment_checkpoint()], false);
     let stopped = settle(&tasks, &started.id).await;

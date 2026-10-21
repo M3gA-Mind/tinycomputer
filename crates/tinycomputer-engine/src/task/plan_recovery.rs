@@ -46,7 +46,9 @@ pub(super) async fn host_plan(
             task_budget,
         )
     };
-    let work = task_budget.begin_work();
+    let Some(work) = task_budget.begin_work() else {
+        return Err("the task host-work budget is unavailable".to_owned());
+    };
     let host_budget = work.scope();
     let remaining_ms = budget
         .max_elapsed_ms

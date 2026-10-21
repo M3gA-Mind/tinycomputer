@@ -77,7 +77,9 @@ async fn recover_failed_step(
             task_budget,
         )
     };
-    let work = task_budget.begin_work();
+    let Some(work) = task_budget.begin_work() else {
+        return Err(format!("{hint}; the task host-work budget is unavailable"));
+    };
     let host_budget = work.scope();
     let remaining_actions = budget
         .max_actions
