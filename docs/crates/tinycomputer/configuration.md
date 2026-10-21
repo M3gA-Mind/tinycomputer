@@ -45,6 +45,27 @@ about the on-screen overlay the agent draws to show where it is about to act,
 and it is a different setting from `constraints.headed` on a task, which
 controls the *browser's* visibility for that one task.
 
+## `trace_sink`
+
+```json
+{
+  "trace_sink": {
+    "destination": ":1.42"
+  }
+}
+```
+
+Set `trace_sink` to an object containing only the unique callback destination
+prepared for this module by `ModuleHost::prepare_host_callbacks`. The module
+then sends desktop trace events, bounded artifacts, and requested task reports
+to the confidential `TraceSinkHost` interface. A selected sink replaces local
+trace-file and session persistence; it never falls back to `trace_path` when
+the host callback fails. Event failures follow `trace_strict`. A report write
+failure returns a recoverable `TRACE_SINK_FAILED` agent response, so callers
+can retry `TaskReport`. Without this key, or with `false`, the existing
+`trace_path` behavior remains in effect. `true`, malformed objects, and
+well-known bus names are rejected.
+
 ## `jev`
 
 ```json

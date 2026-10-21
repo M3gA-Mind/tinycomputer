@@ -260,8 +260,8 @@ async fn verify_report_sink(
         );
     }
     capture.fail_reports.store(true, Ordering::SeqCst);
-    let failed = proxy
-        .call_confidential::<serde_json::Value>(
+    let failed: AgentResponse<tinycomputer_bus::agent::TaskReport> = proxy
+        .call_confidential(
             names::methods::TASK_REPORT,
             (TaskReportRequest {
                 id: task_id,
@@ -269,7 +269,17 @@ async fn verify_report_sink(
             },),
         )
         .await;
-    if failed.is_ok() {
+    let expected_failure = match failed {
+        Ok(response) => {
+            !response.ok
+                && response.data.is_none()
+                && response
+                    .error
+                    .is_some_and(|error| error.code == "TRACE_SINK_FAILED" && error.recoverable)
+        }
+        Err(_) => false,
+    };
+    if !expected_failure {
         return Err(io::Error::other("task report sink failure was not returned").into());
     }
     Ok(())
