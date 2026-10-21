@@ -42,6 +42,9 @@ contents remain opaque to the proxy and require TinySecurity's explicit
 [`configuration.md`](../../docs/crates/tinycomputer/configuration.md#browser)
 for the host contract and its privacy behavior.
 
+The proxy internals and request-framing constraints are described in
+[`src/egress/README.md`](src/egress/README.md).
+
 The Chromium egress fixture tests are excluded from the default suite because
 they need an installed browser; run them with
 `TINYCOMPUTER_LIVE_BROWSER_TESTS=1 cargo test -p tinycomputer-browser --features agent-browser live_`.
