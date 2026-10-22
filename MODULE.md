@@ -50,6 +50,9 @@ is optional:
   and requested task reports. Sink mode replaces local trace/session storage
   and does not fall back to `trace_path`; event errors follow `trace_strict`,
   and report write errors return a recoverable `TRACE_SINK_FAILED` response;
+- `consequence_host`: an object containing only the unique destination prepared
+  for the confidential `ConsequenceHost` callback. When configured, a missing
+  object, interface, or failed callback declines the pending action;
 - `jev`: the decision model and its API key, needed by the Jev-driven and
   task members. `provider` picks it: Jev through `type_safe` (the default),
   `open_router`, or `tiny_humans_open_router`; `open_jev` (OpenJEV's

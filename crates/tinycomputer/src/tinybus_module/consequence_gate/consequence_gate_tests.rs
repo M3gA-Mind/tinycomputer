@@ -231,3 +231,48 @@ async fn the_bus_port_treats_a_host_that_serves_nothing_as_unreviewed() -> tinyb
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_missing_configured_callback_is_a_failure_not_an_unreviewed_action() -> tinybus::Result<()>
+{
+    use tinybus::broker::Broker;
+    use tinybus::transport::memory::MemoryBus;
+
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let host = Connection::connect(bus.connect().await?).await?;
+    let destination = host
+        .unique_name()
+        .expect("connected host has a unique name");
+    host.serve_at(OBJECT_PATH.try_into()?, UnrelatedObject)
+        .await?;
+    let module = Connection::connect(bus.connect().await?).await?;
+    let link = ConsequenceLink::new(Box::new(BusPort::new(module, Some(destination))));
+
+    assert!(matches!(
+        link.review("t1", "send", "Send", None).await,
+        Verdict::Denied(_)
+    ));
+    Ok(())
+}
+
+struct UnrelatedObject;
+
+#[tinybus::interface(name = "org.example.Unrelated")]
+impl UnrelatedObject {
+    async fn ping(&self) -> tinybus::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_configured_callback_that_is_not_served_is_a_failure() {
+    let error = tinybus::Error::UnknownInterface {
+        path: OBJECT_PATH.parse().unwrap(),
+        interface: INTERFACE.parse().unwrap(),
+    };
+    assert!(matches!(
+        BusPort::classify_error(true, error),
+        PortError::Failed(_)
+    ));
+}

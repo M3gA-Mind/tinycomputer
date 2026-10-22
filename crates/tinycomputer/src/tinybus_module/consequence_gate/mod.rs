@@ -26,8 +26,9 @@ use tinycomputer_core::{Consequence, consequence};
 /// The deadline for one call to the host.
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The bus errors that mean the host does not serve the interface at all,
-/// rather than serving it and failing.
+/// The bus errors that identify a missing service on the legacy well-known
+/// lookup. An explicitly configured destination is expected to be served and
+/// every failure from it denies the action.
 const NOT_SERVED: [&str; 3] = [
     "ai.tinyhumans.tinybus.Error.NameHasNoOwner",
     "ai.tinyhumans.tinybus.Error.UnknownObject",
@@ -72,6 +73,14 @@ impl BusPort {
             destination,
         }
     }
+
+    fn classify_error(configured_destination: bool, error: tinybus::Error) -> PortError {
+        if !configured_destination && NOT_SERVED.contains(&error.wire_name()) {
+            PortError::NotServed
+        } else {
+            PortError::Failed(error.to_string())
+        }
+    }
 }
 
 impl ConsequencePort for BusPort {
@@ -100,15 +109,7 @@ impl ConsequencePort for BusPort {
             } else {
                 proxy.call(methods::REVIEW, (request,)).await
             };
-            reply.map_err(|error| {
-                // Across the bus an error keeps its dotted name, not its
-                // variant, so the name is what says nobody serves this.
-                if NOT_SERVED.contains(&error.wire_name()) {
-                    PortError::NotServed
-                } else {
-                    PortError::Failed(error.to_string())
-                }
-            })
+            reply.map_err(|error| Self::classify_error(self.destination.is_some(), error))
         })
     }
 }
