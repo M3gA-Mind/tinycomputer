@@ -35,7 +35,7 @@ impl EgressHost {
                     .allowed_address
                     .rsplit(':')
                     .next()
-                    .and_then(|port| port.parse().ok())
+                    .and_then(|port| port.parse::<u16>().ok())
                     .unwrap_or_default();
         self.observations.lock().unwrap().push(format!(
             "authorize:{}:{}:{}:{}",
