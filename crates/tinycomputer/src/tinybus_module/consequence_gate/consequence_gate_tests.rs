@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use tinybus::Connection;
-use tinycomputer_bus::agent::{ContinueTaskRequest, TaskId};
+use tinycomputer_bus::agent::{ContinueTaskRequest, HostContext, TaskId};
 
 use super::*;
 
@@ -61,6 +61,7 @@ fn approval(approve: Option<bool>) -> ContinueTaskRequest {
         fact_handles: std::collections::BTreeMap::new(),
         approve,
         answer: None,
+        host_context: Some(HostContext::new("opaque-context")),
     }
 }
 
@@ -103,6 +104,10 @@ async fn an_allowed_approval_goes_through() {
     assert_eq!(seen[0].task, "t1");
     assert_eq!(seen[0].target, "Send");
     assert_eq!(seen[0].kind, ConsequenceKind::Irreversible);
+    assert_eq!(
+        seen[0].host_context.as_ref().map(HostContext::as_str),
+        Some("opaque-context")
+    );
 }
 
 #[tokio::test]
@@ -175,7 +180,7 @@ async fn the_bus_port_reaches_the_hosts_interface() -> tinybus::Result<()> {
     let module = Connection::connect(bus.connect().await?).await?;
 
     let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
-    let verdict = link.review("t1", "pay now", "Pay").await;
+    let verdict = link.review("t1", "pay now", "Pay", None).await;
     assert_eq!(verdict, Verdict::Denied("no".to_owned()));
     assert_eq!(fake.seen.lock().unwrap()[0].kind, ConsequenceKind::Payment);
     Ok(())
@@ -190,6 +195,9 @@ async fn the_bus_port_treats_a_host_that_serves_nothing_as_unreviewed() -> tinyb
     Broker::new().spawn(bus.clone());
     let module = Connection::connect(bus.connect().await?).await?;
     let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
-    assert_eq!(link.review("t1", "send", "Send").await, Verdict::Unreviewed);
+    assert_eq!(
+        link.review("t1", "send", "Send", None).await,
+        Verdict::Unreviewed
+    );
     Ok(())
 }
