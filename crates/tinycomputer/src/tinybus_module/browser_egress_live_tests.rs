@@ -27,8 +27,8 @@ struct EgressHost {
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.BrowserEgressHost")]
 impl EgressHost {
-    #[allow(clippy::unused_async)]
     async fn authorize(&self, request: BrowserEgressTarget) -> tinybus::Result<BrowserEgressGrant> {
+        tokio::task::yield_now().await;
         let allow = self.allowed.load(Ordering::SeqCst)
             && request.hostname == "fixture.test"
             && request.port
@@ -58,11 +58,11 @@ impl EgressHost {
         })
     }
 
-    #[allow(clippy::unused_async)]
     async fn consume(
         &self,
         request: BrowserEgressConsumeRequest,
     ) -> tinybus::Result<BrowserEgressDecision> {
+        tokio::task::yield_now().await;
         self.observations
             .lock()
             .unwrap()
@@ -72,11 +72,11 @@ impl EgressHost {
         })
     }
 
-    #[allow(clippy::unused_async)]
     async fn validate(
         &self,
         request: BrowserEgressValidateRequest,
     ) -> tinybus::Result<BrowserEgressDecision> {
+        tokio::task::yield_now().await;
         self.observations
             .lock()
             .unwrap()
@@ -121,24 +121,20 @@ fn successful_data(reply: &DesktopResponse) -> &serde_json::Value {
     reply.data.as_ref().expect("successful response has data")
 }
 
-#[tokio::test]
-#[allow(clippy::too_many_lines)]
-async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_changed_policy()
--> tinybus::Result<()> {
-    let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let port = allowed_listener.local_addr()?.port();
-    let denied_listener = tokio::net::TcpListener::bind(("127.0.0.2", port)).await?;
-    let allowed_address = allowed_listener.local_addr()?.to_string();
-    let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
-    let (served_tx, served_rx) = tokio::sync::oneshot::channel();
-    let allowed_server = tokio::spawn(serve_fixture(
-        allowed_listener,
-        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>"
-            .to_vec(),
-        extra_allowed_connections.clone(),
-        served_tx,
-    ));
+struct LiveBrowser {
+    proxy: tinybus::Proxy,
+    session: serde_json::Value,
+    allowed: Arc<AtomicBool>,
+    observations: Arc<Mutex<Vec<String>>>,
+    broker_task: tokio::task::JoinHandle<()>,
+}
 
+async fn start_browser_with_fixture_host(
+    allowed_address: String,
+    page_port: u16,
+    page_path: &str,
+    served: tokio::sync::oneshot::Receiver<()>,
+) -> tinybus::Result<LiveBrowser> {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     let broker_task = broker.spawn(bus.clone());
@@ -150,7 +146,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             browser_egress::OBJECT_PATH.try_into()?,
             EgressHost {
                 allowed: allowed.clone(),
-                allowed_address: allowed_address.clone(),
+                allowed_address,
                 observations: observations.clone(),
             },
         )
@@ -180,7 +176,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         .await?;
     let session = successful_data(&opened)["id"].clone();
     assert_eq!(successful_data(&opened)["launched"], true);
-    let url = format!("http://fixture.test:{port}/allowed");
+    let url = format!("http://fixture.test:{page_port}{page_path}");
     let navigated: DesktopResponse = proxy
         .call(
             browser_names::methods::NAVIGATE,
@@ -189,15 +185,51 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         .await?;
     assert!(
         navigated.ok,
-        "authorized navigation failed: {:?}",
+        "authorized fixture navigation failed: {:?}",
         navigated.error
     );
-    tokio::time::timeout(Duration::from_secs(10), served_rx)
+    tokio::time::timeout(Duration::from_secs(10), served)
         .await
-        .expect("authorized Chromium request reaches the fixture within ten seconds")
-        .expect("authorized fixture reports its response");
+        .expect("fixture page is served")
+        .expect("fixture server reports the response");
 
-    let authorizations_before_policy_change = observations
+    Ok(LiveBrowser {
+        proxy,
+        session,
+        allowed,
+        observations,
+        broker_task,
+    })
+}
+
+#[tokio::test]
+async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_changed_policy()
+-> tinybus::Result<()> {
+    let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = allowed_listener.local_addr()?.port();
+    let denied_listener = tokio::net::TcpListener::bind(("127.0.0.2", port)).await?;
+    let allowed_address = allowed_listener.local_addr()?.to_string();
+    let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
+    let (served_tx, served_rx) = tokio::sync::oneshot::channel();
+    let allowed_server = tokio::spawn(serve_fixture(
+        allowed_listener,
+        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>"
+            .to_vec(),
+        extra_allowed_connections.clone(),
+        served_tx,
+    ));
+
+    host_connection
+    let browser = start_browser_with_fixture_host(
+        allowed_address.clone(),
+        port,
+        "/allowed",
+        served_rx,
+    )
+    .await?;
+
+    let authorizations_before_policy_change = browser
+        .observations
         .lock()
         .unwrap()
         .iter()
@@ -206,12 +238,13 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     let extra_connections_before_policy_change = extra_allowed_connections.load(Ordering::SeqCst);
     // Simulate a policy refresh: the host changes from granting the fixture
     // socket to denying requests for the same hostname.
-    allowed.store(false, Ordering::SeqCst);
+    browser.allowed.store(false, Ordering::SeqCst);
     let denied_url = format!("http://fixture.test:{port}/after-policy-change");
-    let denied: DesktopResponse = proxy
+    let denied: DesktopResponse = browser
+        .proxy
         .call(
             browser_names::methods::NAVIGATE,
-            (serde_json::json!({"session": session, "url": denied_url}),),
+            (serde_json::json!({"session": browser.session, "url": denied_url}),),
         )
         .await?;
     assert!(
@@ -230,7 +263,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         "policy-denied navigation connected to the previously allowed socket"
     );
 
-    let calls = observations.lock().unwrap();
+    let calls = browser.observations.lock().unwrap();
     assert!(
         calls
             .iter()
@@ -252,7 +285,15 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             .any(|call| call == &format!("consume:{denied_address}")),
         "denied socket was consumed: {calls:?}"
     );
-    broker_task.abort();
+    let closed: DesktopResponse = browser
+        .proxy
+        .call(
+            browser_names::methods::CLOSE_SESSION,
+            (serde_json::json!({"session": browser.session}),),
+        )
+        .await?;
+    assert!(closed.ok, "browser session did not close: {:?}", closed.error);
+    browser.broker_task.abort();
     allowed_server.abort();
     Ok(())
 }
