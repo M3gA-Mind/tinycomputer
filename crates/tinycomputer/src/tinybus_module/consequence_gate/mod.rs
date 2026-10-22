@@ -56,6 +56,7 @@ pub(crate) trait ConsequencePort: Send + Sync + std::fmt::Debug {
 #[derive(Clone)]
 pub(crate) struct BusPort {
     connection: Connection,
+    destination: Option<tinybus::BusName>,
 }
 
 impl std::fmt::Debug for BusPort {
@@ -65,23 +66,41 @@ impl std::fmt::Debug for BusPort {
 }
 
 impl BusPort {
-    pub(crate) fn new(connection: Connection) -> Self {
-        Self { connection }
+    pub(crate) fn new(connection: Connection, destination: Option<tinybus::BusName>) -> Self {
+        Self {
+            connection,
+            destination,
+        }
     }
 }
 
 impl ConsequencePort for BusPort {
     fn review(&self, request: ReviewActionRequest) -> PortFuture<'_, ReviewActionResponse> {
+        if request.host_context.is_some() && self.destination.is_none() {
+            return Box::pin(async {
+                Err(PortError::Failed(
+                    "host context requires a confidential host callback".to_owned(),
+                ))
+            });
+        }
         Box::pin(async move {
             let proxy = self
                 .connection
-                .proxy(INTERFACE, OBJECT_PATH, INTERFACE)
+                .proxy(
+                    self.destination
+                        .as_ref()
+                        .map_or(INTERFACE, tinybus::BusName::as_str),
+                    OBJECT_PATH,
+                    INTERFACE,
+                )
                 .map(|proxy| proxy.with_timeout(CALL_TIMEOUT))
                 .map_err(|error| PortError::Failed(error.to_string()))?;
-            proxy
-                .call(methods::REVIEW, (request,))
-                .await
-                .map_err(|error| {
+            let reply = if self.destination.is_some() {
+                proxy.call_confidential(methods::REVIEW, (request,)).await
+            } else {
+                proxy.call(methods::REVIEW, (request,)).await
+            };
+            reply.map_err(|error| {
                     // Across the bus an error keeps its dotted name, not its
                     // variant, so the name is what says nobody serves this.
                     if NOT_SERVED.contains(&error.wire_name()) {

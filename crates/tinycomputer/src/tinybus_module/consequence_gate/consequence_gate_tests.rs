@@ -179,7 +179,7 @@ async fn the_bus_port_reaches_the_hosts_interface() -> tinybus::Result<()> {
     host_connection.request_name(INTERFACE).await?;
     let module = Connection::connect(bus.connect().await?).await?;
 
-    let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
+    let link = ConsequenceLink::new(Box::new(BusPort::new(module, None)));
     let verdict = link.review("t1", "pay now", "Pay", None).await;
     assert_eq!(verdict, Verdict::Denied("no".to_owned()));
     assert_eq!(fake.seen.lock().unwrap()[0].kind, ConsequenceKind::Payment);
@@ -201,7 +201,7 @@ async fn the_bus_port_never_sends_host_context_to_an_unconfidential_host() -> ti
     host_connection.request_name(INTERFACE).await?;
     let module = Connection::connect(bus.connect().await?).await?;
 
-    let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
+    let link = ConsequenceLink::new(Box::new(BusPort::new(module, None)));
     let verdict = link
         .review(
             "t1",
