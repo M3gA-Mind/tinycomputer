@@ -106,5 +106,9 @@ tinybus_module::module_export_optional_static! {
 #[path = "static_link_tests.rs"]
 mod static_link_tests;
 
+#[cfg(all(test, feature = "static-link", live_module_browser_egress_tests))]
+#[path = "browser_egress_live_tests.rs"]
+mod browser_egress_live_tests;
+
 #[cfg(test)]
 mod tinybus_module_tests;
