@@ -262,28 +262,30 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         "policy-denied navigation connected to the previously allowed socket"
     );
 
-    let calls = browser.observations.lock().unwrap();
-    assert!(
-        calls
+    {
+        let calls = browser.observations.lock().unwrap();
+        assert!(
+            calls
+                .iter()
+                .any(|call| call == &format!("consume:{allowed_address}")),
+            "host did not consume the exact returned socket: {calls:?}"
+        );
+        let authorizations_after_policy_change = calls
             .iter()
-            .any(|call| call == &format!("consume:{allowed_address}")),
-        "host did not consume the exact returned socket: {calls:?}"
-    );
-    let authorizations_after_policy_change = calls
-        .iter()
-        .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
-        .count();
-    assert!(
-        authorizations_after_policy_change > authorizations_before_policy_change,
-        "the post-change request did not reach the host authorizer: {calls:?}"
-    );
-    let denied_address = denied_listener.local_addr()?.to_string();
-    assert!(
-        !calls
-            .iter()
-            .any(|call| call == &format!("consume:{denied_address}")),
-        "denied socket was consumed: {calls:?}"
-    );
+            .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
+            .count();
+        assert!(
+            authorizations_after_policy_change > authorizations_before_policy_change,
+            "the post-change request did not reach the host authorizer: {calls:?}"
+        );
+        let denied_address = denied_listener.local_addr()?.to_string();
+        assert!(
+            !calls
+                .iter()
+                .any(|call| call == &format!("consume:{denied_address}")),
+            "denied socket was consumed: {calls:?}"
+        );
+    }
     let closed: DesktopResponse = browser
         .proxy
         .call(
