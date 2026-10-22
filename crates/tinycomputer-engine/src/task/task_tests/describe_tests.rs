@@ -283,14 +283,22 @@ async fn describe_schemas_name_every_request_field() {
     for (member, request) in others {
         assert_eq!(
             documented(&schema(member)),
-            fields(&request.unwrap()),
+            if member == "ContinueTask" {
+                fields(&request.unwrap())
+                    .into_iter()
+                    .filter(|field| field != "host_context")
+                    .collect()
+            } else {
+                fields(&request.unwrap())
+            },
             "{member}"
         );
     }
-    assert_eq!(
-        schema("ContinueTask")["properties"]["host_context"]["x-host-only"],
-        true,
-        "host context is host supplied, not an agent argument"
+    assert!(
+        schema("ContinueTask")["properties"]
+            .get("host_context")
+            .is_none(),
+        "host context is injected by the trusted host, not exposed to agents"
     );
     // Every member with a request object is compared above; the rest take
     // no argument.

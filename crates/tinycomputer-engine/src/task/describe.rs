@@ -5,8 +5,8 @@
 //! The schemas here are written by hand, so each field of a request type
 //! must be added here when it is added to the contract, save the host's
 //! own settings no model is offered (a task's browser binary and profile);
-//! `task_tests/describe_tests.rs` checks the `StartTask` and `PlanTask`
-//! schemas name every other field their types serialize.
+//! `task_tests/describe_tests.rs` checks the request schemas name their
+//! model-settable fields; host-only context is deliberately omitted.
 
 use serde_json::{Value, json};
 use tinycomputer_bus::agent::names::{CONFIDENTIAL, methods};
@@ -213,11 +213,6 @@ fn members() -> Vec<MemberDoc> {
                         }
                     },
                     "approve": {"type": "boolean"},
-                    "host_context": {
-                        "type": "string",
-                        "x-host-only": true,
-                        "description": "Opaque context supplied by a trusted host for consequence review; never set or modified by an agent."
-                    },
                     "answer": {"type": "string"}
                 }),
                 &["id"],
