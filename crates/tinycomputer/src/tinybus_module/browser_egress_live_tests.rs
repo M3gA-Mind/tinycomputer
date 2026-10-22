@@ -127,6 +127,8 @@ struct LiveBrowser {
     allowed: Arc<AtomicBool>,
     observations: Arc<Mutex<Vec<String>>>,
     broker_task: tokio::task::JoinHandle<tinybus::Result<()>>,
+    _host_connection: Connection,
+    _module_host: ModuleHost,
 }
 
 async fn start_browser_with_fixture_host(
@@ -199,6 +201,8 @@ async fn start_browser_with_fixture_host(
         allowed,
         observations,
         broker_task,
+        _host_connection: host_connection,
+        _module_host: module_host,
     })
 }
 
