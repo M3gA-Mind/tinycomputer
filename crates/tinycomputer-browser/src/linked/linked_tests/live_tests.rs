@@ -267,11 +267,11 @@ async fn live_chromium_worker_fetch_never_reaches_a_denied_destination() {
 #[tokio::test]
 #[cfg(live_browser_tests)]
 async fn live_chromium_dns_rebinding_never_reaches_the_rebound_private_socket() {
-    let private = std::net::TcpListener::bind("127.0.0.2:0").unwrap();
-    private.set_nonblocking(true).unwrap();
-    let private_address = private.local_addr().unwrap();
     let allowed_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = allowed_listener.local_addr().unwrap().port();
+    let private = std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, port)).unwrap();
+    private.set_nonblocking(true).unwrap();
+    let private_address = private.local_addr().unwrap();
     let allowed_address = allowed_listener.local_addr().unwrap();
     let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
     let observed_addresses = Arc::new(Mutex::new(Vec::new()));
