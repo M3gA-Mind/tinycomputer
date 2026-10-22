@@ -1,5 +1,11 @@
-//! Opt-in real-Chromium coverage through the loaded TinyComputer module.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+//! Opt-in real-Chromium coverage through the loaded `TinyComputer` module.
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::too_many_lines,
+    clippy::unwrap_used,
+    clippy::unused_async
+)]
 
 use std::sync::{
     Arc, Mutex,
