@@ -376,7 +376,6 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
             browser.observations.lock().unwrap()
         );
     }
-    let connections_before_completion = extra_allowed_connections.load(Ordering::SeqCst);
     tokio::select! {
         done = tokio::time::timeout(Duration::from_secs(10), worker_done_rx) => {
             done.expect("worker request completes within ten seconds")
@@ -390,7 +389,7 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
     }
     assert_eq!(
         extra_allowed_connections.load(Ordering::SeqCst),
-        connections_before_completion + 1,
+        1,
         "only the worker completion request reached the allowed fixture after navigation"
     );
     assert!(
