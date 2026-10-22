@@ -198,8 +198,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         .iter()
         .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
         .count();
-    let extra_connections_before_policy_change =
-        extra_allowed_connections.load(Ordering::SeqCst);
+    let extra_connections_before_policy_change = extra_allowed_connections.load(Ordering::SeqCst);
     // Simulate a policy refresh: the host changes from granting the fixture
     // socket to denying requests for the same hostname.
     allowed.store(false, Ordering::SeqCst);
