@@ -125,6 +125,76 @@ async fn live_chromium_subresource_never_reaches_a_denied_destination() {
 
 #[tokio::test]
 #[cfg(live_browser_tests)]
+async fn live_chromium_worker_fetch_never_reaches_a_denied_destination() {
+    let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    denied.set_nonblocking(true).unwrap();
+    let denied_address = denied.local_addr().unwrap();
+    let denied_targets = Arc::new(Mutex::new(Vec::new()));
+    let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = fixture.local_addr().unwrap();
+    let html = format!("<script>new Worker('/worker.js')</script><p>worker fixture</p>");
+    let worker = format!(
+        "fetch('http://127.0.0.1:{}/private').catch(() => {{}});",
+        denied_address.port()
+    );
+    let fixture_server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (mut socket, _) = tokio::time::timeout(Duration::from_secs(10), fixture.accept())
+                .await
+                .expect("Chromium requests page and worker script")
+                .unwrap();
+            let mut request = [0; 4096];
+            let size = socket.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..size]);
+            let (content_type, body) = if request.contains("GET /worker.js") {
+                ("application/javascript", worker.as_str())
+            } else {
+                ("text/html", html.as_str())
+            };
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+    });
+    let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
+        address,
+        authorizations: Arc::new(AtomicUsize::new(0)),
+        denied_targets: denied_targets.clone(),
+    }))
+    .open("live-egress-worker");
+    let launch = browser
+        .execute(json!({"id":"launch","action":"launch","headless":true,"args":[]}))
+        .await;
+    assert_eq!(launch["success"], true, "{launch}");
+    let navigation = browser
+        .execute(json!({
+            "id":"navigate",
+            "action":"navigate",
+            "url":format!("http://127.0.0.1:{}/", address.port())
+        }))
+        .await;
+    wait_for_denied_target(&denied_targets, denied_address.port()).await;
+    browser
+        .execute(json!({"id":"close","action":"close"}))
+        .await;
+    assert_eq!(navigation["success"], true, "{navigation}");
+    fixture_server.await.unwrap();
+    assert_eq!(
+        denied.accept().unwrap_err().kind(),
+        io::ErrorKind::WouldBlock,
+        "the denied worker fetch destination must never receive a connection"
+    );
+}
+
+#[tokio::test]
+#[cfg(live_browser_tests)]
 async fn live_chromium_redirect_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
