@@ -325,7 +325,7 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
             .await?;
 
     let worker_authorization = format!("authorize:fixture-policy:41:127.0.0.2:{denied_port}");
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let worker_authorized = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if browser
                 .observations
@@ -339,8 +339,12 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .expect("worker request reaches the host egress authorizer");
+    .await;
+    assert!(
+        worker_authorized.is_ok(),
+        "worker request reaches the host egress authorizer: {:?}",
+        browser.observations.lock().unwrap()
+    );
     assert!(
         tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
             .await
