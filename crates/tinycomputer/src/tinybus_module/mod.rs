@@ -49,11 +49,10 @@ async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
     // The host's consequence review; a host that does not serve it leaves a
     // task's own approval pause as the only gate.
-    let service = service
-        .with_consequence_review(Box::new(consequence_gate::BusPort::new(
-            connection.clone(),
-            consequence_host,
-        )));
+    let service = service.with_consequence_review(Box::new(consequence_gate::BusPort::new(
+        connection.clone(),
+        consequence_host,
+    )));
     #[cfg(test)]
     let service = service.with_native_fixture();
     service.sweep_outputs();

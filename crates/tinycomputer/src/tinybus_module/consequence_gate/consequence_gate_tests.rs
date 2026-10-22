@@ -224,7 +224,7 @@ async fn the_bus_port_treats_a_host_that_serves_nothing_as_unreviewed() -> tinyb
     let bus = MemoryBus::new();
     Broker::new().spawn(bus.clone());
     let module = Connection::connect(bus.connect().await?).await?;
-    let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
+    let link = ConsequenceLink::new(Box::new(BusPort::new(module, None)));
     assert_eq!(
         link.review("t1", "send", "Send", None).await,
         Verdict::Unreviewed

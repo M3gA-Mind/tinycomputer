@@ -75,6 +75,12 @@ TinyBus treats initial and replacement module configuration as sensitive
 host-control traffic. An unreadable configuration fails before replacing the
 served object rather than falling back to defaults.
 
+Setting `consequence_host` to an object with the unique `destination` supplied
+by `ModuleHost::prepare_host_callbacks` enables confidential consequence
+reviews. A `ContinueTask` carrying host context fails closed unless this
+callback is configured; without host context, the legacy well-known host
+interface remains available.
+
 ## The manifest
 
 `tinybus_module::module_export_optional_static!` emits (C exports by default; `linked_module()` under `static-link`) the descriptor, embedded manifest, and

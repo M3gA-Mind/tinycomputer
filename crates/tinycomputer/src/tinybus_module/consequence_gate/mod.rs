@@ -101,14 +101,14 @@ impl ConsequencePort for BusPort {
                 proxy.call(methods::REVIEW, (request,)).await
             };
             reply.map_err(|error| {
-                    // Across the bus an error keeps its dotted name, not its
-                    // variant, so the name is what says nobody serves this.
-                    if NOT_SERVED.contains(&error.wire_name()) {
-                        PortError::NotServed
-                    } else {
-                        PortError::Failed(error.to_string())
-                    }
-                })
+                // Across the bus an error keeps its dotted name, not its
+                // variant, so the name is what says nobody serves this.
+                if NOT_SERVED.contains(&error.wire_name()) {
+                    PortError::NotServed
+                } else {
+                    PortError::Failed(error.to_string())
+                }
+            })
         })
     }
 }
