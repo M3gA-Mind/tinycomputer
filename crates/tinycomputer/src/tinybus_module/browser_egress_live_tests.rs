@@ -1,11 +1,5 @@
 //! Opt-in real-Chromium coverage through the loaded `TinyComputer` module.
-#![allow(
-    clippy::expect_used,
-    clippy::panic,
-    clippy::too_many_lines,
-    clippy::unwrap_used,
-    clippy::unused_async
-)]
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::sync::{
     Arc, Mutex,
@@ -33,6 +27,7 @@ struct EgressHost {
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.BrowserEgressHost")]
 impl EgressHost {
+    #[allow(clippy::unused_async)]
     async fn authorize(&self, request: BrowserEgressTarget) -> tinybus::Result<BrowserEgressGrant> {
         let allow = self.allowed.load(Ordering::SeqCst)
             && request.hostname == "fixture.test"
@@ -63,6 +58,7 @@ impl EgressHost {
         })
     }
 
+    #[allow(clippy::unused_async)]
     async fn consume(
         &self,
         request: BrowserEgressConsumeRequest,
@@ -76,6 +72,7 @@ impl EgressHost {
         })
     }
 
+    #[allow(clippy::unused_async)]
     async fn validate(
         &self,
         request: BrowserEgressValidateRequest,
@@ -125,6 +122,7 @@ fn successful_data(reply: &DesktopResponse) -> &serde_json::Value {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_changed_policy()
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -260,6 +258,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn live_chromium_module_routes_worker_egress_through_host_authorization()
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
