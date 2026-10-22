@@ -187,6 +187,36 @@ async fn the_bus_port_reaches_the_hosts_interface() -> tinybus::Result<()> {
 }
 
 #[tokio::test]
+async fn the_bus_port_never_sends_host_context_to_an_unconfidential_host() -> tinybus::Result<()> {
+    use tinybus::broker::Broker;
+    use tinybus::transport::memory::MemoryBus;
+
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let host_connection = Connection::connect(bus.connect().await?).await?;
+    let fake = FakeHost::new(Answer::Allow);
+    host_connection
+        .serve_at(OBJECT_PATH.try_into()?, BusHost(fake.clone()))
+        .await?;
+    host_connection.request_name(INTERFACE).await?;
+    let module = Connection::connect(bus.connect().await?).await?;
+
+    let link = ConsequenceLink::new(Box::new(BusPort::new(module)));
+    let verdict = link
+        .review(
+            "t1",
+            "send",
+            "Send",
+            Some(HostContext::new("opaque-context")),
+        )
+        .await;
+
+    assert!(matches!(verdict, Verdict::Denied(ref reason) if reason.contains("confidential")));
+    assert!(fake.seen.lock().unwrap().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn the_bus_port_treats_a_host_that_serves_nothing_as_unreviewed() -> tinybus::Result<()> {
     use tinybus::broker::Broker;
     use tinybus::transport::memory::MemoryBus;
