@@ -109,7 +109,7 @@ fn successful_data(reply: &DesktopResponse) -> &serde_json::Value {
 }
 
 #[tokio::test]
-async fn real_chromium_module_dials_only_the_host_returned_socket_and_rejects_changed_policy()
+async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_changed_policy()
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = allowed_listener.local_addr()?.port();
@@ -170,10 +170,19 @@ async fn real_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         "authorized navigation failed: {:?}",
         navigated.error
     );
-    allowed_server.await.expect("fixture server completed");
+    tokio::time::timeout(Duration::from_secs(10), allowed_server)
+        .await
+        .expect("authorized fixture server completes within ten seconds")
+        .expect("fixture server task completes");
 
-    // Simulate DNS rebinding and a policy refresh: the same fixture hostname now
-    // maps to a different local socket, but the host denies its new resolution.
+    let authorizations_before_policy_change = observations
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
+        .count();
+    // Simulate a policy refresh: the host changes from granting the fixture
+    // socket to denying requests for the same hostname.
     allowed.store(false, Ordering::SeqCst);
     let denied_url = format!("http://fixture.test:{port}/after-policy-change");
     let denied: DesktopResponse = proxy
@@ -190,7 +199,7 @@ async fn real_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
             .await
             .is_err(),
-        "denied rebound socket received a connection"
+        "denied policy-change socket received a connection"
     );
 
     let calls = observations.lock().unwrap();
@@ -200,13 +209,13 @@ async fn real_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             .any(|call| call == &format!("consume:{allowed_address}")),
         "host did not consume the exact returned socket: {calls:?}"
     );
-    assert!(
-        calls
+    let authorizations_after_policy_change = calls
             .iter()
             .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
-            .count()
-            >= 2,
-        "both real Chromium requests must reach the host authorizer: {calls:?}"
+            .count();
+    assert!(
+        authorizations_after_policy_change > authorizations_before_policy_change,
+        "the post-change request did not reach the host authorizer: {calls:?}"
     );
     let denied_address = denied_listener.local_addr()?.to_string();
     assert!(
