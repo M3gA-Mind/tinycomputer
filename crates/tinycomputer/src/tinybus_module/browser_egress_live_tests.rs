@@ -219,14 +219,9 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         served_tx,
     ));
 
-    host_connection
-    let browser = start_browser_with_fixture_host(
-        allowed_address.clone(),
-        port,
-        "/allowed",
-        served_rx,
-    )
-    .await?;
+    let browser =
+        start_browser_with_fixture_host(allowed_address.clone(), port, "/allowed", served_rx)
+            .await?;
 
     let authorizations_before_policy_change = browser
         .observations
@@ -292,14 +287,17 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             (serde_json::json!({"session": browser.session}),),
         )
         .await?;
-    assert!(closed.ok, "browser session did not close: {:?}", closed.error);
+    assert!(
+        closed.ok,
+        "browser session did not close: {:?}",
+        closed.error
+    );
     browser.broker_task.abort();
     allowed_server.abort();
     Ok(())
 }
 
 #[tokio::test]
-#[allow(clippy::too_many_lines)]
 async fn live_chromium_module_routes_worker_egress_through_host_authorization()
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -321,68 +319,16 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
         served_tx,
     ));
 
-    let bus = MemoryBus::new();
-    let broker = Broker::new();
-    let broker_task = broker.spawn(bus.clone());
-    let host_connection = Connection::connect(bus.connect().await?).await?;
-    let observations = Arc::new(Mutex::new(Vec::new()));
     let allowed_address = format!("127.0.0.1:{page_port}");
-    host_connection
-        .serve_at(
-            browser_egress::OBJECT_PATH.try_into()?,
-            EgressHost {
-                allowed: Arc::new(AtomicBool::new(true)),
-                allowed_address,
-                observations: observations.clone(),
-            },
-        )
-        .await?;
-    host_connection
-        .request_name(browser_egress::INTERFACE)
-        .await?;
-
-    let module_host = ModuleHost::new(broker);
-    let module = crate::linked_module().expect("linked module manifest is valid");
-    module_host
-        .attach_linked_with_config(
-            module,
-            serde_json::json!({
-                "browser": {"egress": {"policy_id": "fixture-policy", "generation": 41}}
-            }),
-        )
-        .expect("TinyComputer module loads through ModuleHost");
-    let client = Connection::connect(bus.connect().await?).await?;
-    let proxy = client.proxy(names::INTERFACE, names::OBJECT_PATH, names::INTERFACE)?;
-
-    let opened: DesktopResponse = proxy
-        .call(
-            browser_names::methods::OPEN_SESSION,
-            (serde_json::json!({}),),
-        )
-        .await?;
-    let session = successful_data(&opened)["id"].clone();
-    assert_eq!(successful_data(&opened)["launched"], true);
-    let url = format!("http://fixture.test:{page_port}/worker-fixture");
-    let navigated: DesktopResponse = proxy
-        .call(
-            browser_names::methods::NAVIGATE,
-            (serde_json::json!({"session": session, "url": url}),),
-        )
-        .await?;
-    assert!(
-        navigated.ok,
-        "authorized worker fixture navigation failed: {:?}",
-        navigated.error
-    );
-    tokio::time::timeout(Duration::from_secs(10), served_rx)
-        .await
-        .expect("fixture page is served")
-        .expect("fixture server reports the response");
+    let browser =
+        start_browser_with_fixture_host(allowed_address, page_port, "/worker-fixture", served_rx)
+            .await?;
 
     let worker_authorization = format!("authorize:fixture-policy:41:127.0.0.2:{denied_port}");
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if observations
+            if browser
+                .observations
                 .lock()
                 .unwrap()
                 .iter()
@@ -402,10 +348,11 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
         "worker request connected directly to the denied private listener"
     );
 
-    let closed: DesktopResponse = proxy
+    let closed: DesktopResponse = browser
+        .proxy
         .call(
             browser_names::methods::CLOSE_SESSION,
-            (serde_json::json!({"session": session}),),
+            (serde_json::json!({"session": browser.session}),),
         )
         .await?;
     assert!(
@@ -413,7 +360,7 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
         "browser session did not close: {:?}",
         closed.error
     );
-    broker_task.abort();
+    browser.broker_task.abort();
     allowed_server.abort();
     Ok(())
 }
