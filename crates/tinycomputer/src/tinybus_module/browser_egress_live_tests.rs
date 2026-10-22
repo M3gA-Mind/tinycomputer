@@ -210,9 +210,9 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         "host did not consume the exact returned socket: {calls:?}"
     );
     let authorizations_after_policy_change = calls
-            .iter()
-            .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
-            .count();
+        .iter()
+        .filter(|call| call.starts_with("authorize:fixture-policy:41:fixture.test:"))
+        .count();
     assert!(
         authorizations_after_policy_change > authorizations_before_policy_change,
         "the post-change request did not reach the host authorizer: {calls:?}"
