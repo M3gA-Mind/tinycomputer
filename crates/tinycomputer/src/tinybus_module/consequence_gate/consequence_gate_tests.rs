@@ -156,6 +156,7 @@ struct BusHost(FakeHost);
 
 #[tinybus::interface(name = "ai.tinyhumans.tinycomputer.ConsequenceHost")]
 impl BusHost {
+    #[tinybus(confidential)]
     async fn review(&self, request: ReviewActionRequest) -> tinybus::Result<ReviewActionResponse> {
         self.0
             .review(request)

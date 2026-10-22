@@ -79,7 +79,7 @@ impl ConsequencePort for BusPort {
                 .map(|proxy| proxy.with_timeout(CALL_TIMEOUT))
                 .map_err(|error| PortError::Failed(error.to_string()))?;
             proxy
-                .call(methods::REVIEW, (request,))
+                .call_confidential(methods::REVIEW, (request,))
                 .await
                 .map_err(|error| {
                     // Across the bus an error keeps its dotted name, not its
