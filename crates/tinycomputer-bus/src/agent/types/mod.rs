@@ -13,7 +13,7 @@ pub use models::{LanguageModelConfiguration, LanguageModelProvider};
 pub use reply::{AgentError, AgentResponse};
 pub use report::{Rescue, RescueOutcome, TaskReport};
 pub use request::{
-    AwaitTaskRequest, ContinueTaskRequest, PaymentMode, PlanTaskRequest, SecretHandle,
+    AwaitTaskRequest, ContinueTaskRequest, HostContext, PaymentMode, PlanTaskRequest, SecretHandle,
     StartTaskRequest, SurfaceKind, TaskBudget, TaskConstraints, TaskId, TaskOutput, TaskPlan,
     TaskRef, TaskReportRequest,
 };

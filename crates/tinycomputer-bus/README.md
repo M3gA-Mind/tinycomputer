@@ -190,3 +190,9 @@ distinguish causal re-entry from unrelated concurrent work. Event
 and artifact acknowledgements are bounded by the engine's operation deadline;
 report calls have a ten-second transport timeout. A host that does not opt in
 keeps the existing desktop file/session trace behavior.
+
+Contract 2.27 adds an opaque host context to `ContinueTask` and relays it
+unchanged to `ConsequenceHost.Review`. TinyComputer does not interpret the
+context or grant it authority; hosts can use it to recover trusted caller
+context while reviewing an approval. Hosts that depend on this relay must
+reject modules older than 2.27.

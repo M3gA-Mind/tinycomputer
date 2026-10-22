@@ -15,6 +15,7 @@ fn continue_with_handle(
         id,
         approve: Some(true),
         answer: Some(String::new()),
+        host_context: Some(tinycomputer_bus::agent::HostContext::new("opaque-context")),
         fact_handles: std::collections::BTreeMap::from([(
             "email".to_owned(),
             tinycomputer_bus::agent::SecretHandle {
@@ -256,7 +257,20 @@ async fn describe_schemas_name_every_request_field() {
 
     let plan = serde_json::to_value(tinycomputer_bus::agent::PlanTaskRequest::default()).unwrap();
     assert_eq!(documented(&schema("PlanTask")), fields(&plan));
+}
 
+#[tokio::test]
+async fn describe_schemas_name_continuation_request_fields() {
+    let (tasks, _) = controller(Vec::new());
+    let described = capabilities(Vec::new(), Some(&jev()), &tasks);
+    let schema = |name: &str| {
+        described
+            .members
+            .iter()
+            .find(|member| member.name == name)
+            .map(|member| member.input.clone())
+            .expect("the member is documented")
+    };
     let id = tinycomputer_bus::agent::TaskId::new("t-1");
     let others = [
         (
@@ -282,10 +296,23 @@ async fn describe_schemas_name_every_request_field() {
     for (member, request) in others {
         assert_eq!(
             documented(&schema(member)),
-            fields(&request.unwrap()),
+            if member == "ContinueTask" {
+                fields(&request.unwrap())
+                    .into_iter()
+                    .filter(|field| field != "host_context")
+                    .collect()
+            } else {
+                fields(&request.unwrap())
+            },
             "{member}"
         );
     }
+    assert!(
+        schema("ContinueTask")["properties"]
+            .get("host_context")
+            .is_none(),
+        "host context is injected by the trusted host, not exposed to agents"
+    );
     // Every member with a request object is compared above; the rest take
     // no argument.
     for member in &described.members {

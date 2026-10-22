@@ -281,18 +281,40 @@ fn waiting_and_continuing_have_forgiving_defaults() {
     assert_eq!(resume.id.to_string(), "t-1");
     assert_eq!(resume.inputs["date of birth"], "1990-04-02");
     assert_eq!(resume.approve, None);
+    assert_eq!(resume.host_context, None);
+    assert!(
+        serde_json::to_value(&resume)
+            .unwrap()
+            .get("host_context")
+            .is_none()
+    );
 
     let private: ContinueTaskRequest = serde_json::from_value(json!({
         "id": "t-2",
+        "host_context": "opaque-context",
         "fact_handles": {
             "email": {"handle": "opaque-email", "mask": "‹email›", "kind": "asked_input"}
         }
     }))
     .unwrap();
     assert_eq!(private.fact_handles["email"].handle, "opaque-email");
+    assert_eq!(
+        private
+            .host_context
+            .as_ref()
+            .map(super::HostContext::as_str),
+        Some("opaque-context")
+    );
     let wire = serde_json::to_value(private).unwrap();
     assert_eq!(wire["fact_handles"]["email"]["mask"], "‹email›");
     assert_eq!(wire["inputs"], json!({}));
+    assert_eq!(wire["host_context"], "opaque-context");
+}
+
+#[test]
+fn host_context_debug_output_hides_the_opaque_value() {
+    let context = super::HostContext::new("secret-capability");
+    assert!(!format!("{context:?}").contains("secret-capability"));
 }
 
 #[test]

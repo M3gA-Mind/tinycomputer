@@ -225,6 +225,44 @@ pub(crate) fn trace_sink_destination(
     }
 }
 
+/// Whether the host prepared a confidential consequence-review callback.
+pub(crate) fn consequence_host_destination(
+    config: &serde_json::Value,
+) -> Result<Option<tinybus::BusName>> {
+    match config
+        .as_object()
+        .and_then(|object| object.get("consequence_host"))
+    {
+        None | Some(serde_json::Value::Bool(false)) => Ok(None),
+        Some(serde_json::Value::Object(options)) if options.len() == 1 => {
+            let destination = options
+                .get("destination")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(crate::Error::ConfigFieldType {
+                    field: "consequence_host.destination",
+                    expected: "the unique name of the host callback prepared for this module",
+                })?;
+            tinybus::BusName::new(destination.to_owned())
+                .map_err(|_| crate::Error::ConfigFieldType {
+                    field: "consequence_host.destination",
+                    expected: "the unique name of the host callback prepared for this module",
+                })
+                .and_then(|name| {
+                    name.is_unique()
+                        .then_some(Some(name))
+                        .ok_or(crate::Error::ConfigFieldType {
+                            field: "consequence_host.destination",
+                            expected: "the unique name of the host callback prepared for this module",
+                        })
+                })
+        }
+        Some(_) => Err(crate::Error::ConfigFieldType {
+            field: "consequence_host",
+            expected: "false or an object containing only the host callback `destination`",
+        }),
+    }
+}
+
 /// The `cursor` configuration: the agent's one on-screen cursor, shared by
 /// the desktop and every task's browser. Either a pace name, or an object
 /// with an optional `pace` and an optional `overlay` path to the
