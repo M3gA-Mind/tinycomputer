@@ -153,10 +153,11 @@ async fn real_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     let opened: DesktopResponse = proxy
         .call(
             browser_names::methods::OPEN_SESSION,
-            (serde_json::json!({"headless": true}),),
+            (serde_json::json!({}),),
         )
         .await?;
     let session = successful_data(&opened)["id"].clone();
+    assert_eq!(successful_data(&opened)["launched"], true);
     let url = format!("http://fixture.test:{port}/allowed");
     let navigated: DesktopResponse = proxy
         .call(
