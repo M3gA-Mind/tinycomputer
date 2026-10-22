@@ -77,9 +77,11 @@ served object rather than falling back to defaults.
 
 Setting `consequence_host` to an object with the unique `destination` supplied
 by `ModuleHost::prepare_host_callbacks` enables confidential consequence
-reviews. A `ContinueTask` carrying host context fails closed unless this
-callback is configured; without host context, the legacy well-known host
-interface remains available.
+reviews. When `ContinueTask` approves a pending action for host review, the
+module declines it if the configured callback is absent or cannot answer. A
+declined approval, an unanswered pause, or a continuation with no pending
+action does not fail solely because this callback is absent. Without host
+context, the legacy well-known host interface remains available.
 
 ## The manifest
 

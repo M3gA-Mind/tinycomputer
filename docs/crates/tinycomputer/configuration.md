@@ -66,6 +66,26 @@ can retry `TaskReport`. Without this key, or with `false`, the existing
 `trace_path` behavior remains in effect. `true`, malformed objects, and
 well-known bus names are rejected.
 
+## `consequence_host`
+
+```json
+{
+  "consequence_host": {
+    "destination": ":1.42"
+  }
+}
+```
+
+Set `consequence_host` to an object containing only the unique callback
+destination prepared for this module by `ModuleHost::prepare_host_callbacks`.
+The module sends consequence reviews to the host through that confidential
+callback. When a `ContinueTask` approves a pending action for host review,
+failure to reach the configured callback declines the action. A declined
+approval, unanswered pause, or continuation without a pending action does not
+fail solely because this callback is absent. Without this key, or with
+`false`, calls without host context keep using the legacy well-known host
+interface. `true`, malformed objects, and well-known bus names are rejected.
+
 ## `jev`
 
 ```json
