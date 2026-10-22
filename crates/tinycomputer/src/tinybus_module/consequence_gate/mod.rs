@@ -74,7 +74,7 @@ impl BusPort {
         }
     }
 
-    fn classify_error(configured_destination: bool, error: tinybus::Error) -> PortError {
+    fn classify_error(configured_destination: bool, error: &tinybus::Error) -> PortError {
         if !configured_destination && NOT_SERVED.contains(&error.wire_name()) {
             PortError::NotServed
         } else {
@@ -109,7 +109,7 @@ impl ConsequencePort for BusPort {
             } else {
                 proxy.call(methods::REVIEW, (request,)).await
             };
-            reply.map_err(|error| Self::classify_error(self.destination.is_some(), error))
+            reply.map_err(|error| Self::classify_error(self.destination.is_some(), &error))
         })
     }
 }

@@ -261,7 +261,7 @@ struct UnrelatedObject;
 #[tinybus::interface(name = "org.example.Unrelated")]
 impl UnrelatedObject {
     async fn ping(&self) -> tinybus::Result<()> {
-        Ok(())
+        std::future::ready(Ok(())).await
     }
 }
 
@@ -272,7 +272,7 @@ fn a_configured_callback_that_is_not_served_is_a_failure() {
         interface: INTERFACE.parse().unwrap(),
     };
     assert!(matches!(
-        BusPort::classify_error(true, error),
+        BusPort::classify_error(true, &error),
         PortError::Failed(_)
     ));
 }
