@@ -319,4 +319,3 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     allowed_server.abort();
     Ok(())
 }
-
