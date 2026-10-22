@@ -287,6 +287,11 @@ async fn describe_schemas_name_every_request_field() {
             "{member}"
         );
     }
+    assert_eq!(
+        schema("ContinueTask")["properties"]["host_context"]["x-host-only"],
+        true,
+        "host context is host supplied, not an agent argument"
+    );
     // Every member with a request object is compared above; the rest take
     // no argument.
     for member in &described.members {

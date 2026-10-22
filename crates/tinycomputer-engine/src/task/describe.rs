@@ -213,6 +213,11 @@ fn members() -> Vec<MemberDoc> {
                         }
                     },
                     "approve": {"type": "boolean"},
+                    "host_context": {
+                        "type": "string",
+                        "x-host-only": true,
+                        "description": "Opaque context supplied by a trusted host for consequence review; never set or modified by an agent."
+                    },
                     "answer": {"type": "string"}
                 }),
                 &["id"],
