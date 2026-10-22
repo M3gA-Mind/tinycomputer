@@ -87,7 +87,7 @@ impl EgressHost {
 
 async fn serve_fixture(
     listener: tokio::net::TcpListener,
-    expected: &'static [u8],
+    expected: Vec<u8>,
     extra_connections: Arc<AtomicUsize>,
     served: tokio::sync::oneshot::Sender<()>,
 ) {
@@ -102,7 +102,7 @@ async fn serve_fixture(
         b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ".as_slice(),
         expected.len().to_string().as_bytes(),
         b"\r\nConnection: close\r\n\r\n".as_slice(),
-        expected,
+        expected.as_slice(),
     ]
     .concat();
     let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, &response).await;
@@ -129,7 +129,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
     let allowed_server = tokio::spawn(serve_fixture(
         allowed_listener,
-        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>",
+        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>".to_vec(),
         extra_allowed_connections.clone(),
         served_tx,
     ));
@@ -247,6 +247,122 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             .any(|call| call == &format!("consume:{denied_address}")),
         "denied socket was consumed: {calls:?}"
     );
+    broker_task.abort();
+    allowed_server.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn live_chromium_module_routes_worker_egress_through_host_authorization() -> tinybus::Result<()> {
+    let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let page_port = allowed_listener.local_addr()?.port();
+    let denied_listener = tokio::net::TcpListener::bind("127.0.0.2:0").await?;
+    let denied_port = denied_listener.local_addr()?.port();
+    let html = format!(
+        "<!doctype html><link rel=\"icon\" href=\"data:,\"><script>\
+         const worker = new Worker(URL.createObjectURL(new Blob([\
+         \"setTimeout(() => fetch('http://127.0.0.2:{denied_port}/worker').catch(() => {{}}), 1000)\"\
+         ], {{ type: 'text/javascript' }})));</script>"
+    )
+    .into_bytes();
+    let (served_tx, served_rx) = tokio::sync::oneshot::channel();
+    let allowed_server = tokio::spawn(serve_fixture(
+        allowed_listener,
+        html,
+        Arc::new(AtomicUsize::new(0)),
+        served_tx,
+    ));
+
+    let bus = MemoryBus::new();
+    let broker = Broker::new();
+    let broker_task = broker.spawn(bus.clone());
+    let host_connection = Connection::connect(bus.connect().await?).await?;
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let allowed_address = format!("127.0.0.1:{page_port}");
+    host_connection
+        .serve_at(
+            browser_egress::OBJECT_PATH.try_into()?,
+            EgressHost {
+                allowed: Arc::new(AtomicBool::new(true)),
+                allowed_address,
+                observations: observations.clone(),
+            },
+        )
+        .await?;
+    host_connection
+        .request_name(browser_egress::INTERFACE)
+        .await?;
+
+    let module_host = ModuleHost::new(broker);
+    let module = crate::linked_module().expect("linked module manifest is valid");
+    module_host
+        .attach_linked_with_config(
+            module,
+            serde_json::json!({
+                "browser": {"egress": {"policy_id": "fixture-policy", "generation": 41}}
+            }),
+        )
+        .expect("TinyComputer module loads through ModuleHost");
+    let client = Connection::connect(bus.connect().await?).await?;
+    let proxy = client.proxy(names::INTERFACE, names::OBJECT_PATH, names::INTERFACE)?;
+
+    let opened: DesktopResponse = proxy
+        .call(
+            browser_names::methods::OPEN_SESSION,
+            (serde_json::json!({}),),
+        )
+        .await?;
+    let session = successful_data(&opened)["id"].clone();
+    assert_eq!(successful_data(&opened)["launched"], true);
+    let url = format!("http://fixture.test:{page_port}/worker-fixture");
+    let navigated: DesktopResponse = proxy
+        .call(
+            browser_names::methods::NAVIGATE,
+            (serde_json::json!({"session": session, "url": url}),),
+        )
+        .await?;
+    assert!(
+        navigated.ok,
+        "authorized worker fixture navigation failed: {:?}",
+        navigated.error
+    );
+    tokio::time::timeout(Duration::from_secs(10), served_rx)
+        .await
+        .expect("fixture page is served")
+        .expect("fixture server reports the response");
+
+    let worker_authorization = format!(
+        "authorize:fixture-policy:41:127.0.0.2:{denied_port}"
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if observations
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|call| call == &worker_authorization)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("worker request reaches the host egress authorizer");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
+            .await
+            .is_err(),
+        "worker request connected directly to the denied private listener"
+    );
+
+    let closed: DesktopResponse = proxy
+        .call(
+            browser_names::methods::CLOSE_SESSION,
+            (serde_json::json!({"session": session}),),
+        )
+        .await?;
+    assert!(closed.ok, "browser session did not close: {:?}", closed.error);
     broker_task.abort();
     allowed_server.abort();
     Ok(())
