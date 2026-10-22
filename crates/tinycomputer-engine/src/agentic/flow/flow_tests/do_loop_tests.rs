@@ -1260,3 +1260,24 @@ fn a_pressed_controls_copies_are_only_on_the_other_items_of_its_list() {
         "the bar's own has none"
     );
 }
+
+#[tokio::test]
+async fn return_is_not_pressed_when_the_flow_stops_before_sending() {
+    // In a message composer Return sends. The flow declared it stops before
+    // sending, so the "confirm" shortcut must not press Return unasked.
+    let run = run_with(
+        App::default(),
+        json!({"app": "Mail", "steps": [
+            "confirm the message text",
+            {"stop_before": "sending the message"}
+        ]}),
+        |request| request.max_actions = 2,
+        |id, question, _| match id {
+            "shortcut" => Some(pick(question, "confirm", 0.9)),
+            _ => None,
+        },
+    )
+    .await;
+    let presses = run.app.sim().presses.clone();
+    assert!(!presses.iter().any(|key| key == "return"), "{presses:?}");
+}
