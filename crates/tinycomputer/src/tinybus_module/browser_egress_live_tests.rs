@@ -126,7 +126,7 @@ struct LiveBrowser {
     session: serde_json::Value,
     allowed: Arc<AtomicBool>,
     observations: Arc<Mutex<Vec<String>>>,
-    broker_task: tokio::task::JoinHandle<()>,
+    broker_task: tokio::task::JoinHandle<tinybus::Result<()>>,
 }
 
 async fn start_browser_with_fixture_host(
