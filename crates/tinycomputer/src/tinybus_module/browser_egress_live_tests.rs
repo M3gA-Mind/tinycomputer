@@ -129,7 +129,8 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
     let allowed_server = tokio::spawn(serve_fixture(
         allowed_listener,
-        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>".to_vec(),
+        b"<!doctype html><link rel=\"icon\" href=\"data:,\"><title>allowed fixture</title>"
+            .to_vec(),
         extra_allowed_connections.clone(),
         served_tx,
     ));
@@ -253,7 +254,8 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
 }
 
 #[tokio::test]
-async fn live_chromium_module_routes_worker_egress_through_host_authorization() -> tinybus::Result<()> {
+async fn live_chromium_module_routes_worker_egress_through_host_authorization()
+-> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let page_port = allowed_listener.local_addr()?.port();
     let denied_listener = tokio::net::TcpListener::bind("127.0.0.2:0").await?;
@@ -331,9 +333,7 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization() 
         .expect("fixture page is served")
         .expect("fixture server reports the response");
 
-    let worker_authorization = format!(
-        "authorize:fixture-policy:41:127.0.0.2:{denied_port}"
-    );
+    let worker_authorization = format!("authorize:fixture-policy:41:127.0.0.2:{denied_port}");
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if observations
@@ -362,7 +362,11 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization() 
             (serde_json::json!({"session": session}),),
         )
         .await?;
-    assert!(closed.ok, "browser session did not close: {:?}", closed.error);
+    assert!(
+        closed.ok,
+        "browser session did not close: {:?}",
+        closed.error
+    );
     broker_task.abort();
     allowed_server.abort();
     Ok(())
