@@ -15,6 +15,7 @@ fn continue_with_handle(
         id,
         approve: Some(true),
         answer: Some(String::new()),
+        host_context: Some(tinycomputer_bus::agent::HostContext::new("opaque-context")),
         fact_handles: std::collections::BTreeMap::from([(
             "email".to_owned(),
             tinycomputer_bus::agent::SecretHandle {
