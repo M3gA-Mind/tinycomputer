@@ -93,6 +93,7 @@ async fn serve_fixture(
     expected: Vec<u8>,
     extra_connections: Arc<AtomicUsize>,
     served: tokio::sync::oneshot::Sender<()>,
+    worker_done: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
     let (mut stream, _) = listener
         .accept()
@@ -110,9 +111,22 @@ async fn serve_fixture(
     .concat();
     let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, &response).await;
     let _ = served.send(());
-    while let Ok((stream, _)) = listener.accept().await {
+    drop(stream);
+    let mut worker_done = worker_done;
+    while let Ok((mut stream, _)) = listener.accept().await {
         extra_connections.fetch_add(1, Ordering::SeqCst);
-        drop(stream);
+        let mut request = [0_u8; 4096];
+        let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut request).await;
+        if String::from_utf8_lossy(&request).contains("GET /worker-done ") {
+            let _ = tokio::io::AsyncWriteExt::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await;
+            if let Some(done) = worker_done.take() {
+                let _ = done.send(());
+            }
+        }
     }
 }
 
@@ -221,6 +235,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
             .to_vec(),
         extra_allowed_connections.clone(),
         served_tx,
+        None,
     ));
 
     let browser =
@@ -313,16 +328,19 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
     let html = format!(
         "<!doctype html><link rel=\"icon\" href=\"data:,\"><script>\
          const worker = new Worker(URL.createObjectURL(new Blob([\
-         \"setTimeout(() => fetch('http://127.0.0.2:{denied_port}/worker').catch(() => {{}}), 1000)\"\
+         \"fetch('http://127.0.0.2:{denied_port}/worker').catch(() => {{}}).finally(() => fetch('http://fixture.test:{page_port}/worker-done').catch(() => {{}}))\"\
          ], {{ type: 'text/javascript' }})));</script>"
     )
     .into_bytes();
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
+    let (worker_done_tx, worker_done_rx) = tokio::sync::oneshot::channel();
+    let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
     let allowed_server = tokio::spawn(serve_fixture(
         allowed_listener,
         html,
-        Arc::new(AtomicUsize::new(0)),
+        extra_allowed_connections.clone(),
         served_tx,
+        Some(worker_done_tx),
     ));
 
     let allowed_address = format!("127.0.0.1:{page_port}");
@@ -358,11 +376,28 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
             browser.observations.lock().unwrap()
         );
     }
+    let connections_before_completion = extra_allowed_connections.load(Ordering::SeqCst);
+    tokio::select! {
+        done = tokio::time::timeout(Duration::from_secs(10), worker_done_rx) => {
+            done.expect("worker request completes within ten seconds")
+                .expect("worker completion fixture receives the done request");
+        }
+        accepted = denied_listener.accept() => {
+            let (stream, _) = accepted.expect("denied listener remains open");
+            drop(stream);
+            panic!("worker request connected directly to the denied private listener");
+        }
+    }
+    assert_eq!(
+        extra_allowed_connections.load(Ordering::SeqCst),
+        connections_before_completion + 1,
+        "only the worker completion request reached the allowed fixture after navigation"
+    );
     assert!(
         tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
             .await
             .is_err(),
-        "worker request connected directly to the denied private listener"
+        "worker request connected directly to the denied private listener after completion"
     );
 
     let closed: DesktopResponse = browser
