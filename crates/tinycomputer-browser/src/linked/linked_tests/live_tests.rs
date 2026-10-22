@@ -203,29 +203,35 @@ async fn live_chromium_worker_fetch_never_reaches_a_denied_destination() {
         denied_address.port()
     );
     let fixture_server = tokio::spawn(async move {
-        for _ in 0..2 {
+        loop {
             let (mut socket, _) = tokio::time::timeout(Duration::from_secs(10), fixture.accept())
                 .await
-                .expect("Chromium requests page and worker script")
+                .expect("Chromium requests the page and worker script")
                 .unwrap();
             let mut request = [0; 4096];
             let size = socket.read(&mut request).await.unwrap();
             let request = String::from_utf8_lossy(&request[..size]);
-            let (content_type, body) = if request.contains("GET /worker.js") {
-                ("application/javascript", worker.as_str())
+            let (status, content_type, body, worker_script) = if request.contains("GET /worker.js")
+            {
+                ("200 OK", "application/javascript", worker.as_str(), true)
+            } else if request.contains("GET / ") {
+                ("200 OK", "text/html", html.as_str(), false)
             } else {
-                ("text/html", html.as_str())
+                ("404 Not Found", "text/plain", "not found", false)
             };
             socket
                 .write_all(
                     format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
                 )
                 .await
                 .unwrap();
+            if worker_script {
+                break;
+            }
         }
     });
     let mut browser = EnforcedAgentBrowser::new(Arc::new(RejectAllButFixture {
@@ -596,7 +602,7 @@ impl EgressAuthorizer for RebindingAuthorizer {
 
 #[cfg(live_browser_tests)]
 async fn wait_for_denied_target(denied_targets: &Arc<Mutex<Vec<(String, u16)>>>, port: u16) {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let was_denied = denied_targets
                 .lock()

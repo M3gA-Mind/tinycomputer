@@ -13,7 +13,7 @@ case "${RUNNER_OS:-$(uname -s)}" in
 esac
 cargo test --locked --workspace
 cargo test --locked --workspace --all-features
-TINYCOMPUTER_LIVE_BROWSER_TESTS=1 cargo test --locked -p tinycomputer-browser --features agent-browser live_
+RUST_TEST_THREADS=1 TINYCOMPUTER_LIVE_BROWSER_TESTS=1 cargo test --locked -p tinycomputer-browser --features agent-browser live_
 cargo test --locked -p tinycomputer --features static-link
 cargo run --locked -p tinycomputer-examples --bin basic
 forbidden="$(cargo tree -p tinycomputer-bus -e normal,build --prefix none | grep -Ei 'tinybus|tokio|reqwest|ureq|hyper|rusqlite|git2|agent-desktop' || true)"
