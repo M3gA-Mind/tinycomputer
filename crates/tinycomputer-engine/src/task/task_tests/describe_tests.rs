@@ -257,7 +257,20 @@ async fn describe_schemas_name_every_request_field() {
 
     let plan = serde_json::to_value(tinycomputer_bus::agent::PlanTaskRequest::default()).unwrap();
     assert_eq!(documented(&schema("PlanTask")), fields(&plan));
+}
 
+#[tokio::test]
+async fn describe_schemas_name_continuation_request_fields() {
+    let (tasks, _) = controller(Vec::new());
+    let described = capabilities(Vec::new(), Some(&jev()), &tasks);
+    let schema = |name: &str| {
+        described
+            .members
+            .iter()
+            .find(|member| member.name == name)
+            .map(|member| member.input.clone())
+            .expect("the member is documented")
+    };
     let id = tinycomputer_bus::agent::TaskId::new("t-1");
     let others = [
         (
