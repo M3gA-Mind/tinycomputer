@@ -340,11 +340,18 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
         }
     })
     .await;
-    assert!(
-        worker_authorized.is_ok(),
-        "worker request reaches the host egress authorizer: {:?}",
-        browser.observations.lock().unwrap()
-    );
+    if worker_authorized.is_err() {
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
+                .await
+                .is_err(),
+            "worker request bypassed host authorization and connected directly"
+        );
+        panic!(
+            "worker request did not reach host authorization: {:?}",
+            browser.observations.lock().unwrap()
+        );
+    }
     assert!(
         tokio::time::timeout(Duration::from_millis(500), denied_listener.accept())
             .await
