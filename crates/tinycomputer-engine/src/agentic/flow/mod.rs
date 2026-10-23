@@ -97,6 +97,9 @@ const MAX_ACTIONS: u32 = 120;
 /// Upper bound on [`RunFlowRequest::max_model_calls`]. Jev is cheap, and
 /// every framing of a voted decision is one evaluation.
 const MAX_CALLS: u32 = 10_000;
+/// Upper bound on [`RunFlowRequest::max_do_turns`]: a step stuck past this
+/// many turns is better rescued than tried again.
+const MAX_DO_TURNS: u32 = 32;
 /// Choices, picks, and entries remembered for the brief's `so_far`.
 const MAX_SO_FAR: usize = 12;
 /// Longest goal the brief carries, in characters.
@@ -272,6 +275,8 @@ pub(super) struct FlowRun<'r, B> {
     pub(super) page: Option<String>,
     /// How many ways each decision is asked.
     votes: u32,
+    /// Turns a `do` step may spend.
+    pub(super) do_turns: u32,
     /// The secret values, to mask every request with.
     secrets: Facts,
     /// Opaque host handles, never substituted into flow text.

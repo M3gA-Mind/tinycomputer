@@ -6,7 +6,7 @@ use super::{CONTRACT_VERSION, binds, is_compatible};
 
 #[test]
 fn the_shipped_contract_version_is_pinned() {
-    assert_eq!(CONTRACT_VERSION, (2, 27));
+    assert_eq!(CONTRACT_VERSION, (2, 28));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn the_contract_binds_to_itself() {
 
 #[test]
 fn a_newer_minor_on_the_module_side_binds() {
-    assert!(is_compatible((2, 27)));
+    assert!(is_compatible((2, 28)));
     assert!(is_compatible((2, 97)));
     // 2.24 adds same-task flow-to-planner handoff to StartTask.
     // 2.22 adds optional host-held secret handles to StartTask and RunFlow.
@@ -44,6 +44,9 @@ fn a_newer_minor_on_the_module_side_binds() {
     // 2.26 adds TraceSinkHost, so a 2.25 module lacks that callback.
     // 2.27 relays opaque host context to ConsequenceHost reviews. A 2.26
     // module would drop that context, so a host requiring it cannot bind.
+    // 2.28 adds `max_do_turns` to TaskBudget and RunFlowRequest. A 2.27
+    // module ignores it and keeps every `do` step at 8 turns.
+    assert!(!is_compatible((2, 27)));
     assert!(!is_compatible((2, 26)));
     assert!(!is_compatible((2, 25)));
     assert!(!is_compatible((2, 24)));

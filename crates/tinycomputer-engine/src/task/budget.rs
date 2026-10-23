@@ -363,6 +363,7 @@ pub(super) fn run_request(
             max_actions,
             max_model_calls,
             votes: state.budget.votes.unwrap_or(DEFAULT_VOTES),
+            max_do_turns: state.budget.max_do_turns,
             strategy: state.budget.strategy.unwrap_or_default(),
             deliberation: state.budget.deliberation.unwrap_or_default(),
             brief: brief(&state),
