@@ -120,6 +120,33 @@ impl std::fmt::Debug for SecretHandle {
     }
 }
 
+/// Opaque, host-issued context carried from a task continuation to a
+/// `ConsequenceHost` review. The module must relay it unchanged and never
+/// treat it as authorization. Debug output deliberately hides the value.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct HostContext(String);
+
+impl HostContext {
+    /// Wraps a host-issued opaque context value.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Returns the opaque value for host-side lookup.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for HostContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("HostContext([opaque])")
+    }
+}
+
 /// What a finished task returns, beyond its raw records.
 ///
 /// The result is always a JSON object. `schema` is a JSON Schema it must
@@ -206,6 +233,9 @@ pub struct TaskBudget {
     /// How many ways each decision is asked before its answers are averaged;
     /// the module's default when unset.
     pub votes: Option<u32>,
+    /// Turns each `do` step may spend before it fails as not accomplished;
+    /// the module's default (8) when unset, at most 32.
+    pub max_do_turns: Option<u32>,
     /// How each flow run asks its decisions; the narrow strategy when unset.
     pub strategy: Option<crate::FlowStrategy>,
     /// How much each flow run deliberates before acting; the deep level
@@ -251,6 +281,10 @@ pub struct ContinueTaskRequest {
     /// The decision on a `needs_approval` pause, or `true` to go past a
     /// non-payment `checkpoint`.
     pub approve: Option<bool>,
+    /// Opaque host-issued context for reviewing this continuation. The module
+    /// carries it to `ConsequenceHost` without interpreting or authorizing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_context: Option<HostContext>,
     /// A free-text answer, for a pause that asked a question — or, for
     /// `needs_human`, `"done"` once the person has finished.
     pub answer: Option<String>,

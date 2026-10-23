@@ -40,6 +40,8 @@ pub(crate) use dispatch::DesktopService;
 /// silently ignoring the session it was told to join would allocate refs
 /// nothing else can spend.
 async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
+    let consequence_host = config::consequence_host_destination(&config)
+        .map_err(|error| tinybus::Error::failed(error.to_string()))?;
     let service = DesktopService::from_config_with_connection(&config, connection.clone())
         .map_err(|error| tinybus::Error::failed(error.to_string()))?;
     // The host's per-site memory; a host that does not serve it only costs
@@ -47,8 +49,10 @@ async fn setup(connection: Connection, config: Value) -> TinyBusResult<()> {
     let service = service.with_site_memory(Box::new(site_memory::BusPort::new(connection.clone())));
     // The host's consequence review; a host that does not serve it leaves a
     // task's own approval pause as the only gate.
-    let service = service
-        .with_consequence_review(Box::new(consequence_gate::BusPort::new(connection.clone())));
+    let service = service.with_consequence_review(Box::new(consequence_gate::BusPort::new(
+        connection.clone(),
+        consequence_host,
+    )));
     #[cfg(test)]
     let service = service.with_native_fixture();
     service.sweep_outputs();
@@ -107,7 +111,6 @@ tinybus_module::module_export_optional_static! {
 mod static_link_tests;
 
 #[cfg(all(test, feature = "static-link", live_module_browser_egress_tests))]
-#[path = "browser_egress_live_tests.rs"]
 mod browser_egress_live_tests;
 
 #[cfg(test)]

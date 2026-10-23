@@ -15,14 +15,29 @@ fn the_interface_is_its_own_not_the_desktop_or_site_memory_one() {
 #[test]
 fn a_review_request_keeps_its_wire_form() {
     let request: ReviewActionRequest = serde_json::from_value(serde_json::json!({
-        "task": "t1", "action": "pay now", "target": "Pay", "kind": "payment"
+        "task": "t1", "action": "pay now", "target": "Pay", "kind": "payment",
+        "host_context": "opaque-context"
     }))
     .unwrap();
     assert_eq!(request.kind, ConsequenceKind::Payment);
+    assert_eq!(
+        request
+            .host_context
+            .as_ref()
+            .map(crate::agent::HostContext::as_str),
+        Some("opaque-context")
+    );
     let json = serde_json::to_value(&request).unwrap();
     assert_eq!(json["kind"], "payment");
+    assert_eq!(json["host_context"], "opaque-context");
     let irreversible = serde_json::to_value(ConsequenceKind::Irreversible).unwrap();
     assert_eq!(irreversible, "irreversible");
+
+    let legacy: ReviewActionRequest = serde_json::from_value(serde_json::json!({
+        "task": "t2", "action": "send", "target": "Send", "kind": "irreversible"
+    }))
+    .unwrap();
+    assert_eq!(legacy.host_context, None);
 }
 
 #[test]

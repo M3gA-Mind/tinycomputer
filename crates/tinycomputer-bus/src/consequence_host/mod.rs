@@ -21,6 +21,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::HostContext;
+
 /// The interface the host serves consequence review on.
 pub const INTERFACE: &str = "ai.tinyhumans.tinycomputer.ConsequenceHost";
 
@@ -58,6 +60,10 @@ pub struct ReviewActionRequest {
     pub target: String,
     /// What the module classified the action as.
     pub kind: ConsequenceKind,
+    /// Opaque host-issued context from the `ContinueTask` request. The module
+    /// relays this value unchanged and grants it no authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_context: Option<HostContext>,
 }
 
 /// The reply to `Review`.

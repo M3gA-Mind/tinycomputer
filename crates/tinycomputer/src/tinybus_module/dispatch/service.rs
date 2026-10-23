@@ -73,6 +73,12 @@ impl DesktopService {
                 expected: "a module set up with its host callback connection",
             });
         }
+        if super::super::config::consequence_host_destination(config)?.is_some() {
+            return Err(crate::Error::ConfigFieldType {
+                field: "consequence_host",
+                expected: "a module set up with its confidential host callback connection",
+            });
+        }
         Self::with_browser_and_trace_sink(config, browser, None)
     }
 

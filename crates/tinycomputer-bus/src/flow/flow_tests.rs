@@ -204,6 +204,24 @@ fn a_brief_pins_its_wire_form_and_defaults_empty() {
     }))
     .unwrap();
     assert_eq!((request.votes, request.brief.goal.as_str()), (3, "g"));
+    assert_eq!(
+        request.max_do_turns, None,
+        "unset keeps the module's default"
+    );
+    assert!(
+        serde_json::to_value(&request)
+            .unwrap()
+            .get("max_do_turns")
+            .is_none(),
+        "an unset turn limit is left off the wire"
+    );
+    let request: RunFlowRequest = serde_json::from_value(json!({
+        "flow": {"app": "Mail", "steps": ["x"]},
+        "max_do_turns": 12
+    }))
+    .unwrap();
+    assert_eq!(request.max_do_turns, Some(12));
+    assert_eq!(serde_json::to_value(&request).unwrap()["max_do_turns"], 12);
     for (flow_loop, wire) in [
         (FlowLoop::Vote, "vote"),
         (FlowLoop::PageKind, "page_kind"),

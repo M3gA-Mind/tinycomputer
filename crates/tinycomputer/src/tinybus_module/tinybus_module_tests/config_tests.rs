@@ -309,6 +309,45 @@ fn trace_sink_requires_the_host_prepared_unique_destination() {
 }
 
 #[test]
+fn consequence_host_requires_the_host_prepared_unique_destination() {
+    use crate::tinybus_module::config::consequence_host_destination;
+
+    assert!(consequence_host_destination(&json!({})).unwrap().is_none());
+    assert!(
+        consequence_host_destination(&json!({"consequence_host": false}))
+            .unwrap()
+            .is_none()
+    );
+    for invalid in [
+        json!({"consequence_host": true}),
+        json!({"consequence_host": {}}),
+        json!({"consequence_host": {"destination": "ai.tinyhumans.host"}}),
+        json!({"consequence_host": {"destination": ":1.42", "scope": "model"}}),
+    ] {
+        assert!(consequence_host_destination(&invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        consequence_host_destination(&json!({
+            "consequence_host": {"destination": ":1.42"}
+        }))
+        .unwrap()
+        .unwrap()
+        .as_str(),
+        ":1.42"
+    );
+}
+
+#[test]
+fn connectionless_service_construction_rejects_consequence_host_configuration() {
+    let error = DesktopService::from_config(&json!({
+        "consequence_host": {"destination": ":1.42"}
+    }))
+    .expect_err("a host callback needs the module's bus connection");
+
+    assert!(error.to_string().contains("consequence_host"));
+}
+
+#[test]
 fn connectionless_service_construction_rejects_trace_sink_configuration() {
     let error = DesktopService::from_config(&json!({
         "trace_sink": {"destination": ":1.42"}

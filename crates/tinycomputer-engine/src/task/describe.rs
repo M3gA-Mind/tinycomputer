@@ -5,8 +5,8 @@
 //! The schemas here are written by hand, so each field of a request type
 //! must be added here when it is added to the contract, save the host's
 //! own settings no model is offered (a task's browser binary and profile);
-//! `task_tests/describe_tests.rs` checks the `StartTask` and `PlanTask`
-//! schemas name every other field their types serialize.
+//! `task_tests/describe_tests.rs` checks the request schemas name their
+//! model-settable fields; host-only context is deliberately omitted.
 
 use serde_json::{Value, json};
 use tinycomputer_bus::agent::names::{CONFIDENTIAL, methods};
@@ -115,6 +115,12 @@ fn start_task_input() -> Value {
                 "max_actions": {"type": "integer"},
                 "max_model_calls": {"type": "integer"},
                 "votes": {"type": "integer"},
+                "max_do_turns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 32,
+                    "description": "turns each do step may spend before it fails as not accomplished; 8 when unset"
+                },
                 "strategy": {"enum": ["narrow", "wide"], "default": "narrow"},
                 "deliberation": {"enum": ["off", "standard", "deep"], "default": "deep"},
                 "max_elapsed_ms": {"type": "integer"},

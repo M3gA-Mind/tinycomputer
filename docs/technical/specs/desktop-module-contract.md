@@ -89,6 +89,20 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
+Do-step turns (2.28): `TaskBudget` and `RunFlowRequest` take an optional
+`max_do_turns`, the turns each `do` step may spend before it fails as not
+accomplished. Unset keeps the module's default of 8; the module caps it at
+32. A 2.27 module ignores the field.
+
+Host context relay (2.27): `ContinueTaskRequest` takes an optional opaque
+`host_context`. When the module requests consequence review, it copies that
+value unchanged into `ReviewActionRequest.host_context`; the module does not
+interpret it or grant it authority. The bus type redacts the value from its
+`Debug` output. Hosts that use the relay must validate the context themselves
+and bind it to the task and action under review. Omitting the field preserves
+the earlier continuation and consequence-review behavior; hosts that depend on
+the relay require a compatible 2.27 module.
+
 Browser egress (2.25): a host may serve the optional
 `ai.tinyhumans.tinycomputer.BrowserEgressHost` interface
 (`tinycomputer_bus::browser_egress`) with `Authorize`, `Consume`, and

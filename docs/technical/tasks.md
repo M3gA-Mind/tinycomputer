@@ -163,6 +163,9 @@ is acted on: `deep` (the default), `standard`, or `off`
 ([`specs/jev-deliberation.md`](specs/jev-deliberation.md)). Deliberation
 spends calls only where the evidence is thin, and degrades rung by rung when
 the budget runs short rather than failing the run.
+`budget.max_do_turns` sets how many turns each `do` step may spend before it
+fails as not accomplished: 8 when unset, at most 32. A long step on a busy
+page, such as a shop's cart or checkout, may need more than 8 moves.
 `budget.max_rescues` caps how many failed steps are rescued (below).
 The flow runtime has no clock, so `max_elapsed_ms` is enforced by
 the controller, which times out a run that would go past what is left. Time
