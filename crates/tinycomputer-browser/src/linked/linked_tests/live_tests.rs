@@ -97,7 +97,7 @@ async fn live_chromium_dials_only_the_exact_host_authorized_socket() {
         .execute(json!({
             "id":"navigate",
             "action":"navigate",
-            "url":format!("http://127.0.0.1:{}/", denied_address.port())
+            "url":format!("http://{denied_address}/")
         }))
         .await;
     browser

@@ -276,7 +276,8 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = allowed_listener.local_addr()?.port();
     let denied_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let denied_port = denied_listener.local_addr()?.port();
+    let denied_address = denied_listener.local_addr()?;
+    let denied_port = denied_address.port();
     assert_ne!(port, denied_port);
     let allowed_address = allowed_listener.local_addr()?.to_string();
     let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
@@ -290,9 +291,13 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         None,
     ));
 
-    let browser =
-        start_browser_with_fixture_host(allowed_address.clone(), port, "/allowed", served_rx)
-            .await?;
+    let browser = start_browser_with_fixture_hosts(
+        vec![allowed_address.clone(), denied_address.to_string()],
+        port,
+        "/allowed",
+        served_rx,
+    )
+    .await?;
 
     let authorizations_before_policy_change = browser
         .observations
