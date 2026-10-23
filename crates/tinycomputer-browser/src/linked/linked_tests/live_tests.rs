@@ -242,7 +242,7 @@ async fn live_chromium_worker_fetch_never_reaches_a_denied_destination() {
     let denied_targets = Arc::new(Mutex::new(Vec::new()));
     let fixture = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = fixture.local_addr().unwrap();
-    let html = format!("<script>new Worker('/worker.js')</script><p>worker fixture</p>");
+    let html = "<script>new Worker('/worker.js')</script><p>worker fixture</p>".to_string();
     let worker = format!(
         "fetch('http://127.0.0.1:{}/private').catch(() => {{}});",
         denied_address.port()
