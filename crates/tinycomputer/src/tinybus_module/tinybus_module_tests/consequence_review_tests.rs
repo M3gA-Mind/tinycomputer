@@ -29,7 +29,7 @@ fn run(stop: FlowStopReason, steps: Vec<StepReport>, pending: Option<&str>) -> F
     FlowRunResult {
         stop,
         steps,
-        vars: Default::default(),
+        vars: std::collections::BTreeMap::new(),
         pending: pending.map(|name| JevTarget {
             ref_id: "e9".to_owned(),
             role: "button".to_owned(),
