@@ -1,6 +1,8 @@
 //! Opt-in real-Chromium coverage through the loaded `TinyComputer` module.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+mod authority_denial_tests;
+mod transport_classes_tests;
 mod worker;
 
 use std::sync::{
@@ -23,7 +25,8 @@ use tinycomputer_bus::{
 #[derive(Clone)]
 struct EgressHost {
     allowed: Arc<AtomicBool>,
-    allowed_address: String,
+    allowed_addresses: Vec<String>,
+    grant_generation: Option<u64>,
     observations: Arc<Mutex<Vec<String>>>,
 }
 
@@ -31,21 +34,22 @@ struct EgressHost {
 impl EgressHost {
     async fn authorize(&self, request: BrowserEgressTarget) -> tinybus::Result<BrowserEgressGrant> {
         tokio::task::yield_now().await;
+        let allowed_address = self.allowed_addresses.iter().find(|address| {
+            address
+                .rsplit(':')
+                .next()
+                .and_then(|port| port.parse::<u16>().ok())
+                == Some(request.port)
+        });
         let allow = self.allowed.load(Ordering::SeqCst)
             && request.hostname == "fixture.test"
-            && request.port
-                == self
-                    .allowed_address
-                    .rsplit(':')
-                    .next()
-                    .and_then(|port| port.parse::<u16>().ok())
-                    .unwrap_or_default();
+            && allowed_address.is_some();
         self.observations.lock().unwrap().push(format!(
             "authorize:{}:{}:{}:{}",
             request.policy_id, request.expected_generation, request.hostname, request.port
         ));
         Ok(BrowserEgressGrant {
-            generation: request.expected_generation,
+            generation: self.grant_generation.unwrap_or(request.expected_generation),
             authorization: if allow {
                 "fixture-lease"
             } else {
@@ -53,7 +57,7 @@ impl EgressHost {
             }
             .into(),
             addresses: if allow {
-                vec![self.allowed_address.clone()]
+                allowed_address.cloned().into_iter().collect()
             } else {
                 Vec::new()
             },
@@ -70,7 +74,8 @@ impl EgressHost {
             .unwrap()
             .push(format!("consume:{}", request.address));
         Ok(BrowserEgressDecision {
-            allowed: self.allowed.load(Ordering::SeqCst) && request.address == self.allowed_address,
+            allowed: self.allowed.load(Ordering::SeqCst)
+                && self.allowed_addresses.contains(&request.address),
         })
     }
 
@@ -153,6 +158,15 @@ async fn start_browser_with_fixture_host(
     page_path: &str,
     served: tokio::sync::oneshot::Receiver<()>,
 ) -> tinybus::Result<LiveBrowser> {
+    start_browser_with_fixture_hosts(vec![allowed_address], page_port, page_path, served).await
+}
+
+async fn start_browser_with_fixture_hosts(
+    allowed_addresses: Vec<String>,
+    page_port: u16,
+    page_path: &str,
+    served: tokio::sync::oneshot::Receiver<()>,
+) -> tinybus::Result<LiveBrowser> {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     let broker_task = broker.spawn(bus.clone());
@@ -164,7 +178,8 @@ async fn start_browser_with_fixture_host(
             browser_egress::OBJECT_PATH.try_into()?,
             EgressHost {
                 allowed: allowed.clone(),
-                allowed_address,
+                allowed_addresses,
+                grant_generation: None,
                 observations: observations.clone(),
             },
         )
