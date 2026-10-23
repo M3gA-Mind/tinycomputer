@@ -67,7 +67,7 @@ async fn live_chromium_module_never_dials_a_rebound_private_socket() -> tinybus:
         "the request reached the previously allowed socket after rebinding"
     );
 
-    let calls = browser.observations.lock().unwrap();
+    let calls = browser.observations.lock().unwrap().clone();
     assert!(
         calls
             .iter()
@@ -88,8 +88,6 @@ async fn live_chromium_module_never_dials_a_rebound_private_socket() -> tinybus:
             .any(|call| call == &format!("consume:{rebound_address}")),
         "the rebound socket was consumed: {calls:?}"
     );
-    drop(calls);
-
     let closed: DesktopResponse = browser
         .proxy
         .call(
