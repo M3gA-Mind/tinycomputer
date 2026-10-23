@@ -79,7 +79,7 @@ async fn live_chromium_dials_only_the_exact_host_authorized_socket() {
         let _ = socket.read(&mut request).await.unwrap();
         socket
             .write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 26\r\nConnection: close\r\n\r\n<h1>pinned socket fixture</h1>",
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 30\r\nConnection: close\r\n\r\n<h1>pinned socket fixture</h1>",
             )
             .await
             .unwrap();
