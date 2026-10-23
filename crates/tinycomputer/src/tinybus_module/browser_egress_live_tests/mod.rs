@@ -1,6 +1,7 @@
 //! Opt-in real-Chromium coverage through the loaded `TinyComputer` module.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+mod authority_denial_tests;
 mod transport_classes_tests;
 mod worker;
 
@@ -25,6 +26,7 @@ use tinycomputer_bus::{
 struct EgressHost {
     allowed: Arc<AtomicBool>,
     allowed_addresses: Vec<String>,
+    grant_generation: Option<u64>,
     observations: Arc<Mutex<Vec<String>>>,
 }
 
@@ -47,7 +49,7 @@ impl EgressHost {
             request.policy_id, request.expected_generation, request.hostname, request.port
         ));
         Ok(BrowserEgressGrant {
-            generation: request.expected_generation,
+            generation: self.grant_generation.unwrap_or(request.expected_generation),
             authorization: if allow {
                 "fixture-lease"
             } else {
@@ -177,6 +179,7 @@ async fn start_browser_with_fixture_hosts(
             EgressHost {
                 allowed: allowed.clone(),
                 allowed_addresses,
+                grant_generation: None,
                 observations: observations.clone(),
             },
         )
