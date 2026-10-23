@@ -40,6 +40,31 @@ async fn serve_once(
         .map(|url| url.path().to_owned())
         .unwrap_or_else(|_| target.to_owned());
     assert_eq!(path, expected_path);
+    if expected_path == "/socket" {
+        let header = |name: &str| {
+            request.lines().find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                key.eq_ignore_ascii_case(name).then(|| value.trim())
+            })
+        };
+        assert_eq!(
+            header("Upgrade").map(str::to_ascii_lowercase).as_deref(),
+            Some("websocket"),
+            "socket fixture only accepts a WebSocket upgrade request: {request}"
+        );
+        assert!(
+            header("Connection").is_some_and(|value| {
+                value
+                    .split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+            }),
+            "socket fixture only accepts Connection: Upgrade: {request}"
+        );
+        assert!(
+            header("Sec-WebSocket-Key").is_some_and(|value| !value.is_empty()),
+            "socket fixture only accepts a request with Sec-WebSocket-Key: {request}"
+        );
+    }
     tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
         .await
         .expect("fixture response is written");
