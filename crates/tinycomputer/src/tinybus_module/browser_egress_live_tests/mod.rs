@@ -1,6 +1,7 @@
 //! Opt-in real-Chromium coverage through the loaded `TinyComputer` module.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+mod transport_classes;
 mod worker;
 
 use std::sync::{
