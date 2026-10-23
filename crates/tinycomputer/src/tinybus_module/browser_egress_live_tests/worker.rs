@@ -5,12 +5,13 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let page_port = allowed_listener.local_addr()?.port();
-    let denied_listener = tokio::net::TcpListener::bind("127.0.0.2:0").await?;
+    let denied_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let denied_port = denied_listener.local_addr()?.port();
+    assert_ne!(page_port, denied_port);
     let html = format!(
         "<!doctype html><link rel=\"icon\" href=\"data:,\"><script>\
          const worker = new Worker(URL.createObjectURL(new Blob([\
-         \"fetch('http://127.0.0.2:{denied_port}/worker').catch(() => {{}}).finally(() => fetch('http://fixture.test:{page_port}/worker-done').catch(() => {{}}))\"\
+         \"fetch('http://127.0.0.1:{denied_port}/worker').catch(() => {{}}).finally(() => fetch('http://fixture.test:{page_port}/worker-done').catch(() => {{}}))\"\
          ], {{ type: 'text/javascript' }})));</script>"
     )
     .into_bytes();
@@ -30,7 +31,7 @@ async fn live_chromium_module_routes_worker_egress_through_host_authorization()
         start_browser_with_fixture_host(allowed_address, page_port, "/worker-fixture", served_rx)
             .await?;
 
-    let worker_authorization = format!("authorize:fixture-policy:41:127.0.0.2:{denied_port}");
+    let worker_authorization = format!("authorize:fixture-policy:41:127.0.0.1:{denied_port}");
     let worker_authorized = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if browser

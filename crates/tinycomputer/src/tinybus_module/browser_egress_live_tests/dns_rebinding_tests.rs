@@ -6,9 +6,10 @@ use super::*;
 async fn live_chromium_module_never_dials_a_rebound_private_socket() -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = allowed_listener.local_addr()?.port();
-    let rebound_listener = tokio::net::TcpListener::bind(("127.0.0.2", port)).await?;
+    let rebound_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let allowed_address = allowed_listener.local_addr()?.to_string();
     let rebound_address = rebound_listener.local_addr()?.to_string();
+    assert_ne!(port, rebound_listener.local_addr()?.port());
     let extra_connections = Arc::new(AtomicUsize::new(0));
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(serve_fixture(

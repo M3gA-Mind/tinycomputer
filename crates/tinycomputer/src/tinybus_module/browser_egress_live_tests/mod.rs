@@ -275,7 +275,9 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = allowed_listener.local_addr()?.port();
-    let denied_listener = tokio::net::TcpListener::bind(("127.0.0.2", port)).await?;
+    let denied_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let denied_port = denied_listener.local_addr()?.port();
+    assert_ne!(port, denied_port);
     let allowed_address = allowed_listener.local_addr()?.to_string();
     let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
@@ -303,7 +305,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     // Simulate a policy refresh: the host changes from granting the fixture
     // socket to denying requests for the same hostname.
     browser.allowed.store(false, Ordering::SeqCst);
-    let denied_url = format!("http://fixture.test:{port}/after-policy-change");
+    let denied_url = format!("http://fixture.test:{denied_port}/after-policy-change");
     let denied: DesktopResponse = browser
         .proxy
         .call(

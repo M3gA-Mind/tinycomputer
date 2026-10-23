@@ -69,10 +69,12 @@ async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy(
 #[tokio::test]
 #[cfg(live_browser_tests)]
 async fn live_chromium_dials_only_the_exact_host_authorized_socket() {
-    let allowed = TcpListener::bind("127.0.0.2:0").await.unwrap();
+    let allowed = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let allowed_address = allowed.local_addr().unwrap();
-    let denied = std::net::TcpListener::bind(("127.0.0.1", allowed_address.port())).unwrap();
+    let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
+    let denied_address = denied.local_addr().unwrap();
+    assert_ne!(allowed_address.port(), denied_address.port());
 
     let allowed_server = tokio::spawn(async move {
         let (mut socket, _) = allowed.accept().await.unwrap();
@@ -95,7 +97,7 @@ async fn live_chromium_dials_only_the_exact_host_authorized_socket() {
         .execute(json!({
             "id":"navigate",
             "action":"navigate",
-            "url":format!("http://127.0.0.1:{}/", allowed_address.port())
+            "url":format!("http://127.0.0.1:{}/", denied_address.port())
         }))
         .await;
     browser
