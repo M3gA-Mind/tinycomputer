@@ -2,6 +2,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 mod authority_denial_tests;
+mod dns_rebinding_tests;
 mod transport_classes_tests;
 mod worker;
 
@@ -26,6 +27,7 @@ use tinycomputer_bus::{
 struct EgressHost {
     allowed: Arc<AtomicBool>,
     allowed_addresses: Vec<String>,
+    resolved_address: Option<Arc<Mutex<String>>>,
     grant_generation: Option<u64>,
     observations: Arc<Mutex<Vec<String>>>,
 }
@@ -34,12 +36,19 @@ struct EgressHost {
 impl EgressHost {
     async fn authorize(&self, request: BrowserEgressTarget) -> tinybus::Result<BrowserEgressGrant> {
         tokio::task::yield_now().await;
+        let resolved_address = self
+            .resolved_address
+            .as_ref()
+            .map(|resolved| resolved.lock().unwrap().clone());
         let allowed_address = self.allowed_addresses.iter().find(|address| {
-            address
-                .rsplit(':')
-                .next()
-                .and_then(|port| port.parse::<u16>().ok())
-                == Some(request.port)
+            resolved_address
+                .as_ref()
+                .is_none_or(|resolved| *address == resolved)
+                && address
+                    .rsplit(':')
+                    .next()
+                    .and_then(|port| port.parse::<u16>().ok())
+                    == Some(request.port)
         });
         let allow = self.allowed.load(Ordering::SeqCst)
             && request.hostname == "fixture.test"
@@ -48,6 +57,12 @@ impl EgressHost {
             "authorize:{}:{}:{}:{}",
             request.policy_id, request.expected_generation, request.hostname, request.port
         ));
+        if let Some(resolved_address) = resolved_address {
+            self.observations.lock().unwrap().push(format!(
+                "resolve:{}:{}:{}",
+                request.hostname, request.port, resolved_address
+            ));
+        }
         Ok(BrowserEgressGrant {
             generation: self.grant_generation.unwrap_or(request.expected_generation),
             authorization: if allow {
@@ -167,6 +182,23 @@ async fn start_browser_with_fixture_hosts(
     page_path: &str,
     served: tokio::sync::oneshot::Receiver<()>,
 ) -> tinybus::Result<LiveBrowser> {
+    start_browser_with_fixture_hosts_and_resolution(
+        allowed_addresses,
+        page_port,
+        page_path,
+        served,
+        None,
+    )
+    .await
+}
+
+async fn start_browser_with_fixture_hosts_and_resolution(
+    allowed_addresses: Vec<String>,
+    page_port: u16,
+    page_path: &str,
+    served: tokio::sync::oneshot::Receiver<()>,
+    resolved_address: Option<Arc<Mutex<String>>>,
+) -> tinybus::Result<LiveBrowser> {
     let bus = MemoryBus::new();
     let broker = Broker::new();
     let broker_task = broker.spawn(bus.clone());
@@ -179,6 +211,7 @@ async fn start_browser_with_fixture_hosts(
             EgressHost {
                 allowed: allowed.clone(),
                 allowed_addresses,
+                resolved_address,
                 grant_generation: None,
                 observations: observations.clone(),
             },
@@ -242,7 +275,10 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
 -> tinybus::Result<()> {
     let allowed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = allowed_listener.local_addr()?.port();
-    let denied_listener = tokio::net::TcpListener::bind(("127.0.0.2", port)).await?;
+    let denied_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let denied_address = denied_listener.local_addr()?;
+    let denied_port = denied_address.port();
+    assert_ne!(port, denied_port);
     let allowed_address = allowed_listener.local_addr()?.to_string();
     let extra_allowed_connections = Arc::new(AtomicUsize::new(0));
     let (served_tx, served_rx) = tokio::sync::oneshot::channel();
@@ -255,9 +291,13 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
         None,
     ));
 
-    let browser =
-        start_browser_with_fixture_host(allowed_address.clone(), port, "/allowed", served_rx)
-            .await?;
+    let browser = start_browser_with_fixture_hosts(
+        vec![allowed_address.clone(), denied_address.to_string()],
+        port,
+        "/allowed",
+        served_rx,
+    )
+    .await?;
 
     let authorizations_before_policy_change = browser
         .observations
@@ -270,7 +310,7 @@ async fn live_chromium_module_dials_only_the_host_returned_socket_and_rejects_ch
     // Simulate a policy refresh: the host changes from granting the fixture
     // socket to denying requests for the same hostname.
     browser.allowed.store(false, Ordering::SeqCst);
-    let denied_url = format!("http://fixture.test:{port}/after-policy-change");
+    let denied_url = format!("http://fixture.test:{denied_port}/after-policy-change");
     let denied: DesktopResponse = browser
         .proxy
         .call(

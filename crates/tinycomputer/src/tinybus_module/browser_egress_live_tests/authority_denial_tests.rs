@@ -115,6 +115,7 @@ async fn live_chromium_denies_stale_egress_generation_before_dialing() -> tinybu
         Some(EgressHost {
             allowed: Arc::new(AtomicBool::new(true)),
             allowed_addresses: vec![allowed_address],
+            resolved_address: None,
             grant_generation: Some(40),
             observations: observations.clone(),
         }),
