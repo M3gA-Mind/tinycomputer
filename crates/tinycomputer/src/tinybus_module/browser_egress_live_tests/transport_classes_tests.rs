@@ -1,3 +1,5 @@
+//! Live Chromium checks that browser transport classes use host authorization.
+
 use super::*;
 
 async fn serve_once(
