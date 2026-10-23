@@ -24,9 +24,10 @@ async fn serve_once(
         else {
             panic!("browser request timed out");
         };
-        if read == 0 {
-            panic!("browser closed before sending a complete request");
-        }
+        assert!(
+            read != 0,
+            "browser closed before sending a complete request"
+        );
         request.extend_from_slice(&chunk[..read]);
         if request.windows(4).any(|window| window == b"\r\n\r\n") {
             break;
@@ -38,9 +39,8 @@ async fn serve_once(
         .next()
         .and_then(|line| line.split_ascii_whitespace().nth(1))
         .expect("browser request has a target");
-    let path = url::Url::parse(target)
-        .map(|url| url.path().to_owned())
-        .unwrap_or_else(|_| target.to_owned());
+    let path =
+        url::Url::parse(target).map_or_else(|_| target.to_owned(), |url| url.path().to_owned());
     assert_eq!(path, expected_path);
     if expected_path == "/socket" {
         let header = |name: &str| {
@@ -84,6 +84,7 @@ fn fixture_response(status: &str, headers: &str, body: &str) -> String {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn live_chromium_redirect_subresource_and_websocket_requests_use_host_authorization()
 -> tinybus::Result<()> {
     let redirect_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -162,27 +163,28 @@ async fn live_chromium_redirect_subresource_and_websocket_requests_use_host_auth
     paths.sort_unstable();
     assert_eq!(paths, ["/page", "/pixel", "/redirect", "/socket"]);
 
-    let observations = browser.observations.lock().unwrap();
-    for port in [redirect_port, page_port, pixel_port, socket_port] {
-        let authorization = format!("authorize:fixture-policy:41:fixture.test:{port}");
-        assert!(
-            observations.iter().any(|call| call == &authorization),
-            "transport destination on port {port} did not reach host authorization: {observations:?}"
-        );
+    {
+        let observations = browser.observations.lock().unwrap();
+        for port in [redirect_port, page_port, pixel_port, socket_port] {
+            let authorization = format!("authorize:fixture-policy:41:fixture.test:{port}");
+            assert!(
+                observations.iter().any(|call| call == &authorization),
+                "transport destination on port {port} did not reach host authorization: {observations:?}"
+            );
+        }
+        for address in [
+            &redirect_address,
+            &page_address,
+            &pixel_address,
+            &socket_address,
+        ] {
+            let consumption = format!("consume:{address}");
+            assert!(
+                observations.iter().any(|call| call == &consumption),
+                "transport destination {address} did not consume its one-use grant: {observations:?}"
+            );
+        }
     }
-    for address in [
-        &redirect_address,
-        &page_address,
-        &pixel_address,
-        &socket_address,
-    ] {
-        let consumption = format!("consume:{address}");
-        assert!(
-            observations.iter().any(|call| call == &consumption),
-            "transport destination {address} did not consume its one-use grant: {observations:?}"
-        );
-    }
-    drop(observations);
 
     let closed: DesktopResponse = browser
         .proxy
