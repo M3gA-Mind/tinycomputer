@@ -367,7 +367,7 @@ async fn live_chromium_dns_rebinding_never_reaches_the_rebound_private_socket() 
         .execute(json!({"id":"close","action":"close"}))
         .await;
     assert_eq!(navigation["success"], true, "{navigation}");
-    let observed_addresses = observed_addresses.lock().unwrap();
+    let observed_addresses = observed_addresses.lock().unwrap().clone();
     assert_eq!(
         observed_addresses.first(),
         Some(&allowed_address),
