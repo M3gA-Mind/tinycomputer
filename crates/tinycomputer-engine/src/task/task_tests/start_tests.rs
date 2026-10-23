@@ -66,6 +66,7 @@ async fn a_finished_flow_is_done_with_its_reads_and_no_fact_values() {
         (request.max_actions, request.max_model_calls, request.votes),
         (120, 6000, 7)
     );
+    assert_eq!(request.max_do_turns, None, "the module's own default");
     assert!(request.facts.is_empty(), "an email is shared, not secret");
     assert_eq!(request.brief.details["email"], "asha@example.com");
     assert!(
@@ -629,4 +630,30 @@ async fn a_run_gets_the_callers_values_and_the_flow_keeps_its_own_definitions() 
         "a definition passed as a caller value would shadow its expansion"
     );
     assert_eq!(request.flow.vars["first_name"], "${first name}");
+}
+
+#[tokio::test]
+async fn a_budget_turn_limit_reaches_every_run() {
+    let (tasks, script) = controller(vec![finished_run(
+        FlowStopReason::Completed,
+        vec![step("1", "do", "add it to the cart", StepOutcome::Done, "")],
+        &[],
+        None,
+    )]);
+    let view = tasks
+        .start(&StartTaskRequest {
+            flow: Some(
+                serde_json::from_value(json!({"app": "browser", "steps": ["add it to the cart"]}))
+                    .unwrap(),
+            ),
+            budget: tinycomputer_bus::agent::TaskBudget {
+                max_do_turns: Some(16),
+                ..tinycomputer_bus::agent::TaskBudget::default()
+            },
+            ..StartTaskRequest::default()
+        })
+        .data
+        .unwrap();
+    settle(&tasks, &view.id).await;
+    assert_eq!(script.requests.lock().unwrap()[0].max_do_turns, Some(16));
 }

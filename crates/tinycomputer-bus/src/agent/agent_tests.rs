@@ -318,6 +318,23 @@ fn host_context_debug_output_hides_the_opaque_value() {
 }
 
 #[test]
+fn a_do_turn_limit_pins_its_wire_form() {
+    let request: StartTaskRequest = serde_json::from_value(json!({
+        "task": "buy a pack of dried fruit",
+        "budget": {"max_do_turns": 16}
+    }))
+    .unwrap();
+    assert_eq!(request.budget.max_do_turns, Some(16));
+    assert_eq!(
+        serde_json::to_value(request.budget).unwrap()["max_do_turns"],
+        16
+    );
+    let unset: StartTaskRequest =
+        serde_json::from_value(json!({"task": "buy a pack of dried fruit"})).unwrap();
+    assert_eq!(unset.budget.max_do_turns, None);
+}
+
+#[test]
 fn rescues_pin_their_wire_form() {
     let request: StartTaskRequest = serde_json::from_value(json!({
         "task": "book a flight",
