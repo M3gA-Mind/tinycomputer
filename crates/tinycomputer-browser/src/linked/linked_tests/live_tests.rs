@@ -67,6 +67,51 @@ async fn live_chromium_loopback_navigation_uses_the_authenticated_session_proxy(
 
 #[tokio::test]
 #[cfg(live_browser_tests)]
+async fn live_chromium_dials_only_the_exact_host_authorized_socket() {
+    let allowed = TcpListener::bind("127.0.0.2:0").await.unwrap();
+    let allowed_address = allowed.local_addr().unwrap();
+    let denied = std::net::TcpListener::bind(("127.0.0.1", allowed_address.port())).unwrap();
+    denied.set_nonblocking(true).unwrap();
+
+    let allowed_server = tokio::spawn(async move {
+        let (mut socket, _) = allowed.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let _ = socket.read(&mut request).await.unwrap();
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 26\r\nConnection: close\r\n\r\n<h1>pinned socket fixture</h1>",
+            )
+            .await
+            .unwrap();
+    });
+    let mut browser = EnforcedAgentBrowser::new(Arc::new(AuthorizeExactSocket(allowed_address)))
+        .open("live-egress-socket-pinning");
+    let launch = browser
+        .execute(json!({"id":"launch","action":"launch","headless":true,"args":[]}))
+        .await;
+    assert_eq!(launch["success"], true, "{launch}");
+    let navigation = browser
+        .execute(json!({
+            "id":"navigate",
+            "action":"navigate",
+            "url":format!("http://127.0.0.1:{}/", allowed_address.port())
+        }))
+        .await;
+    browser
+        .execute(json!({"id":"close","action":"close"}))
+        .await;
+
+    assert_eq!(navigation["success"], true, "{navigation}");
+    allowed_server.await.unwrap();
+    assert_eq!(
+        denied.accept().unwrap_err().kind(),
+        io::ErrorKind::WouldBlock,
+        "Chromium must reach only the exact socket returned by the host grant"
+    );
+}
+
+#[tokio::test]
+#[cfg(live_browser_tests)]
 async fn live_chromium_subresource_never_reaches_a_denied_destination() {
     let denied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     denied.set_nonblocking(true).unwrap();
@@ -241,6 +286,48 @@ struct RejectAllButFixture {
     address: SocketAddr,
     authorizations: Arc<AtomicUsize>,
     denied_targets: Arc<Mutex<Vec<(String, u16)>>>,
+}
+
+#[cfg(live_browser_tests)]
+#[derive(Debug)]
+struct AuthorizeExactSocket(SocketAddr);
+
+#[cfg(live_browser_tests)]
+impl EgressAuthorizer for AuthorizeExactSocket {
+    fn authorize(
+        &self,
+        _: BrowserDialTarget,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<DialGrant>> + Send>> {
+        let address = self.0;
+        Box::pin(async move {
+            Ok(DialGrant {
+                lease: "live-pinned-socket-lease".into(),
+                addresses: vec![address],
+            })
+        })
+    }
+
+    fn consume(
+        &self,
+        _: BrowserDialTarget,
+        grant: DialGrant,
+        address: SocketAddr,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<()>> + Send>> {
+        Box::pin(async move {
+            if grant.addresses.contains(&address) {
+                Ok(())
+            } else {
+                Err(io::Error::new(io::ErrorKind::PermissionDenied, "denied"))
+            }
+        })
+    }
+
+    fn validate(
+        &self,
+        _: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = io::Result<bool>> + Send>> {
+        Box::pin(async { Ok(true) })
+    }
 }
 
 #[cfg(live_browser_tests)]
