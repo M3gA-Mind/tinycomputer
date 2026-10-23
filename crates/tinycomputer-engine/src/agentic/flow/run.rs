@@ -16,7 +16,7 @@ use tinycomputer_bus::{
 use tinycomputer_core::Facts;
 
 use super::{
-    Ended, FlowRun, Halt, MAX_ACTIONS, MAX_CALLS, StepLog,
+    Ended, FlowRun, Halt, MAX_ACTIONS, MAX_CALLS, MAX_DO_TURNS, StepLog,
     backend::AgentBackend,
     front::Front,
     ledger, steps,
@@ -106,6 +106,9 @@ impl<'r, B: AgentBackend + Sync> FlowRun<'r, B> {
             so_far: Vec::new(),
             page: None,
             votes: request.votes.clamp(1, vote::MAX_VOTES),
+            do_turns: request
+                .max_do_turns
+                .map_or(steps::DO_TURNS, |turns| turns.clamp(1, MAX_DO_TURNS)),
             secrets,
             fact_handles: request.fact_handles.clone(),
             secret_host,

@@ -89,6 +89,11 @@ serves the interface and fails to answer, turns the approval into a decline, so
 the task never takes the action. A host that serves nothing leaves the pause as
 the only gate. A payment checkpoint is never continuable and needs no review.
 
+Do-step turns (2.28): `TaskBudget` and `RunFlowRequest` take an optional
+`max_do_turns`, the turns each `do` step may spend before it fails as not
+accomplished. Unset keeps the module's default of 8; the module caps it at
+32. A 2.27 module ignores the field.
+
 Host context relay (2.27): `ContinueTaskRequest` takes an optional opaque
 `host_context`. When the module requests consequence review, it copies that
 value unchanged into `ReviewActionRequest.host_context`; the module does not

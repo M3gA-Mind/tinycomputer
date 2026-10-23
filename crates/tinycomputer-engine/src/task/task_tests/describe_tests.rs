@@ -241,6 +241,7 @@ async fn describe_schemas_name_every_request_field() {
         max_actions: Some(1),
         max_model_calls: Some(1),
         votes: Some(1),
+        max_do_turns: Some(1),
         strategy: Some(tinycomputer_bus::FlowStrategy::default()),
         deliberation: Some(tinycomputer_bus::Deliberation::default()),
         max_elapsed_ms: Some(1),

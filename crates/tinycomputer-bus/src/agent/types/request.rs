@@ -233,6 +233,9 @@ pub struct TaskBudget {
     /// How many ways each decision is asked before its answers are averaged;
     /// the module's default when unset.
     pub votes: Option<u32>,
+    /// Turns each `do` step may spend before it fails as not accomplished;
+    /// the module's default (8) when unset, at most 32.
+    pub max_do_turns: Option<u32>,
     /// How each flow run asks its decisions; the narrow strategy when unset.
     pub strategy: Option<crate::FlowStrategy>,
     /// How much each flow run deliberates before acting; the deep level

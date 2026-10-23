@@ -115,6 +115,12 @@ fn start_task_input() -> Value {
                 "max_actions": {"type": "integer"},
                 "max_model_calls": {"type": "integer"},
                 "votes": {"type": "integer"},
+                "max_do_turns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 32,
+                    "description": "turns each do step may spend before it fails as not accomplished; 8 when unset"
+                },
                 "strategy": {"enum": ["narrow", "wide"], "default": "narrow"},
                 "deliberation": {"enum": ["off", "standard", "deep"], "default": "deep"},
                 "max_elapsed_ms": {"type": "integer"},

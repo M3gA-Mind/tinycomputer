@@ -196,6 +196,11 @@ pub struct RunFlowRequest {
     /// answers are averaged: 1 asks once. Jev calls are cheap, so accuracy
     /// is bought with more of them. Capped by the module at 9.
     pub votes: u32,
+    /// Turns a `do` step may spend before it fails as not accomplished; the
+    /// module's default (8) when unset, capped by the module at 32. A shop's
+    /// checkout can need more moves in one step than a desktop app does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_do_turns: Option<u32>,
     /// Who the run is for and what it is after, shown to Jev with every
     /// question so each small decision is made knowing the whole task.
     pub brief: FlowBrief,
@@ -241,6 +246,7 @@ impl Default for RunFlowRequest {
             max_actions: 60,
             max_model_calls: 3000,
             votes: 7,
+            max_do_turns: None,
             brief: FlowBrief::default(),
             disabled_loops: Vec::new(),
             memory: Vec::new(),
