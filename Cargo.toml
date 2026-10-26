@@ -52,11 +52,11 @@ tinycomputer-accessibility = { path = "crates/tinycomputer-accessibility" }
 # crate of the vendored `vendor/tinyinference` submodule, pinned by its gitlink
 # so provider validation and retry behavior are reproducible. Only this crate
 # of TinyInference is linked into the module.
-tinyinference-decisions = { git = "https://github.com/tinyhumansai/tinyinference", rev = "02c01b72f70cd3747304b2a5a696b52a49fdd4fd" }
+tinyinference-decisions = { git = "https://github.com/tinyhumansai/tinyinference", rev = "26af7607d3759f0e6096d3ba8fd3bbd9d1589821" }
 # The optional LLM planner's model client (engine `planner` feature) and the
 # lab's author. Naming the shared source lets a host workspace redirect it to
 # its single TinyInference copy; standalone builds use the local patch below.
-tinyinference-llm = { git = "https://github.com/tinyhumansai/tinyinference", rev = "02c01b72f70cd3747304b2a5a696b52a49fdd4fd" }
+tinyinference-llm = { git = "https://github.com/tinyhumansai/tinyinference", rev = "26af7607d3759f0e6096d3ba8fd3bbd9d1589821" }
 # The browser automation engine, linked as a library: `execute_command` over a
 # `DaemonState`. Vendored from the tinyhumansai fork until
 # vercel-labs/agent-browser#2008 lands upstream.
@@ -74,13 +74,13 @@ agent-desktop-linux = { path = "vendor/agent-desktop/crates/linux" }
 # TinyBus defines the message types, interface macro, and frozen module ABI
 # used by the generated integration. Socket and CLI features are unnecessary
 # here.
-tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = [
+tinybus = { version = ">=0.3.6, <0.4", default-features = false, features = [
     "macros",
     "modules",
 ] }
 # The module-side SDK owns the isolated runtime and exports the ABI entrypoints
 # required by TinyBus's dynamic loader.
-tinybus-module = { version = ">=0.1.3, <0.2" }
+tinybus-module = { version = ">=0.3.6, <0.4" }
 # Derive macros for the crate-wide error types, e.g.
 # `crates/tinycomputer-desktop/src/error/`.
 # Every dependency entry should carry a comment like this one saying why it is
